@@ -199,9 +199,27 @@ export default function Home() {
     localStorage.setItem('claude_openrouter_key', key);
   };
 
+  // Request Web Notifications permission for continuous background alerts
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  const activeSession =
+    sessions.find((s) => s.id === activeSessionId) || sessions[0] || DEFAULT_SESSION;
+
+  const currentSessionConnectors = activeSession.connectors || DEFAULT_CONNECTORS;
+  const activeConnectorsCount = currentSessionConnectors.filter((c) => c.enabled).length;
+
   const handleToggleConnector = (id: string) => {
-    setConnectors((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, enabled: !c.enabled } : c))
+    const updatedConns = currentSessionConnectors.map((c) =>
+      c.id === id ? { ...c, enabled: !c.enabled } : c
+    );
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSession.id ? { ...s, connectors: updatedConns } : s
+      )
     );
   };
 
@@ -214,9 +232,6 @@ export default function Home() {
       prev.map((s) => (s.id === id ? { ...s, starred: !s.starred } : s))
     );
   };
-
-  const activeSession =
-    sessions.find((s) => s.id === activeSessionId) || sessions[0] || DEFAULT_SESSION;
 
   const handleNewSession = () => {
     const newSession: Session = {
@@ -325,6 +340,8 @@ export default function Home() {
         throw new Error(errMsg);
       }
 
+      const activeSkill = response.headers.get('X-Claude-Skill') || undefined;
+
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No readable stream');
 
@@ -357,7 +374,7 @@ export default function Home() {
                     ...s,
                     messages: s.messages.map((m) =>
                       m.id === assistantMessageId
-                        ? { ...m, content: accumulatedContent, artifact }
+                        ? { ...m, content: accumulatedContent, artifact, skillActivated: activeSkill }
                         : m
                     ),
                   };
@@ -368,6 +385,14 @@ export default function Home() {
             // pass
           }
         }
+      }
+
+      // Continuous 2-Way Notification: Alert user if they stepped away or minimized app
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        new Notification('Claude Enterprise', {
+          body: 'Claude completed generating your response and artifacts.',
+          icon: '/favicon.ico',
+        });
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
@@ -410,8 +435,6 @@ export default function Home() {
     );
     handleSendMessage(lastUserMsg.content, lastUserMsg.attachments);
   };
-
-  const activeConnectorsCount = connectors.filter((c) => c.enabled).length;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#1c1b18]">
@@ -467,7 +490,7 @@ export default function Home() {
       <ConnectorsModal
         isOpen={isConnectorsOpen}
         onClose={() => setIsConnectorsOpen(false)}
-        activeConnectors={connectors}
+        activeConnectors={currentSessionConnectors}
         onToggleConnector={handleToggleConnector}
       />
 

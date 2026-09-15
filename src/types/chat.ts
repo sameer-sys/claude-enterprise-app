@@ -28,6 +28,24 @@ export interface Attachment {
   contentSnippet?: string; // Text content for code or text documents
 }
 
+export interface Connector {
+  id: string;
+  name: string;
+  description: string;
+  icon: 'github' | 'gdrive' | 'database' | 'filesystem' | 'mcp';
+  enabled: boolean;
+  status: 'connected' | 'ready' | 'idle';
+  category: string;
+}
+
+export type ClaudeSkill =
+  | 'code_runner'
+  | 'generative_ui'
+  | 'web_search'
+  | 'deep_reasoning'
+  | 'vision_analysis'
+  | 'connector_sync';
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -40,6 +58,7 @@ export interface Message {
   artifact?: Artifact;
   attachments?: Attachment[];
   isProactive?: boolean; // Sent autonomously by AI while user was away/offline
+  skillActivated?: string; // Auto-skill triggered by Claude
 }
 
 export interface Artifact {
@@ -70,4 +89,5 @@ export interface Session {
   starred?: boolean;
   projectId?: string;
   lastVisitedAt?: number;
+  connectors?: Connector[]; // Per-session connectors configuration
 }

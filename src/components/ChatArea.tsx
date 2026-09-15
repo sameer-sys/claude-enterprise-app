@@ -725,11 +725,17 @@ export default function ChatArea({
                   {!isUser && (
                     <div className="space-y-2 pb-2 mb-2 border-b border-[#2d2b24]">
                       <div className="flex items-center justify-between text-xs text-[#8a8579]">
-                        <span className="font-semibold text-[#baa898] flex items-center gap-1.5">
+                        <span className="font-semibold text-[#baa898] flex items-center gap-2 flex-wrap">
                           <span>Claude 3.7 Sonnet</span>
                           <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 font-mono">
                             Enterprise Priority
                           </span>
+                          {msg.skillActivated && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#cc785c]/15 text-[#cc785c] border border-[#cc785c]/30 font-medium flex items-center gap-1 shadow-sm animate-in fade-in">
+                              <Sparkles className="w-2.5 h-2.5 fill-current text-[#cc785c] animate-pulse" />
+                              <span>Skill: {msg.skillActivated}</span>
+                            </span>
+                          )}
                         </span>
                         <div className="flex items-center space-x-1">
                           <button

@@ -13,59 +13,91 @@ export interface Connector {
   category: string;
 }
 
-const DEFAULT_CONNECTORS: Connector[] = [
-  {
-    id: 'conn-github',
-    name: 'GitHub',
-    description: 'Access repositories, inspect source code, issues, and pull requests.',
-    icon: 'github',
-    enabled: true,
-    status: 'connected',
-    category: 'Developer Tools',
-  },
-  {
-    id: 'conn-gdrive',
-    name: 'Google Drive',
-    description: 'Read and analyze documents, spreadsheets, and workspace files.',
-    icon: 'gdrive',
-    enabled: false,
-    status: 'ready',
-    category: 'Productivity',
-  },
-  {
-    id: 'conn-filesystem',
-    name: 'Local Filesystem',
-    description: 'Read project directories, docs, and workspace scripts locally.',
-    icon: 'filesystem',
-    enabled: true,
-    status: 'connected',
-    category: 'System',
-  },
-  {
-    id: 'conn-supabase',
-    name: 'Supabase Cloud Sync',
-    description: 'Sync conversations, user settings, and artifacts 24/7 across devices.',
-    icon: 'database',
-    enabled: true,
-    status: 'connected',
-    category: 'Cloud Storage',
-  },
-  {
-    id: 'conn-mcp',
-    name: 'Custom MCP Server',
-    description: 'Connect standard Model Context Protocol servers over stdio or SSE.',
-    icon: 'mcp',
-    enabled: false,
-    status: 'ready',
-    category: 'Integrations',
-  },
-];
+export function createDefaultConnectors(): Connector[] {
+  return [
+    {
+      id: 'conn-omniroute',
+      name: 'OmniRoute Local',
+      description: 'Local OmniRoute AI router running at http://127.0.0.1:20128 with 2,269 models.',
+      icon: 'mcp',
+      enabled: true,
+      status: 'connected',
+      category: 'AI Engines',
+    },
+    {
+      id: 'conn-github',
+      name: 'GitHub',
+      description: 'Access repositories, inspect source code, issues, and pull requests.',
+      icon: 'github',
+      enabled: true,
+      status: 'connected',
+      category: 'Developer Tools',
+    },
+    {
+      id: 'conn-filesystem',
+      name: 'Local Filesystem',
+      description: 'Read project directories, docs, and workspace scripts locally.',
+      icon: 'filesystem',
+      enabled: true,
+      status: 'connected',
+      category: 'System',
+    },
+    {
+      id: 'conn-gmail',
+      name: 'Gmail',
+      description: 'Connected email account (e.g. samesuf629@gmail.com for PM1).',
+      icon: 'mcp',
+      enabled: false,
+      status: 'ready',
+      category: 'Productivity',
+    },
+    {
+      id: 'conn-calendar',
+      name: 'Google Calendar',
+      description: 'Sync project meetings, milestones, and autonomous reminders.',
+      icon: 'mcp',
+      enabled: false,
+      status: 'ready',
+      category: 'Productivity',
+    },
+    {
+      id: 'conn-gdrive',
+      name: 'Google Drive',
+      description: 'Read and analyze documents, spreadsheets, and workspace files.',
+      icon: 'gdrive',
+      enabled: false,
+      status: 'ready',
+      category: 'Productivity',
+    },
+    {
+      id: 'conn-supabase',
+      name: 'Supabase Cloud Sync',
+      description: 'Sync conversations, user settings, and artifacts 24/7 across devices.',
+      icon: 'database',
+      enabled: true,
+      status: 'connected',
+      category: 'Cloud Storage',
+    },
+    {
+      id: 'conn-mcp',
+      name: 'Custom MCP Server',
+      description: 'Connect standard Model Context Protocol servers over stdio or SSE.',
+      icon: 'mcp',
+      enabled: false,
+      status: 'ready',
+      category: 'Integrations',
+    },
+  ];
+}
+
+export const DEFAULT_CONNECTORS: Connector[] = createDefaultConnectors();
 
 interface ConnectorsModalProps {
   isOpen: boolean;
   onClose: () => void;
   activeConnectors: Connector[];
   onToggleConnector: (id: string) => void;
+  sessionTitle?: string;
 }
 
 export default function ConnectorsModal({
@@ -73,12 +105,13 @@ export default function ConnectorsModal({
   onClose,
   activeConnectors,
   onToggleConnector,
+  sessionTitle,
 }: ConnectorsModalProps) {
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-xl rounded-2xl bg-[#23221e] border border-[#383630] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <div className="relative w-full max-w-lg rounded-2xl bg-[#23221e] border border-[#383630] shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#33312a]">
           <div className="flex items-center space-x-2.5">
@@ -86,8 +119,10 @@ export default function ConnectorsModal({
               <Cpu className="w-4 h-4 text-[#cc785c]" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-[#ece9e2]">Connectors & Integrations</h3>
-              <p className="text-xs text-[#9c978b]">Manage active tools, data sources, and MCP connections</p>
+              <h3 className="text-base font-semibold text-[#ece9e2]">Session Connectors</h3>
+              <p className="text-xs text-[#9c978b]">
+                Active for chat: <span className="text-[#cc785c] font-medium">{sessionTitle || 'Current Chat'}</span>
+              </p>
             </div>
           </div>
           <button
@@ -161,5 +196,3 @@ export default function ConnectorsModal({
     </div>
   );
 }
-
-export { DEFAULT_CONNECTORS };

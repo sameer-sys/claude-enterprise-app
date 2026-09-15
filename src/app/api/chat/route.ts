@@ -83,10 +83,18 @@ export async function POST(req: NextRequest) {
       openRouterKey,
       omniRouteUrl,
       thinkingBudget = 16000,
+      agentPrompt,
     } = await req.json();
 
+    const isOmniRouteModel =
+      modelId === 'the-boss-chat' ||
+      modelId === 'the-boss-build' ||
+      modelId === 'omniroute-auto';
+
     const systemPrompt =
-      SYSTEM_PROMPTS[modelId as keyof typeof SYSTEM_PROMPTS] || SYSTEM_PROMPTS['claude-3-7-sonnet'];
+      agentPrompt ||
+      SYSTEM_PROMPTS[modelId as keyof typeof SYSTEM_PROMPTS] ||
+      SYSTEM_PROMPTS['claude-3-7-sonnet'];
 
     const userLastMsg = messages[messages.length - 1];
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
@@ -95,7 +103,58 @@ export async function POST(req: NextRequest) {
     const detectedSkill = detectSkill(lastText, hasImages);
 
     // ========================================================
-    // OMNIROUTER STAGE 1: Google Gemini 2.0 Flash (Primary)
+    // OMNIROUTER STAGE 0: Direct OmniRoute Model Dispatch (Local)
+    // ========================================================
+    if (isOmniRouteModel) {
+      const OMNIROUTE_TARGET_MODELS: Record<string, string> = {
+        'the-boss-chat': 'openrouter/nvidia/nemotron-3.5-lightning:free',
+        'the-boss-build': 'opencode/big-pickle',
+        'omniroute-auto': 'auto/best-reasoning',
+      };
+
+      const targetModel = OMNIROUTE_TARGET_MODELS[modelId] || 'auto/best-reasoning';
+      const targetOmniUrl =
+        omniRouteUrl || process.env.OMNIROUTE_URL || 'http://127.0.0.1:20128/v1/chat/completions';
+      const omniKey = process.env.OMNIROUTE_API_KEY || 'sk-a982e8cabcf568c6-8a2c23-71657989';
+
+      try {
+        const omniResp = await fetch(targetOmniUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${omniKey}`,
+          },
+          body: JSON.stringify({
+            model: targetModel,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages.map((m: any) => ({
+                role: m.role === 'user' ? 'user' : 'assistant',
+                content: m.content || '',
+              })),
+            ],
+            stream: true,
+          }),
+        });
+
+        if (omniResp.ok) {
+          return new Response(omniResp.body, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Claude-Skill': detectedSkill,
+              'X-Claude-Router': `omniroute-${modelId}`,
+            },
+          });
+        }
+      } catch (omniErr) {
+        // Fall through to cloud fallback if local OmniRoute is unreachable (e.g. running on Vercel)
+      }
+    }
+
+    // ========================================================
+    // OMNIROUTER STAGE 1: Google Gemini Flash (Primary Cloud)
     // ========================================================
     const rawGemini = geminiKey || process.env.GEMINI_API_KEY;
     const activeGeminiKey = typeof rawGemini === 'string' && rawGemini.trim().length > 5

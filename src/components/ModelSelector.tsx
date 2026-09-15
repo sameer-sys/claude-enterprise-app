@@ -41,6 +41,33 @@ export const PRO_CLAUDE_MODELS: ModelOption[] = [
     badge: 'Flagship',
     contextWindow: '200K tokens',
   },
+  {
+    id: 'the-boss-chat',
+    name: 'The Boss Chat ⚡',
+    tag: 'OmniRoute Instant',
+    description: 'Ultra-fast conversational AI from OmniRoute. 1-second instant answers, brainstorming, and planning.',
+    speed: '0.4s instant',
+    badge: 'The Boss ⚡',
+    contextWindow: '1M tokens',
+  },
+  {
+    id: 'the-boss-build',
+    name: 'The Boss Build 🛠️',
+    tag: 'Big Pickle Engine',
+    description: 'Heavy coding, complex refactoring, file generation, and deep debugging powered by Big Pickle.',
+    speed: 'High Throughput',
+    badge: 'Big Pickle 🛠️',
+    contextWindow: '1M tokens',
+  },
+  {
+    id: 'omniroute-auto',
+    name: 'OmniRoute Auto Router',
+    tag: '2,269 Model Pool',
+    description: 'Dynamic multi-model failover engine routing across 2,269 local and cloud models with zero drops.',
+    speed: 'Auto Optimized',
+    badge: '2,269 Models',
+    contextWindow: '1M tokens',
+  },
 ];
 
 interface ModelSelectorProps {

@@ -16,8 +16,9 @@ import {
   Crown,
   Users,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
-import { Session, Project } from '@/types/chat';
+import { Session, Project, Connector } from '@/types/chat';
 
 interface SidebarProps {
   sessions: Session[];
@@ -31,8 +32,14 @@ interface SidebarProps {
   onOpenConnectors: () => void;
   onOpenSettings: () => void;
   onOpenNewProject: () => void;
+  onOpenAgents?: () => void;
+  onOpenSquad?: () => void;
+  isSquadActive?: boolean;
   projects: Project[];
   activeConnectorsCount: number;
+  activeConnectors?: Connector[];
+  onToggleConnector?: (id: string) => void;
+  activeSessionTitle?: string;
   hasGeminiKey?: boolean;
 }
 
@@ -48,8 +55,14 @@ export default function Sidebar({
   onOpenConnectors,
   onOpenSettings,
   onOpenNewProject,
+  onOpenAgents,
+  onOpenSquad,
+  isSquadActive = false,
   projects,
   activeConnectorsCount,
+  activeConnectors = [],
+  onToggleConnector,
+  activeSessionTitle,
   hasGeminiKey = false,
 }: SidebarProps) {
   const [search, setSearch] = useState('');
@@ -133,6 +146,63 @@ export default function Sidebar({
           </div>
         </div>
 
+        {/* Dynamic Per-Chat Connectors Section on Left Side */}
+        <div className="mx-3 mb-2 p-2.5 rounded-xl bg-[#201f1b] border border-[#302e26] space-y-2 shadow-xs transition-all">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-1.5 min-w-0">
+              <Cpu className="w-3.5 h-3.5 text-[#cc785c] shrink-0" />
+              <span className="text-[11px] font-semibold text-[#f2eee6] tracking-tight truncate">
+                Connectors
+              </span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono font-medium border border-emerald-500/20">
+                {activeConnectorsCount} on
+              </span>
+            </div>
+            <button
+              onClick={onOpenConnectors}
+              className="text-[10px] text-[#cc785c] hover:underline font-mono cursor-pointer shrink-0 ml-1"
+              title="Manage all connectors for this chat"
+            >
+              Manage
+            </button>
+          </div>
+
+          <div className="text-[10px] text-[#9c978b] flex items-center justify-between">
+            <span className="truncate max-w-[170px]">
+              Chat: <span className="text-[#ece9e2] font-medium">{activeSessionTitle || 'Current Chat'}</span>
+            </span>
+            <span className="text-[9px] text-[#736f64] font-mono shrink-0">Per-chat</span>
+          </div>
+
+          {/* Quick 1-click connector toggles for this chat */}
+          <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+            {activeConnectors.slice(0, 6).map((conn) => (
+              <button
+                key={conn.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleConnector?.(conn.id);
+                }}
+                className={`flex items-center space-x-1.5 px-2 py-1 rounded-md text-[10px] font-medium transition-all text-left truncate ${
+                  conn.enabled
+                    ? 'bg-[#2b2922] text-[#f2eee6] border border-[#cc785c]/40 shadow-xs'
+                    : 'bg-[#171613] text-[#757065] hover:text-[#a19c90] border border-[#26241e]'
+                }`}
+                title={`${conn.name} (${conn.enabled ? 'Enabled - Click to disable for this chat' : 'Disabled - Click to enable for this chat'})`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    conn.enabled
+                      ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
+                      : 'bg-zinc-600'
+                  }`}
+                />
+                <span className="truncate">{conn.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Navigation Content */}
         <div className="flex-1 overflow-y-auto px-2 space-y-3 py-1">
           {/* Starred Section */}
@@ -144,6 +214,7 @@ export default function Sidebar({
               </div>
               {starredSessions.map((session) => {
                 const isActive = session.id === activeSessionId;
+                const sessionConnCount = (session.connectors || []).filter((c) => c.enabled).length;
                 return (
                   <div
                     key={session.id}
@@ -159,6 +230,19 @@ export default function Sidebar({
                   >
                     <MessageSquare className="w-3.5 h-3.5 mr-2 shrink-0 opacity-60" />
                     <span className="truncate flex-1">{session.title}</span>
+
+                    {/* Per-session connector indicator */}
+                    <span
+                      className={`text-[9px] px-1 py-0.2 rounded font-mono shrink-0 mx-1 border ${
+                        sessionConnCount > 0
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          : 'bg-[#201f1b] text-[#6b675d] border-transparent'
+                      }`}
+                      title={`${sessionConnCount} connectors enabled for this chat`}
+                    >
+                      {sessionConnCount}⚡
+                    </span>
+
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -222,6 +306,7 @@ export default function Sidebar({
             ) : (
               regularSessions.map((session) => {
                 const isActive = session.id === activeSessionId;
+                const sessionConnCount = (session.connectors || []).filter((c) => c.enabled).length;
                 return (
                   <div
                     key={session.id}
@@ -238,7 +323,19 @@ export default function Sidebar({
                     <MessageSquare className="w-3.5 h-3.5 mr-2 shrink-0 opacity-60" />
                     <span className="truncate flex-1">{session.title}</span>
 
-                    <div className="opacity-0 group-hover:opacity-100 flex items-center space-x-1">
+                    {/* Per-session connector indicator */}
+                    <span
+                      className={`text-[9px] px-1 py-0.2 rounded font-mono shrink-0 mx-1 border ${
+                        sessionConnCount > 0
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          : 'bg-[#201f1b] text-[#6b675d] border-transparent'
+                      }`}
+                      title={`${sessionConnCount} connectors enabled for this chat`}
+                    >
+                      {sessionConnCount}⚡
+                    </span>
+
+                    <div className="opacity-0 group-hover:opacity-100 flex items-center space-x-1 shrink-0">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -267,15 +364,45 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Connectors & Settings Quick Bar */}
+        {/* Connectors & Navigation Quick Bar */}
         <div className="p-2 border-t border-[#282621] space-y-1 bg-[#161512]">
+          {onOpenSquad && (
+            <button
+              onClick={onOpenSquad}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/10 to-[#cc785c]/10 hover:from-amber-500/20 hover:to-[#cc785c]/20 border border-[#cc785c]/30 text-xs text-[#f2eee6] transition-all group"
+            >
+              <div className="flex items-center space-x-2">
+                <Crown className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+                <span className="font-medium text-xs">Executive Squad</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
+                LIVE PMs
+              </span>
+            </button>
+          )}
+
+          {onOpenAgents && (
+            <button
+              onClick={onOpenAgents}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all group"
+            >
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform" />
+                <span>OpenWork Agents</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#2b2923] text-[#bfb9ad] font-mono">
+                260+
+              </span>
+            </button>
+          )}
+
           <button
             onClick={onOpenConnectors}
-            className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all"
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all"
           >
             <div className="flex items-center space-x-2">
               <Cpu className="w-3.5 h-3.5 text-[#cc785c]" />
-              <span>Connectors</span>
+              <span>Connectors Modal</span>
             </div>
             <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono">
               {activeConnectorsCount} active
@@ -284,7 +411,7 @@ export default function Sidebar({
 
           <button
             onClick={onOpenSettings}
-            className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all"
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all"
           >
             <div className="flex items-center space-x-2">
               <Settings className="w-3.5 h-3.5 text-[#cc785c]" />

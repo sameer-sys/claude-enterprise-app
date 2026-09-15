@@ -4,11 +4,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import ChatArea from '@/components/ChatArea';
 import ArtifactPanel from '@/components/ArtifactPanel';
-import ConnectorsModal, { DEFAULT_CONNECTORS, Connector } from '@/components/ConnectorsModal';
+import ConnectorsModal, { DEFAULT_CONNECTORS, createDefaultConnectors, Connector } from '@/components/ConnectorsModal';
 import SettingsModal from '@/components/SettingsModal';
 import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
-import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton } from '@/types/chat';
+import AgentsModal from '@/components/AgentsModal';
+import ManagerSquadView from '@/components/ManagerSquadView';
+import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton, OpenWorkAgent } from '@/types/chat';
 
 const DEFAULT_CUSTOM_BUTTONS: CustomButton[] = [
   { id: 'btn_1', label: '🚀 Deploy Guide', prompt: 'Provide a production deployment guide with Docker and CI/CD workflow.' },
@@ -23,6 +25,7 @@ const DEFAULT_SESSION: Session = {
   updatedAt: Date.now(),
   messages: [],
   activeModel: 'claude-3-7-sonnet',
+  connectors: createDefaultConnectors(),
 };
 
 function extractArtifact(content: string): Artifact | undefined {
@@ -63,6 +66,8 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+  const [isAgentsModalOpen, setIsAgentsModalOpen] = useState(false);
+  const [isSquadOpen, setIsSquadOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>(DEFAULT_CONNECTORS);
   const [geminiKey, setGeminiKey] = useState<string>('');
@@ -93,8 +98,15 @@ export default function Home() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setSessions(parsed);
-          setActiveSessionId(parsed[0].id);
+          const initialized = parsed.map((s: any) => ({
+            ...s,
+            connectors:
+              Array.isArray(s.connectors) && s.connectors.length > 0
+                ? s.connectors
+                : createDefaultConnectors(),
+          }));
+          setSessions(initialized);
+          setActiveSessionId(initialized[0].id);
 
           // Check if user was offline/away and trigger two-way proactive agent check-in
           const lastActive = parsed[0].lastVisitedAt || parsed[0].updatedAt;
@@ -226,17 +238,19 @@ export default function Home() {
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) || sessions[0] || DEFAULT_SESSION;
 
-  const currentSessionConnectors = activeSession.connectors || DEFAULT_CONNECTORS;
+  const currentSessionConnectors = activeSession.connectors || createDefaultConnectors();
   const activeConnectorsCount = currentSessionConnectors.filter((c) => c.enabled).length;
 
   const handleToggleConnector = (id: string) => {
-    const updatedConns = currentSessionConnectors.map((c) =>
-      c.id === id ? { ...c, enabled: !c.enabled } : c
-    );
     setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeSession.id ? { ...s, connectors: updatedConns } : s
-      )
+      prev.map((s) => {
+        if (s.id !== activeSession.id) return s;
+        const curConns = s.connectors || createDefaultConnectors();
+        const updatedConns = curConns.map((c) =>
+          c.id === id ? { ...c, enabled: !c.enabled } : c
+        );
+        return { ...s, connectors: updatedConns };
+      })
     );
   };
 
@@ -262,6 +276,31 @@ export default function Home() {
     localStorage.setItem('claude_custom_buttons', JSON.stringify(updated));
   };
 
+  const handleSelectAgent = (agent: OpenWorkAgent) => {
+    const targetModel: ModelId = agent.modelId || activeModel || 'claude-3-7-sonnet';
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSession.id) return s;
+        const welcomeMsg: Message = {
+          id: `msg_agent_${Date.now()}`,
+          role: 'assistant',
+          content: `🤖 **${agent.name} (${agent.role}) activated!**\n\n${agent.description}\n\n*Specialized prompt injected into session context.* How can I assist you on this task, Sameer?`,
+          timestamp: Date.now(),
+          modelId: targetModel,
+        };
+        return {
+          ...s,
+          agentName: agent.name,
+          agentPrompt: agent.systemPrompt,
+          activeModel: targetModel,
+          messages: [...s.messages, welcomeMsg],
+        };
+      })
+    );
+    setActiveModel(targetModel);
+    setIsAgentsModalOpen(false);
+  };
+
   const handleNewSession = () => {
     const newSession: Session = {
       id: `ses_${Date.now()}`,
@@ -271,6 +310,7 @@ export default function Home() {
       lastVisitedAt: Date.now(),
       messages: [],
       activeModel: activeModel,
+      connectors: createDefaultConnectors(),
     };
     setSessions([newSession, ...sessions]);
     setActiveSessionId(newSession.id);
@@ -471,7 +511,13 @@ export default function Home() {
       <Sidebar
         sessions={sessions}
         activeSessionId={activeSession.id}
-        onSelectSession={(id) => setActiveSessionId(id)}
+        onSelectSession={(id) => {
+          setActiveSessionId(id);
+          const target = sessions.find((s) => s.id === id);
+          if (target?.activeModel) {
+            setActiveModel(target.activeModel);
+          }
+        }}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
         onToggleStar={handleToggleStar}
@@ -480,8 +526,13 @@ export default function Home() {
         onOpenConnectors={() => setIsConnectorsOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenNewProject={() => setIsProjectModalOpen(true)}
+        onOpenAgents={() => setIsAgentsModalOpen(true)}
+        onOpenSquad={() => setIsSquadOpen(true)}
         projects={projects}
         activeConnectorsCount={activeConnectorsCount}
+        activeConnectors={currentSessionConnectors}
+        onToggleConnector={handleToggleConnector}
+        activeSessionTitle={activeSession.title}
         hasGeminiKey={Boolean(geminiKey)}
       />
 
@@ -528,6 +579,7 @@ export default function Home() {
         onClose={() => setIsConnectorsOpen(false)}
         activeConnectors={currentSessionConnectors}
         onToggleConnector={handleToggleConnector}
+        sessionTitle={activeSession.title}
       />
 
       <SettingsModal
@@ -566,6 +618,36 @@ export default function Home() {
         isOpen={isDownloadOpen}
         onClose={() => setIsDownloadOpen(false)}
       />
+
+      <AgentsModal
+        isOpen={isAgentsModalOpen}
+        onClose={() => setIsAgentsModalOpen(false)}
+        onSelectAgent={handleSelectAgent}
+      />
+
+      {isSquadOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-5xl h-[85vh] rounded-2xl bg-[#1c1b18] border border-[#333129] shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex justify-end p-2 border-b border-[#2d2b25]">
+              <button
+                onClick={() => setIsSquadOpen(false)}
+                className="px-3 py-1 text-xs rounded-lg bg-[#2b2923] hover:bg-[#38352d] text-[#ece9e2] font-medium transition-colors"
+              >
+                Close Squad View ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <ManagerSquadView
+                onClose={() => setIsSquadOpen(false)}
+                onDeployToSession={(directive) => {
+                  setIsSquadOpen(false);
+                  handleSendMessage(directive);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

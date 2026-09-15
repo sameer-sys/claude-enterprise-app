@@ -89,6 +89,41 @@ export interface Project {
   createdAt: number;
 }
 
+export interface OpenWorkAgent {
+  id: string;
+  name: string;
+  role: string;
+  category: 'executive' | 'engineering' | 'design' | 'devops' | 'ai' | 'security';
+  description: string;
+  systemPrompt: string;
+  avatarIcon: string;
+  color?: string;
+  skills: string[];
+  modelId?: ModelId;
+}
+
+export interface ManagedSubAgent {
+  id: string;
+  name: string;
+  role: string;
+  alias: string;
+  email?: string;
+  status: 'idle' | 'working' | 'inspecting' | 'completed' | 'blocked';
+  currentTask?: string;
+  lastProgress?: string;
+  modelId: ModelId;
+  assignedBy?: string;
+  outputLog?: string[];
+}
+
+export interface ExecutiveSquad {
+  managerName: string;
+  subAgents: ManagedSubAgent[];
+  isMonitoring: boolean;
+  activeDirective?: string;
+  lastInspectionAt?: number;
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -100,4 +135,8 @@ export interface Session {
   projectId?: string;
   lastVisitedAt?: number;
   connectors?: Connector[]; // Per-session connectors configuration
+  agentId?: string; // Active OpenWork Agent
+  agentName?: string;
+  agentPrompt?: string; // Custom agent prompt
+  isSquadSession?: boolean; // True if this session is the Executive Manager Squad
 }

@@ -482,6 +482,7 @@ export default function Home() {
         onOpenNewProject={() => setIsProjectModalOpen(true)}
         projects={projects}
         activeConnectorsCount={activeConnectorsCount}
+        hasGeminiKey={Boolean(geminiKey)}
       />
 
       {/* Main Viewport */}
@@ -508,6 +509,8 @@ export default function Home() {
           onAddCustomButton={handleAddCustomButton}
           onDeleteCustomButton={handleDeleteCustomButton}
           sessionTitle={activeSession.title}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          hasGeminiKey={Boolean(geminiKey)}
         />
 
         {/* Claude Artifact Panel */}

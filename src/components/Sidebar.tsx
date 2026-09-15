@@ -33,6 +33,7 @@ interface SidebarProps {
   onOpenNewProject: () => void;
   projects: Project[];
   activeConnectorsCount: number;
+  hasGeminiKey?: boolean;
 }
 
 export default function Sidebar({
@@ -49,6 +50,7 @@ export default function Sidebar({
   onOpenNewProject,
   projects,
   activeConnectorsCount,
+  hasGeminiKey = false,
 }: SidebarProps) {
   const [search, setSearch] = useState('');
 
@@ -285,10 +287,16 @@ export default function Sidebar({
             className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all"
           >
             <div className="flex items-center space-x-2">
-              <Settings className="w-3.5 h-3.5 text-[#9c978b]" />
-              <span>Model & Cloud Quotas</span>
+              <Settings className="w-3.5 h-3.5 text-[#cc785c]" />
+              <span className="font-medium text-[#ece9e2]">Settings & API Keys</span>
             </div>
-            <ChevronRight className="w-3 h-3 text-[#7d786e]" />
+            {!hasGeminiKey ? (
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 font-mono animate-pulse">
+                Setup Key
+              </span>
+            ) : (
+              <ChevronRight className="w-3 h-3 text-[#7d786e]" />
+            )}
           </button>
         </div>
 

@@ -97,7 +97,10 @@ export async function POST(req: NextRequest) {
     // ========================================================
     // OMNIROUTER STAGE 1: Google Gemini 2.0 Flash (Primary)
     // ========================================================
-    const activeGeminiKey = geminiKey || process.env.GEMINI_API_KEY;
+    const rawGemini = geminiKey || process.env.GEMINI_API_KEY;
+    const activeGeminiKey = typeof rawGemini === 'string' && rawGemini.trim().length > 5
+      ? rawGemini.trim().replace(/^["']|["']$/g, '')
+      : undefined;
     if (activeGeminiKey) {
       try {
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${activeGeminiKey}`;
@@ -181,6 +184,16 @@ export async function POST(req: NextRequest) {
               'X-Claude-Router': 'gemini-2.0-flash',
             },
           });
+        } else {
+          const errBody = await geminiResponse.json().catch(() => null);
+          const errMsg =
+            errBody?.error?.message || `Google Gemini API returned status ${geminiResponse.status}`;
+          return new NextResponse(
+            JSON.stringify({
+              error: `Gemini Key Notice: ${errMsg}. Please click Settings to check your key or create a free key at https://aistudio.google.com/app/apikey`,
+            }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } }
+          );
         }
       } catch (e) {
         // Fallback to next provider in OmniRouter chain
@@ -230,7 +243,10 @@ export async function POST(req: NextRequest) {
     // ========================================================
     // OMNIROUTER STAGE 3: OpenRouter Free Pool
     // ========================================================
-    const activeOrKey = openRouterKey || process.env.OPENROUTER_API_KEY;
+    const rawOrKey = openRouterKey || process.env.OPENROUTER_API_KEY;
+    const activeOrKey = typeof rawOrKey === 'string' && rawOrKey.trim().length > 5
+      ? rawOrKey.trim().replace(/^["']|["']$/g, '')
+      : undefined;
     if (activeOrKey) {
       try {
         const selectedTargetModel =

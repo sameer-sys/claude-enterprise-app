@@ -31,6 +31,8 @@ import {
   Wand2,
   FileDown,
   PlusCircle,
+  Key,
+  ExternalLink,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -59,6 +61,8 @@ interface ChatAreaProps {
   onAddCustomButton?: (btn: CustomButton) => void;
   onDeleteCustomButton?: (id: string) => void;
   sessionTitle?: string;
+  onOpenSettings?: () => void;
+  hasGeminiKey?: boolean;
 }
 
 export default function ChatArea({
@@ -83,6 +87,8 @@ export default function ChatArea({
   onAddCustomButton,
   onDeleteCustomButton,
   sessionTitle,
+  onOpenSettings,
+  hasGeminiKey = false,
 }: ChatAreaProps) {
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -655,6 +661,18 @@ export default function ChatArea({
         </div>
 
         <div className="flex items-center space-x-2">
+          {/* 1-Click Key Setup Alert if not configured */}
+          {!hasGeminiKey && onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-medium transition-all animate-pulse"
+              title="Add free Google Gemini API Key for 1,500 daily requests (zero credit card)"
+            >
+              <Key className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Add Free Key</span>
+            </button>
+          )}
+
           {/* Autonomous Two-Way Proactive Mode Toggle */}
           <button
             onClick={onToggleProactiveMode}
@@ -894,6 +912,42 @@ export default function ChatArea({
                   <div className="markdown-body">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                   </div>
+
+                  {/* 1-Click Interactive Key Setup Card */}
+                  {!isUser && (msg.content.includes('Settings') || msg.content.includes('Gemini') || msg.content.includes('Notice:') || msg.content.includes('API key')) && (
+                    <div className="mt-3.5 p-3.5 rounded-xl bg-[#cc785c]/10 border border-[#cc785c]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-[#f2eee6]">
+                          <Key className="w-4 h-4 text-[#cc785c]" />
+                          <span>Activate Instant Claude 3.7 Responses</span>
+                        </div>
+                        <p className="text-[11px] text-[#baa898]">
+                          1,500 daily requests free • Zero credit/debit card required • From Google AI Studio
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <a
+                          href="https://aistudio.google.com/app/apikey"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1.5 rounded-lg bg-[#2b2923] hover:bg-[#38352d] border border-[#444136] text-xs text-[#dcd8ce] hover:text-[#ece9e2] transition-all flex items-center gap-1"
+                        >
+                          <span>Get Free Key</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        {onOpenSettings && (
+                          <button
+                            type="button"
+                            onClick={onOpenSettings}
+                            className="px-3 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all shadow-md shadow-[#cc785c]/25 active:scale-95 flex items-center gap-1.5"
+                          >
+                            <Key className="w-3.5 h-3.5" />
+                            <span>Open Settings</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Claude Artifact Card */}
                   {msg.artifact && (

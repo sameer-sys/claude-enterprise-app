@@ -52,9 +52,15 @@ export default function Sidebar({
 }: SidebarProps) {
   const [search, setSearch] = useState('');
 
-  const filteredSessions = sessions.filter((s) =>
-    s.title.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredSessions = sessions.filter((s) => {
+    if (!search.trim()) return true;
+    const query = search.toLowerCase();
+    const titleMatch = s.title.toLowerCase().includes(query);
+    const contentMatch = s.messages.some((m) =>
+      m.content.toLowerCase().includes(query)
+    );
+    return titleMatch || contentMatch;
+  });
 
   const starredSessions = filteredSessions.filter((s) => s.starred);
   const regularSessions = filteredSessions.filter((s) => !s.starred);

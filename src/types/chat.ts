@@ -38,6 +38,13 @@ export interface Connector {
   category: string;
 }
 
+export interface CustomButton {
+  id: string;
+  label: string;
+  prompt: string;
+  color?: string;
+}
+
 export type ClaudeSkill =
   | 'code_runner'
   | 'generative_ui'

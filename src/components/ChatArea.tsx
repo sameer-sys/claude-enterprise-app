@@ -28,10 +28,13 @@ import {
   VolumeX,
   Image as ImageIcon,
   Maximize2,
+  Wand2,
+  FileDown,
+  PlusCircle,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Message, ModelId, Artifact, ResponseStyle, Attachment, ThinkingBudget } from '@/types/chat';
+import { Message, ModelId, Artifact, ResponseStyle, Attachment, ThinkingBudget, CustomButton } from '@/types/chat';
 import ModelSelector from './ModelSelector';
 
 interface ChatAreaProps {
@@ -52,6 +55,10 @@ interface ChatAreaProps {
   onSelectThinkingBudget: (budget: ThinkingBudget) => void;
   isProactiveMode: boolean;
   onToggleProactiveMode: () => void;
+  customButtons?: CustomButton[];
+  onAddCustomButton?: (btn: CustomButton) => void;
+  onDeleteCustomButton?: (id: string) => void;
+  sessionTitle?: string;
 }
 
 export default function ChatArea({
@@ -72,6 +79,10 @@ export default function ChatArea({
   onSelectThinkingBudget,
   isProactiveMode,
   onToggleProactiveMode,
+  customButtons = [],
+  onAddCustomButton,
+  onDeleteCustomButton,
+  sessionTitle,
 }: ChatAreaProps) {
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -84,6 +95,36 @@ export default function ChatArea({
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+  // Self-Customization Modal State
+  const [isAddingButton, setIsAddingButton] = useState(false);
+  const [newBtnLabel, setNewBtnLabel] = useState('');
+  const [newBtnPrompt, setNewBtnPrompt] = useState('');
+
+  const handlePolishPrompt = () => {
+    if (!input.trim()) return;
+    const polished = `Act as Claude 3.7 Sonnet Enterprise. Provide a rigorous, production-grade, and beautifully structured solution with complete implementations and nuanced architectural patterns for:\n\n${input.trim()}`;
+    setInput(polished);
+  };
+
+  const handleExportChat = () => {
+    if (messages.length === 0) return;
+    const mdContent = messages
+      .map((m) => `### ${m.role === 'user' ? '👤 User' : '🤖 Claude'}\n\n${m.content}\n\n---\n`)
+      .join('\n');
+    const blob = new Blob(
+      [
+        `# Conversation Export: ${sessionTitle || 'Claude Session'}\n\nDate: ${new Date().toLocaleString()}\n\n---\n\n${mdContent}`,
+      ],
+      { type: 'text/markdown' }
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `claude-conversation-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -363,6 +404,46 @@ export default function ChatArea({
         </div>
       )}
 
+      {/* Self-Customization Quick Buttons */}
+      <div className="flex items-center gap-1.5 pb-2 mb-1 overflow-x-auto no-scrollbar">
+        {customButtons.map((btn) => (
+          <button
+            key={btn.id}
+            type="button"
+            onClick={() => {
+              setInput(btn.prompt);
+              textareaRef.current?.focus();
+            }}
+            className="shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-lg bg-[#2b2923] hover:bg-[#38352d] text-[#ece9e2] border border-[#3f3c32] hover:border-[#cc785c]/60 transition-all flex items-center gap-1.5 shadow-sm group/btn"
+          >
+            <span>{btn.label}</span>
+            {onDeleteCustomButton && (
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteCustomButton(btn.id);
+                }}
+                className="text-[#8a8579] hover:text-rose-400 text-xs px-0.5"
+                title="Remove custom button"
+              >
+                ×
+              </span>
+            )}
+          </button>
+        ))}
+        {onAddCustomButton && (
+          <button
+            type="button"
+            onClick={() => setIsAddingButton(true)}
+            className="shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-lg bg-[#24221d] hover:bg-[#2c2a23] text-[#8a8579] hover:text-[#cc785c] border border-dashed border-[#444136] hover:border-[#cc785c]/60 transition-all flex items-center gap-1"
+            title="Create a custom button across Web, Android, and Desktop"
+          >
+            <PlusCircle className="w-3 h-3 text-[#cc785c]" />
+            <span>+ Custom Action</span>
+          </button>
+        )}
+      </div>
+
       {/* Textarea */}
       <textarea
         ref={textareaRef}
@@ -493,6 +574,21 @@ export default function ChatArea({
             <Paperclip className="w-4 h-4" />
           </button>
 
+          {/* Magic Wand Prompt Polish Button */}
+          <button
+            type="button"
+            onClick={handlePolishPrompt}
+            disabled={!input.trim()}
+            className={`p-1.5 rounded-lg transition-all ${
+              input.trim()
+                ? 'hover:bg-[#2d2b23] text-[#cc785c] hover:text-[#db8a6e]'
+                : 'text-[#5c574e] cursor-not-allowed'
+            }`}
+            title="Magic Wand: Polish prompt for Claude Enterprise"
+          >
+            <Wand2 className="w-4 h-4" />
+          </button>
+
           {/* Voice Dictation (Speech-to-Text) Button */}
           <button
             type="button"
@@ -571,6 +667,21 @@ export default function ChatArea({
           >
             <Radio className={`w-3 h-3 ${isProactiveMode ? 'text-emerald-400 animate-pulse' : ''}`} />
             <span className="hidden sm:inline">Two-Way Agent: {isProactiveMode ? 'Active' : 'Off'}</span>
+          </button>
+
+          {/* EXPORT CHAT BUTTON */}
+          <button
+            onClick={handleExportChat}
+            disabled={messages.length === 0}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
+              messages.length > 0
+                ? 'bg-[#26241f] hover:bg-[#302e27] border-[#38352d] text-[#dcd8ce] hover:text-[#ece9e2]'
+                : 'bg-[#21201b] border-[#2e2c24] text-[#6d685e] cursor-not-allowed'
+            }`}
+            title="Export conversation as Markdown (.md)"
+          >
+            <FileDown className="w-3.5 h-3.5 text-[#cc785c]" />
+            <span className="hidden sm:inline">Export</span>
           </button>
 
           {/* DOWNLOAD BUTTON TO THE LEFT OF CONNECTORS */}
@@ -904,6 +1015,83 @@ export default function ChatArea({
               alt="Attachment Preview"
               className="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain border border-zinc-800"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Add Custom Button Modal (Self-Customization) */}
+      {isAddingButton && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md rounded-2xl bg-[#23221e] border border-[#383630] shadow-2xl overflow-hidden p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[#33312a]">
+              <div className="flex items-center space-x-2">
+                <PlusCircle className="w-5 h-5 text-[#cc785c]" />
+                <h3 className="text-sm font-semibold text-[#ece9e2]">Add Custom Action Button</h3>
+              </div>
+              <button
+                onClick={() => setIsAddingButton(false)}
+                className="p-1 rounded hover:bg-[#2c2a25] text-[#9c978b] hover:text-[#ece9e2]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-[#8a8579]">Button Label</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 🚀 Deploy App or ⚡ Optimize Code"
+                  value={newBtnLabel}
+                  onChange={(e) => setNewBtnLabel(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-[#1a1916] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-[#8a8579]">Prompt to Trigger</label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Review the architecture, check for security vulnerabilities, and optimize performance."
+                  value={newBtnPrompt}
+                  onChange={(e) => setNewBtnPrompt(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-[#1a1916] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c] resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#33312a]">
+              <button
+                type="button"
+                onClick={() => setIsAddingButton(false)}
+                className="px-3 py-1.5 rounded-lg text-xs text-[#9c978b] hover:text-[#ece9e2]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!newBtnLabel.trim() || !newBtnPrompt.trim()}
+                onClick={() => {
+                  if (onAddCustomButton && newBtnLabel.trim() && newBtnPrompt.trim()) {
+                    onAddCustomButton({
+                      id: `btn_${Date.now()}`,
+                      label: newBtnLabel.trim(),
+                      prompt: newBtnPrompt.trim(),
+                    });
+                    setNewBtnLabel('');
+                    setNewBtnPrompt('');
+                    setIsAddingButton(false);
+                  }
+                }}
+                className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  newBtnLabel.trim() && newBtnPrompt.trim()
+                    ? 'bg-[#cc785c] hover:bg-[#db8a6e] text-black shadow-md'
+                    : 'bg-[#2b2923] text-[#6d685e] cursor-not-allowed'
+                }`}
+              >
+                Add Button
+              </button>
+            </div>
           </div>
         </div>
       )}

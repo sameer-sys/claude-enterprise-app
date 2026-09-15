@@ -8,7 +8,13 @@ import ConnectorsModal, { DEFAULT_CONNECTORS, Connector } from '@/components/Con
 import SettingsModal from '@/components/SettingsModal';
 import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
-import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget } from '@/types/chat';
+import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton } from '@/types/chat';
+
+const DEFAULT_CUSTOM_BUTTONS: CustomButton[] = [
+  { id: 'btn_1', label: '🚀 Deploy Guide', prompt: 'Provide a production deployment guide with Docker and CI/CD workflow.' },
+  { id: 'btn_2', label: '⚡ Optimize Code', prompt: 'Analyze this code for performance bottlenecks and provide optimized code.' },
+  { id: 'btn_3', label: '🔍 Security Audit', prompt: 'Audit this implementation for OWASP security vulnerabilities.' },
+];
 
 const DEFAULT_SESSION: Session = {
   id: 'ses_default',
@@ -68,6 +74,9 @@ export default function Home() {
   const [supabaseKey, setSupabaseKey] = useState<string>('');
   const [syncStatus, setSyncStatus] = useState<string>('Local Synced');
 
+  // Self-Customization Buttons State (Cross-Device Sync)
+  const [customButtons, setCustomButtons] = useState<CustomButton[]>(DEFAULT_CUSTOM_BUTTONS);
+
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Service Worker Registration for offline PWA
@@ -114,6 +123,14 @@ export default function Home() {
       if (savedOrKey) setOpenRouterKey(savedOrKey);
       const savedProactive = localStorage.getItem('claude_proactive_mode');
       if (savedProactive !== null) setIsProactiveMode(savedProactive === 'true');
+
+      // Load Self-Customization Buttons
+      const savedBtns = localStorage.getItem('claude_custom_buttons');
+      if (savedBtns) {
+        try {
+          setCustomButtons(JSON.parse(savedBtns));
+        } catch (e) {}
+      }
 
       // Load Cloud Sync settings
       const savedRoom = localStorage.getItem('claude_sync_room');
@@ -231,6 +248,18 @@ export default function Home() {
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, starred: !s.starred } : s))
     );
+  };
+
+  const handleAddCustomButton = (btn: CustomButton) => {
+    const updated = [...customButtons, btn];
+    setCustomButtons(updated);
+    localStorage.setItem('claude_custom_buttons', JSON.stringify(updated));
+  };
+
+  const handleDeleteCustomButton = (id: string) => {
+    const updated = customButtons.filter((b) => b.id !== id);
+    setCustomButtons(updated);
+    localStorage.setItem('claude_custom_buttons', JSON.stringify(updated));
   };
 
   const handleNewSession = () => {
@@ -475,6 +504,10 @@ export default function Home() {
           onSelectThinkingBudget={setThinkingBudget}
           isProactiveMode={isProactiveMode}
           onToggleProactiveMode={handleToggleProactiveMode}
+          customButtons={customButtons}
+          onAddCustomButton={handleAddCustomButton}
+          onDeleteCustomButton={handleDeleteCustomButton}
+          sessionTitle={activeSession.title}
         />
 
         {/* Claude Artifact Panel */}

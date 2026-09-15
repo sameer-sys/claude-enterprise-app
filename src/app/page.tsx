@@ -1,0 +1,443 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import Sidebar from '@/components/Sidebar';
+import ChatArea from '@/components/ChatArea';
+import ArtifactPanel from '@/components/ArtifactPanel';
+import ConnectorsModal, { DEFAULT_CONNECTORS, Connector } from '@/components/ConnectorsModal';
+import SettingsModal from '@/components/SettingsModal';
+import ProjectModal from '@/components/ProjectModal';
+import DownloadModal from '@/components/DownloadModal';
+import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget } from '@/types/chat';
+
+const DEFAULT_SESSION: Session = {
+  id: 'ses_default',
+  title: 'New Conversation',
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+  messages: [],
+  activeModel: 'claude-3-7-sonnet',
+};
+
+function extractArtifact(content: string): Artifact | undefined {
+  const codeBlockRegex = /```([a-zA-Z0-9_\-]+)?\n([\s\S]*?)```/;
+  const match = content.match(codeBlockRegex);
+  if (!match) return undefined;
+
+  const lang = (match[1] || 'text').toLowerCase();
+  const code = match[2];
+
+  if (code.length < 40) return undefined;
+
+  const isHtml = lang === 'html' || lang === 'svg';
+
+  return {
+    id: `art_${Date.now()}`,
+    title: isHtml ? 'Interactive Component Preview' : `${lang.toUpperCase()} Implementation`,
+    type: isHtml ? 'html' : 'code',
+    language: lang,
+    content: code,
+  };
+}
+
+export default function Home() {
+  const [sessions, setSessions] = useState<Session[]>([DEFAULT_SESSION]);
+  const [activeSessionId, setActiveSessionId] = useState<string>(DEFAULT_SESSION.id);
+  const [activeModel, setActiveModel] = useState<ModelId>('claude-3-7-sonnet');
+  const [thinkingBudget, setThinkingBudget] = useState<ThinkingBudget>(16000);
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
+
+  // Two-Way Autonomous Proactive Mode
+  const [isProactiveMode, setIsProactiveMode] = useState<boolean>(true);
+
+  // Modals & Enterprise Features State
+  const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>(DEFAULT_CONNECTORS);
+  const [geminiKey, setGeminiKey] = useState<string>('');
+  const [openRouterKey, setOpenRouterKey] = useState<string>('');
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Service Worker Registration for offline PWA
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  }, []);
+
+  // Load from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('claude_cloud_sessions');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setSessions(parsed);
+          setActiveSessionId(parsed[0].id);
+
+          // Check if user was offline/away and trigger two-way proactive agent check-in
+          const lastActive = parsed[0].lastVisitedAt || parsed[0].updatedAt;
+          const awayMinutes = (Date.now() - lastActive) / (1000 * 60);
+
+          if (awayMinutes > 10 && parsed[0].messages.length > 1) {
+            const proactiveMsg: Message = {
+              id: `msg_proactive_${Date.now()}`,
+              role: 'assistant',
+              content: `👋 **Welcome back, Sameer!**\n\nWhile you were away, I reviewed our previous context. If you'd like to continue, let me know what we should tackle next!`,
+              timestamp: Date.now(),
+              modelId: parsed[0].activeModel,
+              isProactive: true,
+            };
+            parsed[0].messages.push(proactiveMsg);
+            parsed[0].lastVisitedAt = Date.now();
+            setSessions([...parsed]);
+          }
+        }
+      }
+      const savedProjects = localStorage.getItem('claude_projects');
+      if (savedProjects) setProjects(JSON.parse(savedProjects));
+      const savedGKey = localStorage.getItem('claude_gemini_key');
+      if (savedGKey) setGeminiKey(savedGKey);
+      const savedOrKey = localStorage.getItem('claude_openrouter_key');
+      if (savedOrKey) setOpenRouterKey(savedOrKey);
+      const savedProactive = localStorage.getItem('claude_proactive_mode');
+      if (savedProactive !== null) setIsProactiveMode(savedProactive === 'true');
+    } catch (e) {
+      // pass
+    }
+  }, []);
+
+  // Save sessions to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('claude_cloud_sessions', JSON.stringify(sessions));
+    } catch (e) {
+      // pass
+    }
+  }, [sessions]);
+
+  // Save projects to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('claude_projects', JSON.stringify(projects));
+    } catch (e) {
+      // pass
+    }
+  }, [projects]);
+
+  const handleToggleProactiveMode = () => {
+    const next = !isProactiveMode;
+    setIsProactiveMode(next);
+    localStorage.setItem('claude_proactive_mode', String(next));
+  };
+
+  const handleSaveGeminiKey = (key: string) => {
+    setGeminiKey(key);
+    localStorage.setItem('claude_gemini_key', key);
+  };
+
+  const handleSaveOpenRouterKey = (key: string) => {
+    setOpenRouterKey(key);
+    localStorage.setItem('claude_openrouter_key', key);
+  };
+
+  const handleToggleConnector = (id: string) => {
+    setConnectors((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, enabled: !c.enabled } : c))
+    );
+  };
+
+  const handleCreateProject = (project: Project) => {
+    setProjects([project, ...projects]);
+  };
+
+  const handleToggleStar = (id: string) => {
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, starred: !s.starred } : s))
+    );
+  };
+
+  const activeSession =
+    sessions.find((s) => s.id === activeSessionId) || sessions[0] || DEFAULT_SESSION;
+
+  const handleNewSession = () => {
+    const newSession: Session = {
+      id: `ses_${Date.now()}`,
+      title: 'New Conversation',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      lastVisitedAt: Date.now(),
+      messages: [],
+      activeModel: activeModel,
+    };
+    setSessions([newSession, ...sessions]);
+    setActiveSessionId(newSession.id);
+    setActiveArtifact(null);
+  };
+
+  const handleDeleteSession = (id: string) => {
+    const updated = sessions.filter((s) => s.id !== id);
+    if (updated.length === 0) {
+      setSessions([DEFAULT_SESSION]);
+      setActiveSessionId(DEFAULT_SESSION.id);
+    } else {
+      setSessions(updated);
+      if (activeSessionId === id) {
+        setActiveSessionId(updated[0].id);
+      }
+    }
+  };
+
+  const handleStopStreaming = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsStreaming(false);
+  };
+
+  const handleSendMessage = async (text: string, attachments?: Attachment[]) => {
+    if (isStreaming) {
+      handleStopStreaming();
+    }
+
+    const userMessage: Message = {
+      id: `msg_u_${Date.now()}`,
+      role: 'user',
+      content: text,
+      timestamp: Date.now(),
+      attachments,
+    };
+
+    const assistantMessageId = `msg_a_${Date.now()}`;
+    const initialAssistantMessage: Message = {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      modelId: activeModel,
+      thinking: 'Analyzing query intent, evaluating constraints, synthesizing optimal architectural path...',
+      thinkingDuration: 2,
+      thinkingBudget,
+    };
+
+    const isFirstMsg = activeSession.messages.length === 0;
+    const newTitle = isFirstMsg
+      ? text.slice(0, 32) + (text.length > 32 ? '...' : '')
+      : activeSession.title;
+
+    const updatedMessages = [...activeSession.messages, userMessage, initialAssistantMessage];
+
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSession.id
+          ? {
+              ...s,
+              title: newTitle,
+              updatedAt: Date.now(),
+              lastVisitedAt: Date.now(),
+              messages: updatedMessages,
+            }
+          : s
+      )
+    );
+
+    setIsStreaming(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [...activeSession.messages, userMessage],
+          modelId: activeModel,
+          geminiKey: geminiKey || undefined,
+          openRouterKey: openRouterKey || undefined,
+          thinkingBudget,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => null);
+        const errMsg = errJson?.error || `Request failed with status ${response.status}`;
+        throw new Error(errMsg);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No readable stream');
+
+      const decoder = new TextDecoder();
+      let accumulatedContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const dataStr = trimmed.replace('data: ', '');
+          if (dataStr === '[DONE]') continue;
+
+          try {
+            const data = JSON.parse(dataStr);
+            if (data.content) {
+              accumulatedContent += data.content;
+              const artifact = extractArtifact(accumulatedContent);
+
+              setSessions((prev) =>
+                prev.map((s) => {
+                  if (s.id !== activeSession.id) return s;
+                  return {
+                    ...s,
+                    messages: s.messages.map((m) =>
+                      m.id === assistantMessageId
+                        ? { ...m, content: accumulatedContent, artifact }
+                        : m
+                    ),
+                  };
+                })
+              );
+            }
+          } catch (e) {
+            // pass
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        // aborted
+      } else {
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== activeSession.id) return s;
+            return {
+              ...s,
+              messages: s.messages.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      content: `⚠️ **Notice:** ${err.message || 'Error communicating with model.'}`,
+                    }
+                  : m
+              ),
+            };
+          })
+        );
+      }
+    } finally {
+      setIsStreaming(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleRegenerateLast = () => {
+    const msgs = activeSession.messages;
+    if (msgs.length < 2) return;
+    const lastUserMsg = [...msgs].reverse().find((m) => m.role === 'user');
+    if (!lastUserMsg) return;
+
+    const trimmed = msgs.slice(0, msgs.length - 1);
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSession.id ? { ...s, messages: trimmed } : s
+      )
+    );
+    handleSendMessage(lastUserMsg.content, lastUserMsg.attachments);
+  };
+
+  const activeConnectorsCount = connectors.filter((c) => c.enabled).length;
+
+  return (
+    <div className="flex h-screen w-screen overflow-hidden bg-[#1c1b18]">
+      {/* Claude Sidebar */}
+      <Sidebar
+        sessions={sessions}
+        activeSessionId={activeSession.id}
+        onSelectSession={(id) => setActiveSessionId(id)}
+        onNewSession={handleNewSession}
+        onDeleteSession={handleDeleteSession}
+        onToggleStar={handleToggleStar}
+        isOpenMobile={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        onOpenConnectors={() => setIsConnectorsOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenNewProject={() => setIsProjectModalOpen(true)}
+        projects={projects}
+        activeConnectorsCount={activeConnectorsCount}
+      />
+
+      {/* Main Viewport */}
+      <main className="flex-1 flex h-full overflow-hidden relative">
+        <ChatArea
+          messages={activeSession.messages}
+          activeModel={activeModel}
+          onSelectModel={(model) => setActiveModel(model)}
+          onSendMessage={handleSendMessage}
+          onStopStreaming={handleStopStreaming}
+          onRegenerateLast={handleRegenerateLast}
+          isStreaming={isStreaming}
+          onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+          onSelectArtifact={(art) => setActiveArtifact(art)}
+          activeArtifactId={activeArtifact?.id}
+          onOpenConnectors={() => setIsConnectorsOpen(true)}
+          onOpenDownload={() => setIsDownloadOpen(true)}
+          activeConnectorsCount={activeConnectorsCount}
+          thinkingBudget={thinkingBudget}
+          onSelectThinkingBudget={setThinkingBudget}
+          isProactiveMode={isProactiveMode}
+          onToggleProactiveMode={handleToggleProactiveMode}
+        />
+
+        {/* Claude Artifact Panel */}
+        {activeArtifact && (
+          <ArtifactPanel
+            artifact={activeArtifact}
+            onClose={() => setActiveArtifact(null)}
+          />
+        )}
+      </main>
+
+      {/* Modals */}
+      <ConnectorsModal
+        isOpen={isConnectorsOpen}
+        onClose={() => setIsConnectorsOpen(false)}
+        activeConnectors={connectors}
+        onToggleConnector={handleToggleConnector}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        geminiKey={geminiKey}
+        onSaveGeminiKey={handleSaveGeminiKey}
+        openRouterKey={openRouterKey}
+        onSaveOpenRouterKey={handleSaveOpenRouterKey}
+      />
+
+      <ProjectModal
+        isOpen={isProjectModalOpen}
+        onClose={() => setIsProjectModalOpen(false)}
+        onCreateProject={handleCreateProject}
+      />
+
+      <DownloadModal
+        isOpen={isDownloadOpen}
+        onClose={() => setIsDownloadOpen(false)}
+      />
+    </div>
+  );
+}

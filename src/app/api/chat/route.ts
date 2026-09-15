@@ -32,10 +32,36 @@ export async function POST(req: NextRequest) {
     if (activeGeminiKey) {
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${activeGeminiKey}`;
 
-      const contents = messages.map((m: any) => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }],
-      }));
+      const contents = messages.map((m: any) => {
+        const parts: any[] = [];
+        let textContent = m.content || '';
+
+        if (m.attachments && Array.isArray(m.attachments)) {
+          for (const att of m.attachments) {
+            if (att.isImage && att.dataUrl) {
+              const match = att.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+              if (match) {
+                parts.push({
+                  inline_data: {
+                    mime_type: match[1],
+                    data: match[2],
+                  },
+                });
+              }
+            } else if (att.contentSnippet) {
+              textContent += `\n\n--- [Attached Document: ${att.name}] ---\n${att.contentSnippet}\n--- [End of ${att.name}] ---`;
+            }
+          }
+        }
+
+        // Ensure there is at least one text part
+        parts.unshift({ text: textContent || (parts.length > 0 ? 'Please analyze the attached image/file.' : 'Hello') });
+
+        return {
+          role: m.role === 'user' ? 'user' : 'model',
+          parts,
+        };
+      });
 
       const geminiResponse = await fetch(geminiUrl, {
         method: 'POST',
@@ -107,10 +133,20 @@ export async function POST(req: NextRequest) {
 
     const fullMessages = [
       { role: 'system', content: systemPrompt },
-      ...messages.map((m: any) => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.content,
-      })),
+      ...messages.map((m: any) => {
+        let content = m.content || '';
+        if (m.attachments && Array.isArray(m.attachments)) {
+          for (const att of m.attachments) {
+            if (att.contentSnippet) {
+              content += `\n\n--- [Attached Document: ${att.name}] ---\n${att.contentSnippet}\n--- [End of ${att.name}] ---`;
+            }
+          }
+        }
+        return {
+          role: m.role === 'user' ? 'user' : 'assistant',
+          content,
+        };
+      }),
     ];
 
     const upstreamResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {

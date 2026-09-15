@@ -23,6 +23,9 @@ export interface Attachment {
   name: string;
   size: string;
   type: string;
+  dataUrl?: string;     // Base64 data URL for images
+  isImage?: boolean;    // Flag if attachment is an image
+  contentSnippet?: string; // Text content for code or text documents
 }
 
 export interface Message {

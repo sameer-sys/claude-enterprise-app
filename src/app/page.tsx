@@ -62,6 +62,12 @@ export default function Home() {
   const [geminiKey, setGeminiKey] = useState<string>('');
   const [openRouterKey, setOpenRouterKey] = useState<string>('');
 
+  // Cross-Device Cloud Sync State
+  const [syncRoomId, setSyncRoomId] = useState<string>('sameer-workspace-pro');
+  const [supabaseUrl, setSupabaseUrl] = useState<string>('');
+  const [supabaseKey, setSupabaseKey] = useState<string>('');
+  const [syncStatus, setSyncStatus] = useState<string>('Local Synced');
+
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Service Worker Registration for offline PWA
@@ -71,7 +77,7 @@ export default function Home() {
     }
   }, []);
 
-  // Load from localStorage
+  // Load from localStorage & Cloud Sync
   useEffect(() => {
     try {
       const saved = localStorage.getItem('claude_cloud_sessions');
@@ -108,10 +114,56 @@ export default function Home() {
       if (savedOrKey) setOpenRouterKey(savedOrKey);
       const savedProactive = localStorage.getItem('claude_proactive_mode');
       if (savedProactive !== null) setIsProactiveMode(savedProactive === 'true');
+
+      // Load Cloud Sync settings
+      const savedRoom = localStorage.getItem('claude_sync_room');
+      if (savedRoom) setSyncRoomId(savedRoom);
+      const savedSubUrl = localStorage.getItem('claude_supabase_url');
+      if (savedSubUrl) setSupabaseUrl(savedSubUrl);
+      const savedSubKey = localStorage.getItem('claude_supabase_key');
+      if (savedSubKey) setSupabaseKey(savedSubKey);
+
+      // Attempt cloud sync pull
+      const activeRoom = savedRoom || 'sameer-workspace-pro';
+      fetch(`/api/sync?roomId=${encodeURIComponent(activeRoom)}${savedSubUrl ? `&supabaseUrl=${encodeURIComponent(savedSubUrl)}&supabaseKey=${encodeURIComponent(savedSubKey || '')}` : ''}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (res?.data?.sessions && Array.isArray(res.data.sessions) && res.data.sessions.length > 0) {
+            setSessions(res.data.sessions);
+            if (res.data.projects) setProjects(res.data.projects);
+            setSyncStatus('Cloud Synced');
+          }
+        })
+        .catch(() => {});
     } catch (e) {
       // pass
     }
   }, []);
+
+  // Push updates to cloud relay or Supabase
+  const handleTriggerSyncNow = async () => {
+    if (!syncRoomId && !supabaseUrl) return;
+    setSyncStatus('Syncing...');
+    try {
+      const resp = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: syncRoomId,
+          supabaseUrl: supabaseUrl || undefined,
+          supabaseKey: supabaseKey || undefined,
+          data: { sessions, projects },
+        }),
+      });
+      if (resp.ok) {
+        setSyncStatus('Cloud Synced');
+      } else {
+        setSyncStatus('Sync Pending');
+      }
+    } catch (e) {
+      setSyncStatus('Offline Cache');
+    }
+  };
 
   // Save sessions to localStorage
   useEffect(() => {
@@ -426,6 +478,23 @@ export default function Home() {
         onSaveGeminiKey={handleSaveGeminiKey}
         openRouterKey={openRouterKey}
         onSaveOpenRouterKey={handleSaveOpenRouterKey}
+        syncRoomId={syncRoomId}
+        onSaveSyncRoomId={(id) => {
+          setSyncRoomId(id);
+          localStorage.setItem('claude_sync_room', id);
+        }}
+        supabaseUrl={supabaseUrl}
+        onSaveSupabaseUrl={(url) => {
+          setSupabaseUrl(url);
+          localStorage.setItem('claude_supabase_url', url);
+        }}
+        supabaseKey={supabaseKey}
+        onSaveSupabaseKey={(key) => {
+          setSupabaseKey(key);
+          localStorage.setItem('claude_supabase_key', key);
+        }}
+        onTriggerSyncNow={handleTriggerSyncNow}
+        syncStatus={syncStatus}
       />
 
       <ProjectModal

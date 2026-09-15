@@ -22,6 +22,12 @@ import {
   Download,
   Bot,
   Radio,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Image as ImageIcon,
+  Maximize2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -74,10 +80,15 @@ export default function ChatArea({
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({});
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [interimTranscript, setInterimTranscript] = useState<string>('');
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -107,6 +118,10 @@ export default function ChatArea({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
     onSendMessage(text, currentAttachments);
   };
 
@@ -123,16 +138,158 @@ export default function ChatArea({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Text-to-Speech (TTS) Voice playback for Claude's messages
+  const handleSpeak = (msgId: string, text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      alert('Speech synthesis is not supported on this device/browser.');
+      return;
+    }
+
+    if (speakingMsgId === msgId) {
+      window.speechSynthesis.cancel();
+      setSpeakingMsgId(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const cleanText = text
+      .replace(/```[\s\S]*?```/g, 'Code block omitted.')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+      .replace(/[#*_~]/g, '');
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.onend = () => setSpeakingMsgId(null);
+    utterance.onerror = () => setSpeakingMsgId(null);
+
+    setSpeakingMsgId(msgId);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Web Speech Recognition for Voice Dictation
+  const toggleListening = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      setInterimTranscript('');
+      return;
+    }
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setInterimTranscript('');
+    };
+
+    recognition.onresult = (event: any) => {
+      let currentInterim = '';
+      let finalStr = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalStr += event.results[i][0].transcript + ' ';
+        } else {
+          currentInterim += event.results[i][0].transcript;
+        }
+      }
+      if (finalStr) {
+        setInput((prev) => (prev ? `${prev} ${finalStr.trim()}` : finalStr.trim()));
+      }
+      setInterimTranscript(currentInterim);
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+      setInterimTranscript('');
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      setInterimTranscript('');
+    };
+
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch (e) {
+      setIsListening(false);
+    }
+  };
+
+  // Multimodal File & Image Processing
+  const processFile = (file: File): Promise<Attachment> => {
+    return new Promise((resolve) => {
+      const isImg = file.type.startsWith('image/');
+      const reader = new FileReader();
+
+      if (isImg) {
+        reader.onload = () => {
+          resolve({
+            id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            name: file.name,
+            size: `${(file.size / 1024).toFixed(1)} KB`,
+            type: file.type || 'image',
+            dataUrl: reader.result as string,
+            isImage: true,
+          });
+        };
+        reader.readAsDataURL(file);
+      } else {
+        reader.onload = () => {
+          const contentStr = typeof reader.result === 'string' ? reader.result : '';
+          resolve({
+            id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            name: file.name,
+            size: `${(file.size / 1024).toFixed(1)} KB`,
+            type: file.type || 'document',
+            contentSnippet: contentStr.slice(0, 50000),
+          });
+        };
+        reader.readAsText(file);
+      }
+    });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const newAttachments: Attachment[] = Array.from(files).map((f) => ({
-      id: `att_${Date.now()}_${Math.random()}`,
-      name: f.name,
-      size: `${(f.size / 1024).toFixed(1)} KB`,
-      type: f.type || 'document',
-    }));
+    const newAttachments = await Promise.all(Array.from(files).map(processFile));
     setAttachments((prev) => [...prev, ...newAttachments]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const filesToProcess: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        if (file) filesToProcess.push(file);
+      }
+    }
+
+    if (filesToProcess.length > 0) {
+      e.preventDefault();
+      const newAtts = await Promise.all(filesToProcess.map(processFile));
+      setAttachments((prev) => [...prev, ...newAtts]);
+    }
   };
 
   const removeAttachment = (id: string) => {
@@ -152,26 +309,57 @@ export default function ChatArea({
         isHero ? 'max-w-2xl mx-auto mt-6' : 'max-w-3xl mx-auto'
       }`}
     >
-      {/* Attachments */}
+      {/* Attachments with Image Thumbnails */}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 pb-2 mb-2 border-b border-[#2e2c24]">
           {attachments.map((att) => (
             <div
               key={att.id}
-              className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#2b2923] border border-[#38352d] text-xs text-[#ece9e2]"
+              className="flex items-center space-x-2 px-2 py-1 rounded-lg bg-[#2b2923] border border-[#38352d] text-xs text-[#ece9e2]"
             >
-              <Paperclip className="w-3 h-3 text-[#cc785c]" />
-              <span className="truncate max-w-[140px]">{att.name}</span>
+              {att.isImage && att.dataUrl ? (
+                <img
+                  src={att.dataUrl}
+                  alt={att.name}
+                  className="w-7 h-7 object-cover rounded shadow-sm cursor-pointer"
+                  onClick={() => setPreviewImage(att.dataUrl!)}
+                />
+              ) : (
+                <Paperclip className="w-3.5 h-3.5 text-[#cc785c]" />
+              )}
+              <span className="truncate max-w-[130px] font-medium">{att.name}</span>
               <span className="text-[10px] text-[#8a8579] font-mono">({att.size})</span>
               <button
                 type="button"
                 onClick={() => removeAttachment(att.id)}
-                className="hover:text-rose-400 p-0.5"
+                className="hover:text-rose-400 p-0.5 rounded"
               >
                 <X className="w-3 h-3" />
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Voice Listening Banner */}
+      {isListening && (
+        <div className="flex items-center justify-between px-3 py-1.5 mb-2 rounded-xl bg-[#cc785c]/15 border border-[#cc785c]/30 text-[#cc785c] text-xs animate-in fade-in">
+          <div className="flex items-center space-x-2 truncate">
+            <div className="w-2 h-2 rounded-full bg-[#cc785c] animate-ping shrink-0" />
+            <span className="font-semibold shrink-0">Listening... Speak now</span>
+            {interimTranscript && (
+              <span className="text-[#ece9e2] italic truncate max-w-[200px] sm:max-w-[320px]">
+                "{interimTranscript}"
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={toggleListening}
+            className="text-[11px] font-medium px-2 py-0.5 rounded bg-[#cc785c]/25 hover:bg-[#cc785c]/40 text-[#ece9e2] transition-colors shrink-0"
+          >
+            Done
+          </button>
         </div>
       )}
 
@@ -182,12 +370,15 @@ export default function ChatArea({
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         placeholder={
-          isStreaming
+          isListening
+            ? 'Transcribing your voice in real-time...'
+            : isStreaming
             ? 'Type to interrupt and send instantly (never queued)...'
             : isHero
             ? 'How can Claude help you today?'
-            : 'Reply to Claude... (Shift+Enter for newline)'
+            : 'Reply to Claude... (Shift+Enter for newline, Ctrl+V to paste screenshot)'
         }
         className="w-full bg-transparent text-sm text-[#ece9e2] placeholder-[#7d786e] px-2 py-1.5 focus:outline-none resize-none max-h-48 leading-relaxed font-normal"
       />
@@ -198,6 +389,7 @@ export default function ChatArea({
         onChange={handleFileUpload}
         className="hidden"
         multiple
+        accept="image/*,.txt,.pdf,.md,.json,.js,.ts,.tsx,.py,.html,.css"
       />
 
       {/* Controls Bar inside the Input Box */}
@@ -291,14 +483,28 @@ export default function ChatArea({
         </div>
 
         {/* Send Action */}
-        <div className="flex items-center space-x-2 shrink-0">
+        <div className="flex items-center space-x-1.5 shrink-0">
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="p-1.5 rounded-lg hover:bg-[#2d2b23] text-[#8a8579] hover:text-[#ece9e2] transition-colors"
-            title="Attach documents, files, or images"
+            title="Attach documents, photos, or images"
           >
             <Paperclip className="w-4 h-4" />
+          </button>
+
+          {/* Voice Dictation (Speech-to-Text) Button */}
+          <button
+            type="button"
+            onClick={toggleListening}
+            className={`p-1.5 rounded-lg transition-all ${
+              isListening
+                ? 'bg-[#cc785c] text-black animate-pulse shadow-md shadow-[#cc785c]/40'
+                : 'hover:bg-[#2d2b23] text-[#8a8579] hover:text-[#ece9e2]'
+            }`}
+            title={isListening ? 'Stop Voice Dictation' : 'Speak to Claude (Voice Dictation)'}
+          >
+            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
           </button>
 
           {isStreaming ? (
@@ -480,12 +686,28 @@ export default function ChatArea({
                   {isUser && msg.attachments && msg.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-2 pb-2 border-b border-[#3d3a31]">
                       {msg.attachments.map((att) => (
-                        <div
-                          key={att.id}
-                          className="flex items-center space-x-1 px-2 py-0.5 rounded bg-[#35332b] text-xs text-[#dcd8ce]"
-                        >
-                          <Paperclip className="w-3 h-3 text-[#cc785c]" />
-                          <span className="truncate max-w-[120px]">{att.name}</span>
+                        <div key={att.id}>
+                          {att.isImage && att.dataUrl ? (
+                            <div
+                              onClick={() => setPreviewImage(att.dataUrl!)}
+                              className="group/img relative cursor-pointer overflow-hidden rounded-xl border border-[#484439] hover:border-[#cc785c] transition-all my-1 shadow-sm"
+                            >
+                              <img
+                                src={att.dataUrl}
+                                alt={att.name}
+                                className="max-h-60 max-w-xs object-cover rounded-lg group-hover/img:scale-102 transition-transform duration-200"
+                              />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                                <Maximize2 className="w-5 h-5 text-white drop-shadow" />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#35332b] text-xs text-[#dcd8ce] border border-[#444136]">
+                              <Paperclip className="w-3.5 h-3.5 text-[#cc785c]" />
+                              <span className="truncate max-w-[140px] font-medium">{att.name}</span>
+                              <span className="text-[10px] text-[#8a8579] font-mono">({att.size})</span>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -591,6 +813,21 @@ export default function ChatArea({
                       >
                         <Copy className="w-3.5 h-3.5" />
                       </button>
+                      <button
+                        onClick={() => handleSpeak(msg.id, msg.content)}
+                        className={`p-1 rounded transition-colors ${
+                          speakingMsgId === msg.id
+                            ? 'bg-[#cc785c]/20 text-[#cc785c]'
+                            : 'hover:bg-[#2c2a23] hover:text-[#ece9e2]'
+                        }`}
+                        title={speakingMsgId === msg.id ? 'Stop audio' : 'Listen to Claude speak'}
+                      >
+                        {speakingMsgId === msg.id ? (
+                          <VolumeX className="w-3.5 h-3.5 text-[#cc785c] animate-pulse" />
+                        ) : (
+                          <Volume2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
                       {isLastAssistant && (
                         <button
                           onClick={onRegenerateLast}
@@ -640,6 +877,28 @@ export default function ChatArea({
       {hasMessages && (
         <div className="p-4 md:p-6 bg-gradient-to-t from-[#1c1b18] via-[#1c1b18] to-transparent shrink-0">
           {renderPromptBox(false)}
+        </div>
+      )}
+
+      {/* Fullscreen Image Lightbox Modal */}
+      {previewImage && (
+        <div
+          onClick={() => setPreviewImage(null)}
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in"
+        >
+          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute -top-10 right-0 p-1.5 rounded-full bg-black/60 hover:bg-black/90 text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={previewImage}
+              alt="Attachment Preview"
+              className="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain border border-zinc-800"
+            />
+          </div>
         </div>
       )}
     </div>

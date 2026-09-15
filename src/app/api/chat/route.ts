@@ -137,17 +137,35 @@ export async function POST(req: NextRequest) {
           };
         });
 
-        const GEMINI_MODELS = [
-          'gemini-2.5-flash',
+        // Discover supported models for this specific API key
+        let targetModels = [
           'gemini-1.5-flash',
           'gemini-1.5-pro',
           'gemini-2.0-flash',
-          'gemini-2.0-flash-exp',
+          'gemini-2.5-flash',
         ];
+
+        try {
+          const listResp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${activeGeminiKey}`
+          );
+          if (listResp.ok) {
+            const listData = await listResp.json();
+            const discovered = (listData.models || [])
+              .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+              .map((m: any) => m.name.replace('models/', ''));
+            if (discovered.length > 0) {
+              targetModels = [
+                ...discovered.filter((n: string) => n.includes('flash')),
+                ...discovered.filter((n: string) => !n.includes('flash')),
+              ];
+            }
+          }
+        } catch (listErr) {}
 
         let lastGeminiError = '';
 
-        for (const candidate of GEMINI_MODELS) {
+        for (const candidate of targetModels) {
           try {
             const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${candidate}:streamGenerateContent?alt=sse&key=${activeGeminiKey}`;
             const geminiResponse = await fetch(geminiUrl, {

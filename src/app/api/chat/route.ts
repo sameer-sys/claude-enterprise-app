@@ -103,8 +103,6 @@ export async function POST(req: NextRequest) {
       : undefined;
     if (activeGeminiKey) {
       try {
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${activeGeminiKey}`;
-
         const contents = messages.map((m: any) => {
           const parts: any[] = [];
           let textContent = m.content || '';
@@ -139,58 +137,77 @@ export async function POST(req: NextRequest) {
           };
         });
 
-        const geminiResponse = await fetch(geminiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemPrompt }] },
-            contents,
-          }),
-        });
+        const GEMINI_MODELS = [
+          'gemini-2.5-flash',
+          'gemini-1.5-flash',
+          'gemini-1.5-pro',
+          'gemini-2.0-flash',
+          'gemini-2.0-flash-exp',
+        ];
 
-        if (geminiResponse.ok) {
-          const encoder = new TextEncoder();
-          const decoder = new TextDecoder();
+        let lastGeminiError = '';
 
-          const transformStream = new TransformStream({
-            async transform(chunk, controller) {
-              const text = decoder.decode(chunk);
-              const lines = text.split('\n');
+        for (const candidate of GEMINI_MODELS) {
+          try {
+            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${candidate}:streamGenerateContent?alt=sse&key=${activeGeminiKey}`;
+            const geminiResponse = await fetch(geminiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                system_instruction: { parts: [{ text: systemPrompt }] },
+                contents,
+              }),
+            });
 
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith('data: ')) continue;
-                const dataStr = trimmed.replace('data: ', '');
+            if (geminiResponse.ok) {
+              const encoder = new TextEncoder();
+              const decoder = new TextDecoder();
 
-                try {
-                  const parsed = JSON.parse(dataStr);
-                  const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                  if (textChunk) {
-                    controller.enqueue(
-                      encoder.encode(`data: ${JSON.stringify({ content: textChunk })}\n\n`)
-                    );
+              const transformStream = new TransformStream({
+                async transform(chunk, controller) {
+                  const text = decoder.decode(chunk);
+                  const lines = text.split('\n');
+
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith('data: ')) continue;
+                    const dataStr = trimmed.replace('data: ', '');
+
+                    try {
+                      const parsed = JSON.parse(dataStr);
+                      const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                      if (textChunk) {
+                        controller.enqueue(
+                          encoder.encode(`data: ${JSON.stringify({ content: textChunk })}\n\n`)
+                        );
+                      }
+                    } catch (e) {}
                   }
-                } catch (e) {}
-              }
-            },
-          });
+                },
+              });
 
-          return new Response(geminiResponse.body?.pipeThrough(transformStream), {
-            headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              Connection: 'keep-alive',
-              'X-Claude-Skill': detectedSkill,
-              'X-Claude-Router': 'gemini-2.0-flash',
-            },
-          });
-        } else {
-          const errBody = await geminiResponse.json().catch(() => null);
-          const errMsg =
-            errBody?.error?.message || `Google Gemini API returned status ${geminiResponse.status}`;
+              return new Response(geminiResponse.body?.pipeThrough(transformStream), {
+                headers: {
+                  'Content-Type': 'text/event-stream',
+                  'Cache-Control': 'no-cache',
+                  Connection: 'keep-alive',
+                  'X-Claude-Skill': detectedSkill,
+                  'X-Claude-Router': candidate,
+                },
+              });
+            } else {
+              const errBody = await geminiResponse.json().catch(() => null);
+              lastGeminiError = errBody?.error?.message || `HTTP ${geminiResponse.status}`;
+            }
+          } catch (modelErr) {
+            // try next candidate
+          }
+        }
+
+        if (lastGeminiError) {
           return new NextResponse(
             JSON.stringify({
-              error: `Gemini Key Notice: ${errMsg}. Please click Settings to check your key or create a free key at https://aistudio.google.com/app/apikey`,
+              error: `Gemini Key Notice: ${lastGeminiError}. Please click Settings to check your key or create a free key at https://aistudio.google.com/app/apikey`,
             }),
             { status: 400, headers: { 'Content-Type': 'application/json' } }
           );

@@ -766,10 +766,10 @@ export default function ChatArea({
                 )}
 
                 <div
-                  className={`relative group rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  className={`relative group text-sm leading-relaxed ${
                     isUser
-                      ? 'bg-[#2b2923] text-[#f2eee6] max-w-[85%] rounded-tr-sm border border-[#3d3a31]'
-                      : 'bg-[#22211c] text-[#dcd8ce] w-full rounded-tl-sm border border-[#312f28]'
+                      ? 'bg-[#2b2923] text-[#f4efe6] max-w-[85%] rounded-2xl rounded-tr-sm border border-[#3d3a31] px-4 py-3'
+                      : 'text-[#ede8df] w-full px-1 py-1'
                   }`}
                 >
                   {/* Attachments */}
@@ -813,7 +813,7 @@ export default function ChatArea({
 
                   {/* Assistant Header Badge & Thinking Accordion */}
                   {!isUser && (
-                    <div className="space-y-2 pb-2 mb-2 border-b border-[#2d2b24]">
+                    <div className="space-y-2 pb-2 mb-2 border-b border-[#2a2822]">
                       <div className="flex items-center justify-between text-xs text-[#8a8579]">
                         <span className="font-semibold text-[#baa898] flex items-center gap-2 flex-wrap">
                           <span>Claude 3.7 Sonnet</span>
@@ -870,8 +870,101 @@ export default function ChatArea({
                   )}
 
                   {/* Main Markdown Body */}
-                  <div className="markdown-body">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  <div className="markdown-body space-y-3 text-[14.5px] leading-relaxed text-[#ede8df]">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        code({ inline, className, children, ...props }: any) {
+                          const match = /language-(\w+)/.exec(className || '');
+                          const lang = match ? match[1] : '';
+                          const codeText = String(children).replace(/\n$/, '');
+
+                          if (!inline && (lang || codeText.includes('\n'))) {
+                            return (
+                              <div className="my-3 rounded-xl bg-[#151411] border border-[#2d2b24] overflow-hidden shadow-lg">
+                                <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#1d1c18] border-b border-[#282620] text-xs text-[#9c978b]">
+                                  <div className="flex items-center space-x-2">
+                                    <div className="flex space-x-1">
+                                      <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+                                      <div className="w-2.5 h-2.5 rounded-full bg-amber-500/60" />
+                                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" />
+                                    </div>
+                                    <span className="font-mono text-[11px] font-semibold text-[#cc785c] uppercase ml-1.5">
+                                      {lang || 'code'}
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => copyMessage(`code_${Date.now()}`, codeText)}
+                                    className="flex items-center gap-1 hover:text-[#ece9e2] transition-colors font-sans text-[11px] px-2 py-0.5 rounded hover:bg-[#282620]"
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                    <span>Copy</span>
+                                  </button>
+                                </div>
+                                <pre className="p-3.5 overflow-x-auto text-xs font-mono text-[#e6e2d8] leading-relaxed">
+                                  <code className={className} {...props}>
+                                    {children}
+                                  </code>
+                                </pre>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <code
+                              className="px-1.5 py-0.5 rounded bg-[#272520] text-[#cc785c] font-mono text-xs border border-[#36342b]"
+                              {...props}
+                            >
+                              {children}
+                            </code>
+                          );
+                        },
+                        table({ children }) {
+                          return (
+                            <div className="my-3 overflow-x-auto rounded-xl border border-[#302e27]">
+                              <table className="min-w-full text-xs text-left divide-y divide-[#302e27]">
+                                {children}
+                              </table>
+                            </div>
+                          );
+                        },
+                        th({ children }) {
+                          return (
+                            <th className="px-3 py-2 bg-[#23221d] font-semibold text-[#f2eee6]">
+                              {children}
+                            </th>
+                          );
+                        },
+                        td({ children }) {
+                          return (
+                            <td className="px-3 py-2 border-t border-[#292822] text-[#dcd8ce]">
+                              {children}
+                            </td>
+                          );
+                        },
+                        blockquote({ children }) {
+                          return (
+                            <blockquote className="my-2 border-l-2 border-[#cc785c] pl-3 italic text-[#aba597]">
+                              {children}
+                            </blockquote>
+                          );
+                        },
+                        a({ href, children }) {
+                          return (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[#cc785c] hover:underline inline-flex items-center gap-0.5"
+                            >
+                              {children}
+                            </a>
+                          );
+                        },
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
                   </div>
 
                   {/* 1-Click Interactive Key Setup Card */}

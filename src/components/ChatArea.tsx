@@ -10,7 +10,6 @@ import {
   Copy,
   Check,
   Paperclip,
-  Cpu,
   RotateCcw,
   User,
   ThumbsUp,
@@ -505,31 +504,6 @@ export default function ChatArea({
             <span className="text-[11px] hidden sm:inline">Thinking: {isThinkingEnabled ? 'ON' : 'OFF'}</span>
           </button>
 
-          {/* DOWNLOAD BUTTON TO THE LEFT OF CONNECTORS */}
-          <button
-            type="button"
-            onClick={onOpenDownload}
-            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#26241f] hover:bg-[#2f2d26] border border-[#38352d] text-[#8a8579] hover:text-[#ece9e2] transition-colors text-[11px]"
-            title="Download Desktop & Android Apps"
-          >
-            <Download className="w-3.5 h-3.5 text-[#cc785c]" />
-            <span className="hidden sm:inline">Download</span>
-          </button>
-
-          {/* Connectors */}
-          <button
-            type="button"
-            onClick={onOpenConnectors}
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-[#26241f] hover:bg-[#2f2d26] border border-[#38352d] text-[#8a8579] hover:text-[#ece9e2] transition-colors text-[11px]"
-            title="Connectors"
-          >
-            <Cpu className="w-3.5 h-3.5 text-[#cc785c]" />
-            <span className="hidden md:inline">Connectors</span>
-            <span className="text-[9px] px-1 py-0.2 rounded-full bg-emerald-500/15 text-emerald-400 font-mono">
-              {activeConnectorsCount}
-            </span>
-          </button>
-
           {/* Style */}
           <div className="relative">
             <button
@@ -702,7 +676,7 @@ export default function ChatArea({
             <span className="hidden sm:inline">Export</span>
           </button>
 
-          {/* DOWNLOAD BUTTON TO THE LEFT OF CONNECTORS */}
+          {/* DOWNLOAD BUTTON */}
           <button
             onClick={onOpenDownload}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] text-xs font-medium text-[#dcd8ce] transition-all hover:text-[#ece9e2]"
@@ -710,19 +684,6 @@ export default function ChatArea({
           >
             <Download className="w-3.5 h-3.5 text-[#cc785c]" />
             <span>Download</span>
-          </button>
-
-          {/* CONNECTORS BUTTON */}
-          <button
-            onClick={onOpenConnectors}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] text-xs font-medium text-[#dcd8ce] transition-all"
-            title="Manage Connectors"
-          >
-            <Cpu className="w-3.5 h-3.5 text-[#cc785c]" />
-            <span className="hidden sm:inline">Connectors</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-400 font-mono">
-              {activeConnectorsCount}
-            </span>
           </button>
         </div>
       </header>

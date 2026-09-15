@@ -2,7 +2,10 @@ export type ModelId =
   | 'claude-3-7-sonnet'   // Claude 3.7 Sonnet (Hybrid Reasoning + Code)
   | 'claude-3-5-sonnet'   // Claude 3.5 Sonnet (Standard Intelligent)
   | 'claude-3-5-haiku'    // Claude 3.5 Haiku (Ultra-Fast 0.8s)
-  | 'claude-3-opus';      // Claude 3 Opus (Deep Writing & Creative)
+  | 'claude-3-opus'       // Claude 3 Opus (Deep Writing & Creative)
+  | 'the-boss-chat'       // OmniRoute: The Boss Chat (1-sec instant replies)
+  | 'the-boss-build'      // OmniRoute: The Boss Build (Big Pickle heavy coding)
+  | 'omniroute-auto';     // OmniRoute: Dynamic Multi-Model Auto Router (2,269 models)
 
 export type ResponseStyle = 'normal' | 'concise' | 'explanatory' | 'technical';
 

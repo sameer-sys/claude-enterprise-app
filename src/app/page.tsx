@@ -437,6 +437,7 @@ export default function Home() {
 
       const decoder = new TextDecoder();
       let accumulatedContent = '';
+      let accumulatedThinking = '';
       let sseBuffer = '';
 
       while (true) {
@@ -455,8 +456,17 @@ export default function Home() {
 
           try {
             const data = JSON.parse(dataStr);
+            let hasUpdate = false;
+            if (data.thinking) {
+              accumulatedThinking += data.thinking;
+              hasUpdate = true;
+            }
             if (data.content) {
               accumulatedContent += data.content;
+              hasUpdate = true;
+            }
+
+            if (hasUpdate) {
               const artifact = extractArtifact(accumulatedContent);
 
               setSessions((prev) =>
@@ -466,7 +476,13 @@ export default function Home() {
                     ...s,
                     messages: s.messages.map((m) =>
                       m.id === assistantMessageId
-                        ? { ...m, content: accumulatedContent, artifact, skillActivated: activeSkill }
+                        ? {
+                            ...m,
+                            content: accumulatedContent,
+                            thinking: accumulatedThinking || m.thinking,
+                            artifact,
+                            skillActivated: activeSkill,
+                          }
                         : m
                     ),
                   };

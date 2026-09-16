@@ -298,15 +298,20 @@ export async function POST(req: NextRequest) {
     const urlMatch = lastText.match(/(https?:\/\/[^\s]+)/i);
     if (urlMatch && urlMatch[1]) {
       const targetUrl = urlMatch[1].replace(/[.,;:)]+$/, '');
+      const bypassController = new AbortController();
+      const timer = setTimeout(() => {
+        try { bypassController.abort(); } catch (e) {}
+      }, 3000);
+
       try {
         const bypassRes = await fetch(targetUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
           },
-          signal: AbortSignal.timeout(3500),
+          signal: bypassController.signal,
         });
+        clearTimeout(timer);
 
         if (bypassRes.ok) {
           const rawHtml = await bypassRes.text();
@@ -330,6 +335,7 @@ export async function POST(req: NextRequest) {
           }
         }
       } catch (e: any) {
+        clearTimeout(timer);
         connectorContext += `\n[⚡ LIVE WEB BYPASSER ACTIVE]: Target URL "${targetUrl}". Bypasser engaged.\n`;
       }
     }

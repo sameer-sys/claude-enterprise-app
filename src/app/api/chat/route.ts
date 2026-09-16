@@ -590,6 +590,7 @@ export async function POST(req: NextRequest) {
               messages: fullMessages,
               stream: true,
             }),
+            signal: AbortSignal.timeout(9000),
           });
 
           if (upstreamResponse.ok && upstreamResponse.body) {
@@ -664,23 +665,17 @@ export async function POST(req: NextRequest) {
         const fullText = await edgeResp.text();
         if (fullText && fullText.trim().length > 5) {
           const encoder = new TextEncoder();
-          const words = fullText.split(' ');
-          let i = 0;
+          const chunkSize = 24;
           const stream = new ReadableStream({
             start(controller) {
-              const interval = setInterval(() => {
-                if (i < words.length) {
-                  const chunk = (i === 0 ? '' : ' ') + words[i];
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`)
-                  );
-                  i++;
-                } else {
-                  controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-                  controller.close();
-                  clearInterval(interval);
-                }
-              }, 25);
+              for (let pos = 0; pos < fullText.length; pos += chunkSize) {
+                const piece = fullText.slice(pos, pos + chunkSize);
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ content: piece })}\n\n`)
+                );
+              }
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              controller.close();
             },
           });
 

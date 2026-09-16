@@ -440,11 +440,13 @@ export async function POST(req: NextRequest) {
             if (geminiResponse.ok) {
               const encoder = new TextEncoder();
               const decoder = new TextDecoder();
+              let geminiBuffer = '';
 
               const transformStream = new TransformStream({
-                async transform(chunk, controller) {
-                  const text = decoder.decode(chunk);
-                  const lines = text.split('\n');
+                transform(chunk, controller) {
+                  geminiBuffer += decoder.decode(chunk, { stream: true });
+                  const lines = geminiBuffer.split('\n');
+                  geminiBuffer = lines.pop() || '';
 
                   for (const line of lines) {
                     const trimmed = line.trim();
@@ -453,6 +455,19 @@ export async function POST(req: NextRequest) {
 
                     try {
                       const parsed = JSON.parse(dataStr);
+                      const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                      if (textChunk) {
+                        controller.enqueue(
+                          encoder.encode(`data: ${JSON.stringify({ content: textChunk })}\n\n`)
+                        );
+                      }
+                    } catch (e) {}
+                  }
+                },
+                flush(controller) {
+                  if (geminiBuffer.trim().startsWith('data: ')) {
+                    try {
+                      const parsed = JSON.parse(geminiBuffer.trim().replace('data: ', ''));
                       const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                       if (textChunk) {
                         controller.enqueue(
@@ -596,11 +611,13 @@ export async function POST(req: NextRequest) {
           if (upstreamResponse.ok && upstreamResponse.body) {
             const encoder = new TextEncoder();
             const decoder = new TextDecoder();
+            let orBuffer = '';
 
             const transformStream = new TransformStream({
-              async transform(chunk, controller) {
-                const text = decoder.decode(chunk);
-                const lines = text.split('\n');
+              transform(chunk, controller) {
+                orBuffer += decoder.decode(chunk, { stream: true });
+                const lines = orBuffer.split('\n');
+                orBuffer = lines.pop() || '';
 
                 for (const line of lines) {
                   const trimmed = line.trim();
@@ -620,6 +637,24 @@ export async function POST(req: NextRequest) {
                       );
                     }
                   } catch (e) {}
+                }
+              },
+              flush(controller) {
+                if (orBuffer.trim().startsWith('data: ')) {
+                  const dataStr = orBuffer.trim().replace('data: ', '');
+                  if (dataStr === '[DONE]') {
+                    controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                  } else {
+                    try {
+                      const parsed = JSON.parse(dataStr);
+                      const delta = parsed.choices?.[0]?.delta?.content || '';
+                      if (delta) {
+                        controller.enqueue(
+                          encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`)
+                        );
+                      }
+                    } catch (e) {}
+                  }
                 }
               },
             });

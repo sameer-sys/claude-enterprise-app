@@ -521,6 +521,21 @@ export default function Home() {
     handleSendMessage(lastUserMsg.content, lastUserMsg.attachments);
   };
 
+  // Omnibox Direct Chrome Search (?q=... or ?prompt=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const searchParam = params.get('q') || params.get('prompt') || params.get('search');
+    if (searchParam && searchParam.trim()) {
+      const query = searchParam.trim();
+      window.history.replaceState({}, '', window.location.pathname);
+      const timer = setTimeout(() => {
+        handleSendMessage(query);
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#1c1b18]">
       {/* Claude Sidebar */}

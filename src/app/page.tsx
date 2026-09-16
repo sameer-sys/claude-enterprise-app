@@ -5,7 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import ChatArea from '@/components/ChatArea';
 import ArtifactPanel from '@/components/ArtifactPanel';
 import ConnectorsModal, { DEFAULT_CONNECTORS, createDefaultConnectors, Connector } from '@/components/ConnectorsModal';
-import SettingsModal from '@/components/SettingsModal';
+import SettingsModal, { SettingsTab } from '@/components/SettingsModal';
 import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
 import AgentsModal from '@/components/AgentsModal';
@@ -64,6 +64,7 @@ export default function Home() {
   // Modals & Enterprise Features State
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isAgentsModalOpen, setIsAgentsModalOpen] = useState(false);
@@ -538,8 +539,14 @@ export default function Home() {
         onToggleStar={handleToggleStar}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        onOpenConnectors={() => setIsConnectorsOpen(true)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenConnectors={() => {
+          setSettingsTab('connectors');
+          setIsSettingsOpen(true);
+        }}
+        onOpenSettings={() => {
+          setSettingsTab('general');
+          setIsSettingsOpen(true);
+        }}
         onOpenNewProject={() => setIsProjectModalOpen(true)}
         onOpenAgents={() => setIsAgentsModalOpen(true)}
         onOpenSquad={() => setIsSquadOpen(true)}
@@ -564,7 +571,10 @@ export default function Home() {
           onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
           onSelectArtifact={(art) => setActiveArtifact(art)}
           activeArtifactId={activeArtifact?.id}
-          onOpenConnectors={() => setIsConnectorsOpen(true)}
+          onOpenConnectors={() => {
+            setSettingsTab('connectors');
+            setIsSettingsOpen(true);
+          }}
           onOpenDownload={() => setIsDownloadOpen(true)}
           activeConnectorsCount={activeConnectorsCount}
           thinkingBudget={thinkingBudget}
@@ -575,7 +585,10 @@ export default function Home() {
           onAddCustomButton={handleAddCustomButton}
           onDeleteCustomButton={handleDeleteCustomButton}
           sessionTitle={activeSession.title}
-          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenSettings={() => {
+            setSettingsTab('models');
+            setIsSettingsOpen(true);
+          }}
           hasGeminiKey={Boolean(geminiKey)}
         />
 
@@ -601,6 +614,7 @@ export default function Home() {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        initialTab={settingsTab}
         geminiKey={geminiKey}
         onSaveGeminiKey={handleSaveGeminiKey}
         openRouterKey={openRouterKey}
@@ -622,6 +636,14 @@ export default function Home() {
         }}
         onTriggerSyncNow={handleTriggerSyncNow}
         syncStatus={syncStatus}
+        activeConnectors={currentSessionConnectors}
+        onToggleConnector={handleToggleConnector}
+        onUpdateConnectorConfig={handleUpdateConnectorConfig}
+        sessionTitle={activeSession.title}
+        thinkingBudget={thinkingBudget}
+        onSelectThinkingBudget={setThinkingBudget}
+        isProactiveMode={isProactiveMode}
+        onToggleProactiveMode={handleToggleProactiveMode}
       />
 
       <ProjectModal

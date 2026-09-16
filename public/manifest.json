@@ -1,21 +1,24 @@
 {
-  "name": "Boss AI Cloud",
-  "short_name": "Boss AI",
-  "description": "Fast, intelligent AI workspace with dual-engine model routing and Claude-style artifacts.",
+  "name": "Claude Pro Max Unlimited",
+  "short_name": "Claude Pro",
+  "description": "Official Claude Pro Max Enterprise Workspace with Model Context Protocol (MCP) Connectors, Live Web Search, and Artifacts.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#121214",
-  "theme_color": "#121214",
+  "background_color": "#191815",
+  "theme_color": "#191815",
+  "orientation": "any",
   "icons": [
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

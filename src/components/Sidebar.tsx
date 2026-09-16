@@ -444,7 +444,11 @@ export default function Sidebar({
         </div>
 
         {/* User Profile - Enterprise Pro Max Tier */}
-        <div className="p-3 border-t border-[#282621] bg-[#141310] flex items-center justify-between text-xs">
+        <div
+          onClick={onOpenSettings}
+          className="p-3 border-t border-[#282621] bg-[#141310] flex items-center justify-between text-xs cursor-pointer hover:bg-[#1e1d18] transition-colors"
+          title="Open Settings & Profile"
+        >
           <div className="flex items-center space-x-2.5">
             <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#b86146] to-[#e68d71] flex items-center justify-center text-black font-bold text-xs shadow-sm">
               S

@@ -26,19 +26,26 @@ export default function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
 
   if (!isOpen) return null;
 
+  const getAppUrl = () => {
+    if (typeof window !== 'undefined' && window.location.origin) {
+      return window.location.origin;
+    }
+    return 'https://claude-enterprise-app.vercel.app';
+  };
+
   const handleDownloadWindows = () => {
     setDownloadingDesktop(true);
-    // Create a client launcher script or download payload
+    const targetUrl = getAppUrl();
     const launcherScript = `@echo off
-title Claude Enterprise Desktop Launcher
-echo Launching Claude Enterprise Cloud App...
-start http://localhost:3000
+title Claude Pro Max Desktop Launcher
+echo Launching Claude Pro Max Enterprise...
+start ${targetUrl}
 `;
     const blob = new Blob([launcherScript], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Claude-Enterprise-Setup.bat';
+    a.download = 'Claude-Pro-Max-Launcher.bat';
     a.click();
     URL.revokeObjectURL(url);
     setTimeout(() => setDownloadingDesktop(false), 2500);
@@ -46,6 +53,7 @@ start http://localhost:3000
 
   const handleDownloadApk = () => {
     setDownloadingApk(true);
+    const targetUrl = getAppUrl();
     // Trigger PWA install if available or download webapp shortcut
     if (deferredPrompt) {
       deferredPrompt.prompt();
@@ -57,7 +65,7 @@ start http://localhost:3000
       });
     } else {
       // Create Android web bookmark installer
-      const androidPayload = `[InternetShortcut]\nURL=http://localhost:3000\nIconIndex=0`;
+      const androidPayload = `[InternetShortcut]\nURL=${targetUrl}\nIconIndex=0`;
       const blob = new Blob([androidPayload], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -204,7 +212,7 @@ start http://localhost:3000
               </div>
               <div>
                 <p className="text-[#ece9e2] font-medium">Use on phone directly via browser:</p>
-                <p className="text-[11px] text-[#8a8579]">Open <span className="font-mono text-[#cc785c]">http://localhost:3000</span> or your Vercel URL on your mobile browser</p>
+                <p className="text-[11px] text-[#8a8579]">Open <span className="font-mono text-[#cc785c]">{getAppUrl()}</span> on your mobile browser & tap "Install App"</p>
               </div>
             </div>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400">

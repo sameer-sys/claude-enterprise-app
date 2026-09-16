@@ -42,6 +42,7 @@ import { createDefaultConnectors } from '@/components/ConnectorsModal';
 
 export type SettingsTab =
   | 'preferences'
+  | 'advanced'
   | 'account'
   | 'capabilities'
   | 'claudecode'
@@ -126,6 +127,12 @@ export default function SettingsModal({
   const [voiceSpeed, setVoiceSpeed] = useState('Normal');
   const [notificationsOn, setNotificationsOn] = useState(true);
   const [navSearch, setNavSearch] = useState('');
+
+  // Advanced & Superpowers state
+  const [godModeOn, setGodModeOn] = useState(true);
+  const [webBypasserOn, setWebBypasserOn] = useState(true);
+  const [autoFailoverOn, setAutoFailoverOn] = useState(true);
+  const [contextExpansionOn, setContextExpansionOn] = useState(true);
 
   // Connectors tab sub-state
   const [connectorViewTab, setConnectorViewTab] = useState<'installed' | 'directory' | 'custom_mcp'>('installed');
@@ -261,6 +268,7 @@ export default function SettingsModal({
       group: 'Settings',
       items: [
         { id: 'preferences', label: 'Preferences', icon: SlidersHorizontal },
+        { id: 'advanced', label: 'Advanced & Superpowers', icon: Zap, badge: 'PRO' },
         { id: 'account', label: 'Account & Data', icon: User },
         { id: 'capabilities', label: 'Capabilities', icon: Brain },
         { id: 'claudecode', label: 'Claude Code', icon: Code2 },
@@ -567,6 +575,188 @@ export default function SettingsModal({
                       <span
                         className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                           notificationsOn ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: ADVANCED & SUPERPOWERS */}
+            {/* ========================================================================= */}
+            {activeTab === 'advanced' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-base font-semibold text-[#f4efe6]">Advanced & Superpowers</h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                      Enterprise Unrestricted
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#8a8579] mt-0.5">
+                    Configure web bypassers, developer god mode, multi-model auto-failover, and reasoning depths.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  {/* 1. Live Web Bypasser & Scraper */}
+                  <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <Globe className="w-4 h-4 text-cyan-400" />
+                        <span className="text-xs font-semibold text-[#f2eee6]">Live Web Bypasser & Scraper</span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                          Active
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#8a8579] leading-relaxed">
+                        Whenever you paste any URL or article link in chat, the server automatically bypasses CORS, paywalls, and script blockers to scrape clean text and feed it directly into Claude.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !webBypasserOn;
+                        setWebBypasserOn(next);
+                        localStorage.setItem('claude_web_bypasser', String(next));
+                      }}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                        webBypasserOn ? 'bg-[#cc785c]' : 'bg-[#2a2923]'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          webBypasserOn ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* 2. Unrestricted Developer God Mode */}
+                  <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <Terminal className="w-4 h-4 text-red-400" />
+                        <span className="text-xs font-semibold text-[#f2eee6]">Unrestricted Developer God Mode</span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-red-500/15 text-red-400 border border-red-500/30">
+                          Zero Refusal
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#8a8579] leading-relaxed">
+                        Removes AI guardrail refusals for advanced security analysis, system vulnerability audits, and produces 100% complete, runnable code files with zero placeholders or omissions.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !godModeOn;
+                        setGodModeOn(next);
+                        localStorage.setItem('claude_god_mode', String(next));
+                      }}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                        godModeOn ? 'bg-[#cc785c]' : 'bg-[#2a2923]'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          godModeOn ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* 3. Multi-Engine Auto-Failover Bypass */}
+                  <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <Zap className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-semibold text-[#f2eee6]">Multi-Engine Auto-Failover Bypass</span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                          Zero Downtime
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#8a8579] leading-relaxed">
+                        Automatically cascades requests across Gemini 2.5 Flash, Gemini 2.5 Pro, OpenRouter free models, and OmniRoute so you never hit a rate limit or service interruption.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !autoFailoverOn;
+                        setAutoFailoverOn(next);
+                        localStorage.setItem('claude_auto_failover', String(next));
+                      }}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                        autoFailoverOn ? 'bg-[#cc785c]' : 'bg-[#2a2923]'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          autoFailoverOn ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* 4. Extreme Reasoning Depth (64k Tokens) */}
+                  <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Brain className="w-4 h-4 text-[#cc785c]" />
+                        <span className="text-xs font-semibold text-[#f2eee6]">Thinking Budget Allocation</span>
+                      </div>
+                      <span className="text-xs font-mono text-[#cc785c] font-bold">
+                        {thinkingBudget.toLocaleString()} tokens
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 pt-1">
+                      {[8000, 16000, 32000, 64000].map((b) => (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => onSelectThinkingBudget?.(b as ThinkingBudget)}
+                          className={`py-1.5 px-2 rounded-lg text-xs font-mono font-medium border transition-all ${
+                            thinkingBudget === b
+                              ? 'bg-[#cc785c]/20 border-[#cc785c] text-[#f4efe6] font-bold shadow-xs'
+                              : 'bg-[#181714] border-[#2c2a23] text-[#8a8579] hover:text-[#ece9e2]'
+                          }`}
+                        >
+                          {b >= 1000 ? `${b / 1000}k` : b}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-[#8a8579]">
+                      Extended thinking allows Claude to reason through complex system architectures, algorithms, and logic trees prior to answering.
+                    </p>
+                  </div>
+
+                  {/* 5. 1,000,000 Tokens Context Expansion */}
+                  <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <Database className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xs font-semibold text-[#f2eee6]">1,000,000 Token Ultra-Long Context</span>
+                      </div>
+                      <p className="text-[11px] text-[#8a8579] leading-relaxed">
+                        Retains whole code repositories, lengthy technical logs, and hundreds of chat turns in active attention memory without truncation.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !contextExpansionOn;
+                        setContextExpansionOn(next);
+                        localStorage.setItem('claude_context_expansion', String(next));
+                      }}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                        contextExpansionOn ? 'bg-[#cc785c]' : 'bg-[#2a2923]'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          contextExpansionOn ? 'translate-x-4' : 'translate-x-0'
                         }`}
                       />
                     </button>

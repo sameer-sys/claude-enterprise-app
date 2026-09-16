@@ -60,6 +60,7 @@ interface SidebarProps {
   onToggleConnector?: (id: string) => void;
   activeSessionTitle?: string;
   hasGeminiKey?: boolean;
+  onOpenFeatures?: () => void;
 }
 
 export default function Sidebar({
@@ -84,6 +85,7 @@ export default function Sidebar({
   onToggleConnector,
   activeSessionTitle,
   hasGeminiKey = false,
+  onOpenFeatures,
 }: SidebarProps) {
   const [search, setSearch] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -341,6 +343,21 @@ export default function Sidebar({
               </div>
               <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
                 LIVE PMs
+              </span>
+            </button>
+          )}
+
+          {onOpenFeatures && (
+            <button
+              onClick={onOpenFeatures}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all group"
+            >
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform" />
+                <span className="font-semibold text-[#f2eee6]">Features & Superpowers</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-gradient-to-r from-amber-500/20 to-[#cc785c]/20 text-[#cc785c] font-mono border border-[#cc785c]/30">
+                12⚡
               </span>
             </button>
           )}

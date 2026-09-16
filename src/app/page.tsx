@@ -9,6 +9,7 @@ import SettingsModal, { SettingsTab } from '@/components/SettingsModal';
 import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
 import AgentsModal from '@/components/AgentsModal';
+import FeaturesModal from '@/components/FeaturesModal';
 import ManagerSquadView from '@/components/ManagerSquadView';
 import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton, OpenWorkAgent, ConnectorConfig } from '@/types/chat';
 
@@ -69,6 +70,7 @@ export default function Home() {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isAgentsModalOpen, setIsAgentsModalOpen] = useState(false);
   const [isSquadOpen, setIsSquadOpen] = useState(false);
+  const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>(DEFAULT_CONNECTORS);
   const [geminiKey, setGeminiKey] = useState<string>('');
@@ -576,6 +578,7 @@ export default function Home() {
         onToggleConnector={handleToggleConnector}
         activeSessionTitle={activeSession.title}
         hasGeminiKey={Boolean(geminiKey)}
+        onOpenFeatures={() => setIsFeaturesOpen(true)}
       />
 
       {/* Main Viewport */}
@@ -609,6 +612,7 @@ export default function Home() {
             setSettingsTab('models');
             setIsSettingsOpen(true);
           }}
+          onOpenFeatures={() => setIsFeaturesOpen(true)}
           hasGeminiKey={Boolean(geminiKey)}
         />
 
@@ -683,6 +687,21 @@ export default function Home() {
         isOpen={isAgentsModalOpen}
         onClose={() => setIsAgentsModalOpen(false)}
         onSelectAgent={handleSelectAgent}
+      />
+
+      <FeaturesModal
+        isOpen={isFeaturesOpen}
+        onClose={() => setIsFeaturesOpen(false)}
+        onSelectPrompt={(prompt) => {
+          handleSendMessage(prompt);
+        }}
+        onOpenSettings={() => {
+          setSettingsTab('advanced');
+          setIsSettingsOpen(true);
+        }}
+        onOpenDownload={() => setIsDownloadOpen(true)}
+        onOpenSquad={() => setIsSquadOpen(true)}
+        onSelectThinkingBudget={(budget) => setThinkingBudget(budget as ThinkingBudget)}
       />
 
       {isSquadOpen && (

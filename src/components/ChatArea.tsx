@@ -62,6 +62,7 @@ interface ChatAreaProps {
   onDeleteCustomButton?: (id: string) => void;
   sessionTitle?: string;
   onOpenSettings?: () => void;
+  onOpenFeatures?: () => void;
   hasGeminiKey?: boolean;
 }
 
@@ -88,6 +89,7 @@ export default function ChatArea({
   onDeleteCustomButton,
   sessionTitle,
   onOpenSettings,
+  onOpenFeatures,
   hasGeminiKey = false,
 }: ChatAreaProps) {
   const [input, setInput] = useState('');
@@ -674,6 +676,21 @@ export default function ChatArea({
             <FileDown className="w-3.5 h-3.5 text-[#cc785c]" />
             <span className="hidden sm:inline">Export</span>
           </button>
+
+          {/* PRO MAX SUPERPOWERS & FEATURES BUTTON */}
+          {onOpenFeatures && (
+            <button
+              onClick={onOpenFeatures}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-[#cc785c]/25 to-rose-500/20 hover:from-amber-500/30 hover:to-rose-500/30 border border-[#cc785c]/50 text-xs font-bold text-[#f4efe6] transition-all hover:scale-[1.03] active:scale-95 shadow-sm group"
+              title="Explore all 12 App Superpowers & Unbelievable Features"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform" />
+              <span>Features</span>
+              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#cc785c]/30 text-[#cc785c] border border-[#cc785c]/40 ml-0.5">
+                12⚡
+              </span>
+            </button>
+          )}
 
           {/* OPENWORK CLOUD WEBSITE */}
           <a

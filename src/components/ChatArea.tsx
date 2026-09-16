@@ -33,10 +33,15 @@ import {
   Key,
   ExternalLink,
   Globe,
+  Cpu,
+  Mail,
+  Github,
+  Crown,
+  CheckCircle2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Message, ModelId, Artifact, ResponseStyle, Attachment, ThinkingBudget, CustomButton } from '@/types/chat';
+import { Message, ModelId, Artifact, ResponseStyle, Attachment, ThinkingBudget, CustomButton, Connector, ConnectorConfig } from '@/types/chat';
 import ModelSelector from './ModelSelector';
 
 interface ChatAreaProps {
@@ -53,6 +58,9 @@ interface ChatAreaProps {
   onOpenConnectors: () => void;
   onOpenDownload: () => void;
   activeConnectorsCount: number;
+  activeConnectors?: Connector[];
+  onToggleConnector?: (id: string) => void;
+  onUpdateConnectorConfig?: (id: string, config: ConnectorConfig) => void;
   thinkingBudget: ThinkingBudget;
   onSelectThinkingBudget: (budget: ThinkingBudget) => void;
   isProactiveMode: boolean;
@@ -80,6 +88,9 @@ export default function ChatArea({
   onOpenConnectors,
   onOpenDownload,
   activeConnectorsCount,
+  activeConnectors = [],
+  onToggleConnector,
+  onUpdateConnectorConfig,
   thinkingBudget,
   onSelectThinkingBudget,
   isProactiveMode,
@@ -104,6 +115,26 @@ export default function ChatArea({
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [interactionMode, setInteractionMode] = useState<'chat' | 'cowork'>('chat');
+
+  // Downside Per-Session Connector Quick Edit State
+  const [editingDownsideConn, setEditingDownsideConn] = useState<Connector | null>(null);
+  const [downsideEditValue, setDownsideEditValue] = useState('');
+
+  const handleSaveDownsideConfig = () => {
+    if (!editingDownsideConn || !onUpdateConnectorConfig) return;
+    if (editingDownsideConn.id === 'conn-gmail') {
+      onUpdateConnectorConfig(editingDownsideConn.id, {
+        ...editingDownsideConn.config,
+        email: downsideEditValue.trim(),
+      });
+    } else if (editingDownsideConn.id === 'conn-github') {
+      onUpdateConnectorConfig(editingDownsideConn.id, {
+        ...editingDownsideConn.config,
+        repo: downsideEditValue.trim(),
+      });
+    }
+    setEditingDownsideConn(null);
+  };
 
   // Self-Customization Modal State
   const [isAddingButton, setIsAddingButton] = useState(false);
@@ -520,19 +551,6 @@ export default function ChatArea({
               Cowork
             </button>
           </div>
-
-          {/* Connectors shortcut */}
-          {activeConnectorsCount > 0 && (
-            <button
-              type="button"
-              onClick={onOpenConnectors}
-              className="hidden sm:flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-[#22201b] border border-[#302e26] text-[11px] text-[#cc785c] hover:border-[#cc785c]/50 transition-colors"
-              title="Manage active connectors"
-            >
-              <Zap className="w-3 h-3" />
-              <span>{activeConnectorsCount} on</span>
-            </button>
-          )}
         </div>
 
         {/* Right side: Model Selector, Thinking, Mic, Send */}
@@ -603,6 +621,94 @@ export default function ChatArea({
     </form>
   );
 
+  const renderDownsideConnectorsBar = () => {
+    if (!activeConnectors || activeConnectors.length === 0) return null;
+    const enabledCount = activeConnectors.filter((c) => c.enabled).length;
+
+    return (
+      <div className="w-full max-w-3xl mx-auto pt-2.5 px-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 select-none animate-in fade-in duration-150">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1 text-[11px] font-semibold text-[#8a8579] mr-1">
+            <Cpu className="w-3.5 h-3.5 text-[#cc785c]" />
+            <span>Active Connectors ({enabledCount}):</span>
+          </div>
+
+          {activeConnectors.map((conn) => {
+            const isConnEnabled = conn.enabled;
+            const detail =
+              conn.id === 'conn-gmail'
+                ? conn.config?.email || 'Gmail'
+                : conn.id === 'conn-github'
+                ? conn.config?.repo?.split('/')[1] || 'GitHub'
+                : conn.name;
+
+            return (
+              <div
+                key={conn.id}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all border ${
+                  isConnEnabled
+                    ? 'bg-[#25231e] text-[#f2eee6] border-emerald-500/40 shadow-sm'
+                    : 'bg-[#181714] text-[#6b675d] border-[#292721] hover:border-[#38352d]'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    isConnEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-[#48453d]'
+                  }`}
+                />
+                <span className="truncate max-w-[130px] font-mono text-[10.5px]">
+                  {detail}
+                </span>
+
+                {/* Quick Toggle ON/OFF */}
+                <button
+                  type="button"
+                  onClick={() => onToggleConnector?.(conn.id)}
+                  className={`text-[9px] font-bold px-1.5 py-0.2 rounded font-mono transition-colors ${
+                    isConnEnabled
+                      ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                      : 'bg-[#282620] text-[#8a8579] hover:text-[#ece9e2]'
+                  }`}
+                  title={isConnEnabled ? `Turn off ${conn.name} for this chat` : `Turn on ${conn.name} for this chat`}
+                >
+                  {isConnEnabled ? 'ON' : 'OFF'}
+                </button>
+
+                {/* Per-Chat Quick Edit Button for Gmail & GitHub */}
+                {(conn.id === 'conn-gmail' || conn.id === 'conn-github') && isConnEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingDownsideConn(conn);
+                      setDownsideEditValue(
+                        conn.id === 'conn-gmail'
+                          ? conn.config?.email || 'sameer.workspace@gmail.com'
+                          : conn.config?.repo || 'sameer-sys/claude-enterprise-app'
+                      );
+                    }}
+                    className="p-0.5 rounded hover:bg-[#38352d] text-[#8a8579] hover:text-[#cc785c] transition-colors text-[11px]"
+                    title={`Edit ${conn.id === 'conn-gmail' ? 'email address' : 'GitHub repo'} for this chat session`}
+                  >
+                    ✎
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={onOpenConnectors}
+          className="text-[11px] font-semibold text-[#cc785c] hover:text-[#db8a6e] transition-colors flex items-center gap-1 shrink-0 self-end sm:self-auto"
+          title="Open complete Connectors Directory with MCP tools"
+        >
+          <span>+ Connect More</span>
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[#1c1b18] relative overflow-hidden">
       {/* Top Navbar */}
@@ -638,15 +744,12 @@ export default function ChatArea({
             </button>
           )}
 
-          {/* Free plan · Upgrade */}
-          <button
-            onClick={() => onOpenSettings?.()}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl hover:bg-[#25241f] text-xs font-medium text-[#9c978b] hover:text-[#ece9e2] transition-colors"
-          >
-            <span>Free plan</span>
-            <span className="text-[#686358]">·</span>
-            <span className="text-[#cc785c] font-semibold hover:underline">Upgrade</span>
-          </button>
+          {/* Enterprise Pro Max Status Badge */}
+          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-500/10 to-[#cc785c]/10 border border-[#cc785c]/30 text-xs font-semibold text-[#f2eee6] select-none">
+            <Crown className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Pro Max Unlimited</span>
+            <span className="sm:hidden text-[10px] font-mono text-[#cc785c]">PRO</span>
+          </div>
 
           {/* Autonomous Two-Way Proactive Mode Toggle */}
           <button
@@ -1176,10 +1279,11 @@ export default function ChatArea({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Floating Prompt Box at Bottom */}
+      {/* Floating Prompt Box + Downside Connectors Bar at Bottom */}
       {hasMessages && (
         <div className="p-4 md:p-6 bg-gradient-to-t from-[#1c1b18] via-[#1c1b18] to-transparent shrink-0">
           {renderPromptBox(false)}
+          {renderDownsideConnectorsBar()}
         </div>
       )}
 
@@ -1276,6 +1380,78 @@ export default function ChatArea({
                 }`}
               >
                 Add Button
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Per-Session Connector Quick Edit Modal (Gmail email / GitHub repo) */}
+      {editingDownsideConn && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-sm rounded-2xl bg-[#23221e] border border-[#383630] shadow-2xl overflow-hidden p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[#33312a]">
+              <div className="flex items-center space-x-2">
+                {editingDownsideConn.id === 'conn-gmail' ? (
+                  <Mail className="w-4 h-4 text-[#cc785c]" />
+                ) : (
+                  <Github className="w-4 h-4 text-[#cc785c]" />
+                )}
+                <h3 className="text-sm font-semibold text-[#ece9e2]">
+                  {editingDownsideConn.id === 'conn-gmail'
+                    ? 'Set Gmail Address for this Chat'
+                    : 'Set GitHub Repo for this Chat'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setEditingDownsideConn(null)}
+                className="p-1 rounded hover:bg-[#2c2a25] text-[#9c978b] hover:text-[#ece9e2]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-[#8a8579]">
+                {editingDownsideConn.id === 'conn-gmail' ? 'Gmail Address' : 'GitHub Repo (owner/repo)'}
+              </label>
+              <input
+                type="text"
+                value={downsideEditValue}
+                onChange={(e) => setDownsideEditValue(e.target.value)}
+                placeholder={
+                  editingDownsideConn.id === 'conn-gmail'
+                    ? 'sameer@gmail.com'
+                    : 'sameer-sys/my-repo'
+                }
+                className="w-full px-3 py-2 rounded-xl bg-[#1a1916] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c]"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveDownsideConfig();
+                  if (e.key === 'Escape') setEditingDownsideConn(null);
+                }}
+              />
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#33312a]">
+              <button
+                type="button"
+                onClick={() => setEditingDownsideConn(null)}
+                className="px-3 py-1.5 rounded-lg text-xs text-[#9c978b] hover:text-[#ece9e2]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!downsideEditValue.trim()}
+                onClick={handleSaveDownsideConfig}
+                className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  downsideEditValue.trim()
+                    ? 'bg-[#cc785c] hover:bg-[#db8a6e] text-black shadow-md'
+                    : 'bg-[#2b2923] text-[#6d685e] cursor-not-allowed'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />
+                Save for this Chat
               </button>
             </div>
           </div>

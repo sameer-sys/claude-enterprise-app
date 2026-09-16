@@ -182,6 +182,17 @@ export default function ModelSelector({
                 </div>
               );
             })}
+
+            {/* Close / Done Action */}
+            <div className="pt-2 px-1 border-t border-[#2d2b25] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="px-3.5 py-1 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs shadow-sm transition-all active:scale-95"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </>
       )}

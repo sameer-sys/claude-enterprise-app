@@ -577,10 +577,7 @@ export default function Home() {
         onToggleStar={handleToggleStar}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        onOpenConnectors={() => {
-          setSettingsTab('connectors');
-          setIsSettingsOpen(true);
-        }}
+        onOpenConnectors={() => setIsConnectorsOpen(true)}
         onOpenSettings={() => {
           setSettingsTab('general');
           setIsSettingsOpen(true);
@@ -610,12 +607,12 @@ export default function Home() {
           onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
           onSelectArtifact={(art) => setActiveArtifact(art)}
           activeArtifactId={activeArtifact?.id}
-          onOpenConnectors={() => {
-            setSettingsTab('connectors');
-            setIsSettingsOpen(true);
-          }}
+          onOpenConnectors={() => setIsConnectorsOpen(true)}
           onOpenDownload={() => setIsDownloadOpen(true)}
           activeConnectorsCount={activeConnectorsCount}
+          activeConnectors={currentSessionConnectors}
+          onToggleConnector={handleToggleConnector}
+          onUpdateConnectorConfig={handleUpdateConnectorConfig}
           thinkingBudget={thinkingBudget}
           onSelectThinkingBudget={setThinkingBudget}
           isProactiveMode={isProactiveMode}

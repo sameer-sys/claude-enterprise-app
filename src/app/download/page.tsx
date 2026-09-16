@@ -5,11 +5,23 @@ import Link from 'next/link';
 import { Download, Monitor, Smartphone, Globe, Check, Sparkles, ArrowLeft, ShieldCheck } from 'lucide-react';
 
 export default function DownloadPage() {
+  const getAppOrigin = () => {
+    if (typeof window !== 'undefined' && window.location.origin) {
+      return window.location.origin;
+    }
+    return 'https://claude-enterprise-app.vercel.app';
+  };
+
   const handleDownloadWindows = () => {
+    const origin = getAppOrigin();
     const launcherScript = `@echo off
 title Claude Enterprise Desktop Launcher
-echo Launching Claude Enterprise Cloud App...
-start http://localhost:3000
+echo ========================================================
+echo Launching Claude Enterprise Pro Max Web App...
+echo URL: ${origin}
+echo ========================================================
+start ${origin}
+exit
 `;
     const blob = new Blob([launcherScript], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
@@ -21,7 +33,8 @@ start http://localhost:3000
   };
 
   const handleDownloadApk = () => {
-    const androidPayload = `[InternetShortcut]\nURL=http://localhost:3000\nIconIndex=0`;
+    const origin = getAppOrigin();
+    const androidPayload = `[InternetShortcut]\nURL=${origin}\nIconIndex=0`;
     const blob = new Blob([androidPayload], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
       omniRouteUrl,
       thinkingBudget = 16000,
       agentPrompt,
+      connectors = [],
     } = await req.json();
 
     const isOmniRouteModel =
@@ -91,10 +92,63 @@ export async function POST(req: NextRequest) {
       modelId === 'the-boss-build' ||
       modelId === 'omniroute-auto';
 
-    const systemPrompt =
+    // ========================================================
+    // CLAUDE CONNECTORS INTEGRATION & CONTEXT INJECTION (MCP)
+    // ========================================================
+    let connectorContext = '';
+    const activeConnectors = Array.isArray(connectors) ? connectors.filter((c: any) => c.enabled) : [];
+
+    if (activeConnectors.length > 0) {
+      connectorContext += '\n\n[CLAUDE CONNECTORS & MODEL CONTEXT PROTOCOL (MCP) ACTIVE]:\n';
+      for (const conn of activeConnectors) {
+        connectorContext += `- ${conn.name} (${conn.category}): Enabled and accessible.\n`;
+      }
+
+      // Check for GitHub connector live repo query
+      const githubConn = activeConnectors.find((c: any) => c.id === 'conn-github');
+      if (githubConn) {
+        const repo = githubConn.config?.repo || 'sameer-sys/claude-enterprise-app';
+        connectorContext += `\n[GitHub Connector Active for: ${repo}]:\n`;
+        connectorContext += `- Active repository: ${repo}\n- Branch: main\n- Tech Stack: Next.js 14 App Router, TypeScript, Tailwind CSS, Lucide icons, Supabase Sync.\n`;
+      }
+
+      // Check for Live Web Search connector
+      const searchConn = activeConnectors.find((c: any) => c.id === 'conn-websearch');
+      if (searchConn) {
+        connectorContext += `\n[Live Web Search Active]: Real-time live web research is enabled for this session. Provide authoritative, fresh data with citations.\n`;
+      }
+
+      // Check for Local Filesystem (MCP)
+      const fsConn = activeConnectors.find((c: any) => c.id === 'conn-filesystem');
+      if (fsConn) {
+        connectorContext += `\n[Local Filesystem (MCP) Active]: Project directory access enabled in scratch/boss-ai-app.\n`;
+      }
+
+      // Check for Google Drive connector
+      const driveConn = activeConnectors.find((c: any) => c.id === 'conn-gdrive');
+      if (driveConn) {
+        connectorContext += `\n[Google Drive Connector Active]: Connected to workspace folder "${driveConn.config?.driveFolder || 'Shared Workspace'}". Document analysis and extraction tools ready.\n`;
+      }
+
+      // Check for Slack connector
+      const slackConn = activeConnectors.find((c: any) => c.id === 'conn-slack');
+      if (slackConn) {
+        connectorContext += `\n[Slack Workspace Active]: Connected to channel "${slackConn.config?.slackChannel || '#general'}".\n`;
+      }
+
+      // Check for Notion connector
+      const notionConn = activeConnectors.find((c: any) => c.id === 'conn-notion');
+      if (notionConn) {
+        connectorContext += `\n[Notion Workspace Active]: Connected to workspace databases and engineering specs.\n`;
+      }
+    }
+
+    const baseSystemPrompt =
       agentPrompt ||
       SYSTEM_PROMPTS[modelId as keyof typeof SYSTEM_PROMPTS] ||
       SYSTEM_PROMPTS['claude-3-7-sonnet'];
+
+    const systemPrompt = `${baseSystemPrompt}${connectorContext}`;
 
     const userLastMsg = messages[messages.length - 1];
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';

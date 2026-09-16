@@ -10,7 +10,7 @@ import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
 import AgentsModal from '@/components/AgentsModal';
 import ManagerSquadView from '@/components/ManagerSquadView';
-import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton, OpenWorkAgent } from '@/types/chat';
+import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton, OpenWorkAgent, ConnectorConfig } from '@/types/chat';
 
 const DEFAULT_CUSTOM_BUTTONS: CustomButton[] = [
   { id: 'btn_1', label: '🚀 Deploy Guide', prompt: 'Provide a production deployment guide with Docker and CI/CD workflow.' },
@@ -254,6 +254,19 @@ export default function Home() {
     );
   };
 
+  const handleUpdateConnectorConfig = (id: string, config: ConnectorConfig) => {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSession.id) return s;
+        const curConns = s.connectors || createDefaultConnectors();
+        const updatedConns = curConns.map((c) =>
+          c.id === id ? { ...c, config: { ...c.config, ...config } } : c
+        );
+        return { ...s, connectors: updatedConns };
+      })
+    );
+  };
+
   const handleCreateProject = (project: Project) => {
     setProjects([project, ...projects]);
   };
@@ -399,6 +412,8 @@ export default function Home() {
           geminiKey: geminiKey || undefined,
           openRouterKey: openRouterKey || undefined,
           thinkingBudget,
+          agentPrompt: activeSession.agentPrompt,
+          connectors: currentSessionConnectors,
         }),
         signal: controller.signal,
       });
@@ -579,6 +594,7 @@ export default function Home() {
         onClose={() => setIsConnectorsOpen(false)}
         activeConnectors={currentSessionConnectors}
         onToggleConnector={handleToggleConnector}
+        onUpdateConnectorConfig={handleUpdateConnectorConfig}
         sessionTitle={activeSession.title}
       />
 

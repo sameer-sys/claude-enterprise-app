@@ -17,6 +17,11 @@ import {
   Users,
   ShieldCheck,
   Zap,
+  Github,
+  HardDrive,
+  Globe,
+  FileCode,
+  Database,
 } from 'lucide-react';
 import { Session, Project, Connector } from '@/types/chat';
 
@@ -105,10 +110,10 @@ export default function Sidebar({
                 <h1 className="font-semibold text-sm text-[#f2eee6] tracking-tight">Claude</h1>
                 <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-gradient-to-r from-amber-500/20 to-[#cc785c]/20 text-[#cc785c] border border-[#cc785c]/40 font-mono flex items-center gap-0.5">
                   <Crown className="w-2.5 h-2.5" />
-                  <span>Enterprise</span>
+                  <span>Pro Max Unlimited</span>
                 </span>
               </div>
-              <p className="text-[11px] text-[#9c978b] truncate max-w-[140px]">Sameer's Workspace</p>
+              <p className="text-[11px] text-[#9c978b] truncate max-w-[140px]">Sameer's Workspace • $0 Tier</p>
             </div>
           </div>
         </div>
@@ -176,20 +181,32 @@ export default function Sidebar({
 
           {/* Quick 1-click connector toggles for this chat */}
           <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-            {activeConnectors.slice(0, 6).map((conn) => (
+            {activeConnectors.slice(0, 8).map((conn) => (
               <button
                 key={conn.id}
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleConnector?.(conn.id);
                 }}
-                className={`flex items-center space-x-1.5 px-2 py-1 rounded-md text-[10px] font-medium transition-all text-left truncate ${
+                className={`flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all text-left truncate ${
                   conn.enabled
                     ? 'bg-[#2b2922] text-[#f2eee6] border border-[#cc785c]/40 shadow-xs'
-                    : 'bg-[#171613] text-[#757065] hover:text-[#a19c90] border border-[#26241e]'
+                    : 'bg-[#171613] text-[#787469] hover:text-[#aba597] border border-[#272520]'
                 }`}
-                title={`${conn.name} (${conn.enabled ? 'Enabled - Click to disable for this chat' : 'Disabled - Click to enable for this chat'})`}
+                title={`${conn.name} (${conn.enabled ? 'Active - Click to disable' : 'Inactive - Click to enable'})`}
               >
+                {conn.icon === 'github' && <Github className="w-3 h-3 text-white shrink-0" />}
+                {conn.icon === 'websearch' && <Globe className="w-3 h-3 text-cyan-400 shrink-0" />}
+                {conn.icon === 'filesystem' && <FileCode className="w-3 h-3 text-amber-300 shrink-0" />}
+                {conn.icon === 'gdrive' && <HardDrive className="w-3 h-3 text-blue-400 shrink-0" />}
+                {conn.icon === 'slack' && <MessageSquare className="w-3 h-3 text-amber-400 shrink-0" />}
+                {conn.icon === 'notion' && <FolderKanban className="w-3 h-3 text-emerald-400 shrink-0" />}
+                {conn.icon === 'database' && <Database className="w-3 h-3 text-emerald-400 shrink-0" />}
+                {conn.icon === 'mcp' && <Cpu className="w-3 h-3 text-[#cc785c] shrink-0" />}
+                {conn.icon === 'figma' && <Sparkles className="w-3 h-3 text-purple-400 shrink-0" />}
+
+                <span className="truncate flex-1">{conn.name}</span>
+
                 <span
                   className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                     conn.enabled
@@ -197,7 +214,6 @@ export default function Sidebar({
                       : 'bg-zinc-600'
                   }`}
                 />
-                <span className="truncate">{conn.name}</span>
               </button>
             ))}
           </div>
@@ -398,13 +414,13 @@ export default function Sidebar({
 
           <button
             onClick={onOpenConnectors}
-            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all"
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all group"
           >
             <div className="flex items-center space-x-2">
-              <Cpu className="w-3.5 h-3.5 text-[#cc785c]" />
-              <span>Connectors Modal</span>
+              <Cpu className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform" />
+              <span>Connectors Directory</span>
             </div>
-            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono">
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono font-medium border border-emerald-500/20">
               {activeConnectorsCount} active
             </span>
           </button>
@@ -427,7 +443,7 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* User Profile - Enterprise Pro Tier */}
+        {/* User Profile - Enterprise Pro Max Tier */}
         <div className="p-3 border-t border-[#282621] bg-[#141310] flex items-center justify-between text-xs">
           <div className="flex items-center space-x-2.5">
             <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#b86146] to-[#e68d71] flex items-center justify-center text-black font-bold text-xs shadow-sm">
@@ -438,7 +454,7 @@ export default function Sidebar({
                 <span className="text-[#ece9e2] font-semibold text-xs">Sameer</span>
                 <ShieldCheck className="w-3.5 h-3.5 text-[#cc785c]" />
               </div>
-              <p className="text-[10px] text-[#baa898]">Enterprise 5x Plan</p>
+              <p className="text-[10px] text-[#baa898]">Claude Pro Max • $0 Free</p>
             </div>
           </div>
           <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#cc785c]/15 text-[#cc785c] border border-[#cc785c]/30 font-mono">

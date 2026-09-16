@@ -31,14 +31,27 @@ export interface Attachment {
   contentSnippet?: string; // Text content for code or text documents
 }
 
+export interface ConnectorConfig {
+  repo?: string;
+  token?: string;
+  driveFolder?: string;
+  slackChannel?: string;
+  notionDatabase?: string;
+  serverUrl?: string;
+  command?: string;
+}
+
 export interface Connector {
   id: string;
   name: string;
   description: string;
-  icon: 'github' | 'gdrive' | 'database' | 'filesystem' | 'mcp';
+  icon: 'github' | 'gdrive' | 'slack' | 'notion' | 'figma' | 'websearch' | 'filesystem' | 'database' | 'mcp';
   enabled: boolean;
   status: 'connected' | 'ready' | 'idle';
   category: string;
+  provider?: 'anthropic' | 'mcp' | 'community';
+  capabilities?: string[];
+  config?: ConnectorConfig;
 }
 
 export interface CustomButton {

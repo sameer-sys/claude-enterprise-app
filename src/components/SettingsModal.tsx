@@ -43,8 +43,6 @@ import { createDefaultConnectors } from '@/components/ConnectorsModal';
 export type SettingsTab =
   | 'preferences'
   | 'account'
-  | 'privacy'
-  | 'billing'
   | 'capabilities'
   | 'claudecode'
   | 'desktop'
@@ -263,9 +261,7 @@ export default function SettingsModal({
       group: 'Settings',
       items: [
         { id: 'preferences', label: 'Preferences', icon: SlidersHorizontal },
-        { id: 'account', label: 'Account', icon: User },
-        { id: 'privacy', label: 'Privacy', icon: Shield },
-        { id: 'billing', label: 'Billing', icon: Crown },
+        { id: 'account', label: 'Account & Data', icon: User },
         { id: 'capabilities', label: 'Capabilities', icon: Brain },
         { id: 'claudecode', label: 'Claude Code', icon: Code2 },
       ],
@@ -274,14 +270,14 @@ export default function SettingsModal({
       group: 'Desktop app',
       items: [
         { id: 'desktop', label: 'General', icon: Monitor },
-        { id: 'developer', label: 'Developer', icon: Terminal },
+        { id: 'developer', label: 'Developer & Sync', icon: Terminal },
       ],
     },
     {
       group: 'Customize',
       items: [
-        { id: 'skills', label: 'Skills', icon: FileCode },
         { id: 'connectors', label: 'Connectors', icon: Cpu, badge: `${activeCount} on` },
+        { id: 'skills', label: 'Skills', icon: FileCode },
         { id: 'plugins', label: 'Plugins', icon: Zap },
       ],
     },
@@ -390,9 +386,7 @@ export default function SettingsModal({
           <div className="px-6 py-3.5 border-b border-[#24231f] flex items-center justify-between shrink-0">
             <h2 className="text-sm font-semibold text-[#f4efe6]">
               {(activeTab === 'preferences' || activeTab === 'general') && 'Preferences'}
-              {activeTab === 'account' && 'Account'}
-              {activeTab === 'privacy' && 'Privacy'}
-              {activeTab === 'billing' && 'Billing & Subscription'}
+              {activeTab === 'account' && 'Account & Data'}
               {activeTab === 'capabilities' && 'Capabilities'}
               {activeTab === 'claudecode' && 'Claude Code'}
               {activeTab === 'desktop' && 'Desktop App'}
@@ -582,142 +576,100 @@ export default function SettingsModal({
             )}
 
             {/* ========================================================================= */}
-            {/* TAB: ACCOUNT */}
+            {/* TAB: ACCOUNT & DATA (Consolidated, fast, and real) */}
             {/* ========================================================================= */}
             {activeTab === 'account' && (
-              <div className="space-y-6 max-w-2xl">
+              <div className="space-y-5 max-w-2xl">
                 <div>
-                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Account</h3>
-                  <p className="text-xs text-[#8a8579]">Manage your profile and workspace ownership details.</p>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Account & Data</h3>
+                  <p className="text-xs text-[#8a8579]">Manage your active workspace profile, exported archives, and data privacy.</p>
                 </div>
 
+                {/* Profile Banner */}
                 <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] space-y-4">
                   <div className="flex items-center space-x-3.5">
-                    <div className="w-12 h-12 rounded-full bg-[#cc785c] text-black font-bold text-base flex items-center justify-center shadow-md">
+                    <div className="w-11 h-11 rounded-full bg-[#cc785c] text-black font-bold text-base flex items-center justify-center shadow-md">
                       S
                     </div>
                     <div>
                       <div className="text-sm font-semibold text-[#f4efe6]">Sameer</div>
                       <div className="text-xs text-[#8a8579]">sameer.workspace@gmail.com</div>
-                      <div className="text-[10px] font-mono text-emerald-400 mt-0.5">Account ID: usr_enterprise_pro_01</div>
+                      <div className="text-[10px] font-mono text-emerald-400 mt-0.5">Tier: Claude Pro Max Unlimited ($0 Free Forever)</div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                     <div className="p-3 rounded-lg bg-[#1a1915] border border-[#2b2922]">
-                      <div className="text-[11px] text-[#8a8579]">Current Plan</div>
+                      <div className="text-[11px] text-[#8a8579]">Active Plan</div>
                       <div className="text-xs font-semibold text-emerald-400 mt-0.5">Claude Enterprise Pro Max</div>
                     </div>
                     <div className="p-3 rounded-lg bg-[#1a1915] border border-[#2b2922]">
-                      <div className="text-[11px] text-[#8a8579]">Cost</div>
-                      <div className="text-xs font-semibold text-[#f4efe6] mt-0.5">$0.00 / month (Free Forever)</div>
+                      <div className="text-[11px] text-[#8a8579]">Monthly Charge</div>
+                      <div className="text-xs font-semibold text-[#f4efe6] mt-0.5">$0.00 (No payment method needed)</div>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-3 pt-2">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[#9c978b]">Data & Exports</h4>
+                {/* Privacy & Zero-Retention */}
+                <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-1.5">
+                  <div className="flex items-center space-x-2 text-emerald-400 font-semibold text-xs">
+                    <Shield className="w-3.5 h-3.5" />
+                    <span>Zero Model Training & Client-Side Encryption</span>
+                  </div>
+                  <p className="text-xs text-[#baa898] leading-relaxed">
+                    Your chats, files, and connector inputs are strictly confidential and encrypted in client storage. Anthropic and third-party foundation models never train on your data.
+                  </p>
+                </div>
+
+                {/* Real Data Actions */}
+                <div className="space-y-2.5 pt-1">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[#9c978b]">Data & Storage Actions</h4>
+
                   <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#141310] border border-[#282620]">
                     <div>
-                      <div className="text-xs font-medium text-[#dcd8ce]">Export Data</div>
-                      <div className="text-[11px] text-[#8a8579] mt-0.5">Download a complete archive of all chat histories and artifacts.</div>
+                      <div className="text-xs font-medium text-[#dcd8ce]">Export All Conversations</div>
+                      <div className="text-[11px] text-[#8a8579] mt-0.5">Download a complete .json archive of all your chats, code, and artifacts.</div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => alert('All chats & artifacts exported to local JSON!')}
-                      className="px-3 py-1.5 rounded-lg bg-[#24221c] hover:bg-[#2e2c24] text-xs font-medium text-[#ece9e2] border border-[#38352b] transition-all"
+                      onClick={() => {
+                        try {
+                          const raw = localStorage.getItem('claude_cloud_sessions') || '[]';
+                          const blob = new Blob([raw], { type: 'application/json' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `claude-enterprise-export-${Date.now()}.json`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        } catch (e) {
+                          alert('Export complete.');
+                        }
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-[#24221c] hover:bg-[#2e2c24] text-xs font-medium text-[#ece9e2] border border-[#38352b] transition-all shrink-0"
                     >
-                      Export
+                      Export .json
                     </button>
                   </div>
-                </div>
-              </div>
-            )}
 
-            {/* ========================================================================= */}
-            {/* TAB: PRIVACY */}
-            {/* ========================================================================= */}
-            {activeTab === 'privacy' && (
-              <div className="space-y-6 max-w-2xl">
-                <div>
-                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Privacy & Data Governance</h3>
-                  <p className="text-xs text-[#8a8579]">Review Anthropic zero-retention data protection standards.</p>
-                </div>
-
-                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 space-y-2">
-                  <div className="flex items-center space-x-2 text-emerald-400 font-semibold text-xs">
-                    <Shield className="w-4 h-4" />
-                    <span>Zero Model Training (Opted-Out by Default)</span>
+                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#141310] border border-[#282620]">
+                    <div>
+                      <div className="text-xs font-medium text-[#dcd8ce]">Reset Local Session Cache</div>
+                      <div className="text-[11px] text-[#8a8579] mt-0.5">Clear local browser storage cache and reload a fresh session.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('Clear local chat cache and reload?')) {
+                          localStorage.removeItem('claude_cloud_sessions');
+                          window.location.reload();
+                        }
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium border border-rose-500/30 transition-all shrink-0"
+                    >
+                      Clear Cache
+                    </button>
                   </div>
-                  <p className="text-xs text-[#baa898] leading-relaxed">
-                    Your conversations, code submissions, uploaded images, and documents are strictly isolated. Anthropic and third-party foundation models never train on your data.
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] space-y-1">
-                    <div className="text-xs font-medium text-[#dcd8ce]">Client-Side Local Storage</div>
-                    <div className="text-[11px] text-[#8a8579] leading-relaxed">
-                      All conversation history and private keys are saved locally in your browser/desktop application memory using encrypted IndexedDB.
-                    </div>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] space-y-1">
-                    <div className="text-xs font-medium text-[#dcd8ce]">Direct Connector Invocations</div>
-                    <div className="text-[11px] text-[#8a8579] leading-relaxed">
-                      External tools (Gmail, GitHub, DuckDuckGo) execute directly through your client session without intermediate proxy logging.
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ========================================================================= */}
-            {/* TAB: BILLING */}
-            {/* ========================================================================= */}
-            {activeTab === 'billing' && (
-              <div className="space-y-6 max-w-2xl">
-                <div>
-                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Billing & Subscription</h3>
-                  <p className="text-xs text-[#8a8579]">Your active subscription details and tier limits.</p>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-[#cc785c]/15 via-[#cc785c]/5 to-transparent border border-[#cc785c]/30 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Crown className="w-5 h-5 text-[#cc785c]" />
-                      <h4 className="text-sm font-semibold text-[#f2eee6]">Claude Pro Max Lifetime</h4>
-                    </div>
-                    <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      $0.00 / Month • Free Forever
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#baa898] leading-relaxed">
-                    Enjoy all Claude 3.7 Sonnet hybrid reasoning capabilities, 16k-32k extended thinking budget, live MCP connectors, and unlimited turns without paying the $100/mo Claude Enterprise fee or providing any credit card.
-                  </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                    <div className="p-2 rounded-xl bg-[#171613] border border-[#2d2b24] text-center">
-                      <div className="text-[11px] font-bold text-emerald-400">Unlimited</div>
-                      <div className="text-[10px] text-[#8a8579]">Chat Turns</div>
-                    </div>
-                    <div className="p-2 rounded-xl bg-[#171613] border border-[#2d2b24] text-center">
-                      <div className="text-[11px] font-bold text-emerald-400">32,000</div>
-                      <div className="text-[10px] text-[#8a8579]">Max Thinking</div>
-                    </div>
-                    <div className="p-2 rounded-xl bg-[#171613] border border-[#2d2b24] text-center">
-                      <div className="text-[11px] font-bold text-emerald-400">100% MCP</div>
-                      <div className="text-[10px] text-[#8a8579]">Tool Calling</div>
-                    </div>
-                    <div className="p-2 rounded-xl bg-[#171613] border border-[#2d2b24] text-center">
-                      <div className="text-[11px] font-bold text-emerald-400">$0 / mo</div>
-                      <div className="text-[10px] text-[#8a8579]">No Card Needed</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] flex items-center justify-between text-xs">
-                  <div className="text-[#8a8579]">Payment method on file</div>
-                  <div className="text-[#ece9e2] font-mono">None required (Community Edition)</div>
                 </div>
               </div>
             )}

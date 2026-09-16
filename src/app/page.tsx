@@ -239,7 +239,10 @@ export default function Home() {
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) || sessions[0] || DEFAULT_SESSION;
 
-  const currentSessionConnectors = activeSession.connectors || createDefaultConnectors();
+  const currentSessionConnectors =
+    activeSession.connectors && activeSession.connectors.length > 0
+      ? activeSession.connectors
+      : createDefaultConnectors();
   const activeConnectorsCount = currentSessionConnectors.filter((c) => c.enabled).length;
 
   const handleToggleConnector = (id: string) => {
@@ -432,13 +435,15 @@ export default function Home() {
 
       const decoder = new TextDecoder();
       let accumulatedContent = '';
+      let sseBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || '';
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -618,6 +623,7 @@ export default function Home() {
 
       {/* Modals */}
       <ConnectorsModal
+        key={`conn_${activeSession.id}`}
         isOpen={isConnectorsOpen}
         onClose={() => setIsConnectorsOpen(false)}
         activeConnectors={currentSessionConnectors}
@@ -627,6 +633,7 @@ export default function Home() {
       />
 
       <SettingsModal
+        key={`settings_${activeSession.id}`}
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         initialTab={settingsTab}

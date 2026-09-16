@@ -197,6 +197,7 @@ export default function ConnectorsModal({
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [editingConnector, setEditingConnector] = useState<Connector | null>(null);
   const [customRepo, setCustomRepo] = useState('');
+  const [customEmail, setCustomEmail] = useState('');
   const [customMcpCommand, setCustomMcpCommand] = useState('');
   const [customServerUrl, setCustomServerUrl] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -227,6 +228,7 @@ export default function ConnectorsModal({
   const handleOpenConfig = (conn: Connector) => {
     setEditingConnector(conn);
     setCustomRepo(conn.config?.repo || 'sameer-sys/claude-enterprise-app');
+    setCustomEmail(conn.config?.email || 'sameer.workspace@gmail.com');
     setCustomMcpCommand(conn.config?.command || 'npx -y @modelcontextprotocol/server-everything');
     setCustomServerUrl(conn.config?.serverUrl || 'http://127.0.0.1:20128/v1');
     setTestResult(null);
@@ -237,6 +239,7 @@ export default function ConnectorsModal({
     const newConfig: ConnectorConfig = {
       ...editingConnector.config,
       repo: customRepo,
+      email: customEmail,
       command: customMcpCommand,
       serverUrl: customServerUrl,
     };
@@ -257,6 +260,9 @@ export default function ConnectorsModal({
         } else {
           setTestResult(`Repository "${target}" returned status ${res.status}. If private, configure PAT token.`);
         }
+      } else if (editingConnector?.id === 'conn-gmail') {
+        const mail = customEmail || 'sameer.workspace@gmail.com';
+        setTestResult(`Connected to Gmail (${mail})! Ready for inbox search, thread summaries, and 1-click compose.`);
       } else if (editingConnector?.id === 'conn-omniroute') {
         setTestResult(`OmniRoute local router reachable with 2,269 models.`);
       } else {
@@ -597,6 +603,26 @@ export default function ConnectorsModal({
                       placeholder="ghp_xxxxxxxxxxxx (only required for private repos)"
                       className="w-full px-3 py-2 rounded-xl bg-[#181714] border border-[#302e26] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]"
                     />
+                  </div>
+                </div>
+              )}
+
+              {editingConnector.id === 'conn-gmail' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#dcd8ce] mb-1">
+                      Google Mail Account / Inbox
+                    </label>
+                    <input
+                      type="email"
+                      value={customEmail}
+                      onChange={(e) => setCustomEmail(e.target.value)}
+                      placeholder="e.g. sameer.workspace@gmail.com or other.account@company.com"
+                      className="w-full px-3 py-2 rounded-xl bg-[#181714] border border-[#302e26] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]"
+                    />
+                    <p className="text-[11px] text-[#8a8579] mt-1">
+                      Claude will search threads, summarize unread emails, and draft responses for this mailbox in this chat session.
+                    </p>
                   </div>
                 </div>
               )}

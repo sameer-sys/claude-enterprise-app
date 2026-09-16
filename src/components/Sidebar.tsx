@@ -360,6 +360,21 @@ export default function Sidebar({
             </button>
           )}
 
+          <a
+            href="/cloud"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all group"
+          >
+            <div className="flex items-center space-x-2">
+              <Globe className="w-3.5 h-3.5 text-[#cc785c] group-hover:scale-110 transition-transform" />
+              <span className="font-medium text-[#ece9e2]">OpenWork Cloud</span>
+            </div>
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#cc785c]/15 text-[#cc785c] font-mono border border-[#cc785c]/30 flex items-center gap-0.5">
+              Website ↗
+            </span>
+          </a>
+
           <button
             onClick={onOpenConnectors}
             className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all group"

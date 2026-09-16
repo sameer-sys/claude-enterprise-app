@@ -223,16 +223,27 @@ start ${targetUrl}
 
         {/* Footer */}
         <div className="p-4 border-t border-[#33312a] bg-[#1d1c18] flex items-center justify-between text-xs text-[#9c978b]">
-          <span className="flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Verified safe • Signed package</span>
-          </span>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-[#2e2c26] hover:bg-[#3a3831] text-[#ece9e2] font-medium"
+          <a
+            href="/cloud"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-[#cc785c] hover:underline font-medium"
           >
-            Close
-          </button>
+            <Globe className="w-3.5 h-3.5" />
+            <span>OpenWork Cloud Website ↗</span>
+          </a>
+          <div className="flex items-center space-x-2">
+            <span className="hidden sm:flex items-center gap-1 text-[11px] text-[#7d786e]">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>100% Free Forever</span>
+            </span>
+            <button
+              onClick={onClose}
+              className="px-4 py-1.5 rounded-lg bg-[#2e2c26] hover:bg-[#3a3831] text-[#ece9e2] font-medium"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -32,6 +32,7 @@ import {
   PlusCircle,
   Key,
   ExternalLink,
+  Globe,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -673,6 +674,18 @@ export default function ChatArea({
             <FileDown className="w-3.5 h-3.5 text-[#cc785c]" />
             <span className="hidden sm:inline">Export</span>
           </button>
+
+          {/* OPENWORK CLOUD WEBSITE */}
+          <a
+            href="/cloud"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#cc785c]/20 to-[#cc785c]/10 hover:from-[#cc785c]/30 hover:to-[#cc785c]/20 border border-[#cc785c]/30 text-xs font-semibold text-[#f2eee6] transition-all hover:text-white group"
+            title="Open the official OpenWork Cloud Website (Apps & Showcase)"
+          >
+            <Globe className="w-3.5 h-3.5 text-[#cc785c] group-hover:scale-110 transition-transform" />
+            <span className="hidden sm:inline">OpenWork Cloud ↗</span>
+          </a>
 
           {/* DOWNLOAD BUTTON */}
           <button

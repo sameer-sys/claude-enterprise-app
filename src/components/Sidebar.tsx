@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import {
   Plus,
-  MessageSquare,
   Trash2,
   Search,
   Sparkles,
@@ -12,9 +11,8 @@ import {
   Settings,
   Star,
   Layers,
+  ChevronDown,
   ChevronRight,
-  Crown,
-  Users,
   ShieldCheck,
   Zap,
   Github,
@@ -23,6 +21,19 @@ import {
   FileCode,
   Database,
   Mail,
+  PanelLeft,
+  ArrowLeft,
+  ArrowRight,
+  RotateCcw,
+  Code2,
+  SlidersHorizontal,
+  Download,
+  ListFilter,
+  Circle,
+  Menu,
+  X,
+  Crown,
+  MessageSquare,
 } from 'lucide-react';
 import { Session, Project, Connector } from '@/types/chat';
 
@@ -40,6 +51,8 @@ interface SidebarProps {
   onOpenNewProject: () => void;
   onOpenAgents?: () => void;
   onOpenSquad?: () => void;
+  onOpenDownload?: () => void;
+  onOpenArtifacts?: () => void;
   isSquadActive?: boolean;
   projects: Project[];
   activeConnectorsCount: number;
@@ -63,7 +76,8 @@ export default function Sidebar({
   onOpenNewProject,
   onOpenAgents,
   onOpenSquad,
-  isSquadActive = false,
+  onOpenDownload,
+  onOpenArtifacts,
   projects,
   activeConnectorsCount,
   activeConnectors = [],
@@ -72,6 +86,7 @@ export default function Sidebar({
   hasGeminiKey = false,
 }: SidebarProps) {
   const [search, setSearch] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const filteredSessions = sessions.filter((s) => {
     if (!search.trim()) return true;

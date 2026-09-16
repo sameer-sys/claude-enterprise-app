@@ -100,6 +100,7 @@ export default function ChatArea({
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [interactionMode, setInteractionMode] = useState<'chat' | 'cowork'>('chat');
 
   // Self-Customization Modal State
   const [isAddingButton, setIsAddingButton] = useState(false);
@@ -480,7 +481,59 @@ export default function ChatArea({
 
       {/* Controls Bar inside the Input Box */}
       <div className="flex items-center justify-between pt-2 mt-1 border-t border-[#2c2a23]">
-        <div className="flex flex-wrap items-center gap-1.5 text-xs text-[#9c978b]">
+        <div className="flex items-center space-x-2 text-xs text-[#9c978b]">
+          {/* Official Claude Plus '+' Button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-7 h-7 rounded-lg hover:bg-[#2e2c24] text-[#8a8579] hover:text-[#ece9e2] flex items-center justify-center transition-colors text-base font-light"
+            title="Add content, images, or documents"
+          >
+            +
+          </button>
+
+          {/* Official Claude [ Chat | Cowork ] Segmented Pill Switcher */}
+          <div className="flex items-center p-0.5 rounded-xl bg-[#171613] border border-[#2b2923]">
+            <button
+              type="button"
+              onClick={() => setInteractionMode('chat')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                interactionMode === 'chat'
+                  ? 'bg-[#292721] text-[#f4efe6] shadow-sm font-semibold'
+                  : 'text-[#827d73] hover:text-[#ece9e2]'
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => setInteractionMode('cowork')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                interactionMode === 'cowork'
+                  ? 'bg-[#292721] text-[#f4efe6] shadow-sm font-semibold'
+                  : 'text-[#827d73] hover:text-[#ece9e2]'
+              }`}
+            >
+              Cowork
+            </button>
+          </div>
+
+          {/* Connectors shortcut */}
+          {activeConnectorsCount > 0 && (
+            <button
+              type="button"
+              onClick={onOpenConnectors}
+              className="hidden sm:flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-[#22201b] border border-[#302e26] text-[11px] text-[#cc785c] hover:border-[#cc785c]/50 transition-colors"
+              title="Manage active connectors"
+            >
+              <Zap className="w-3 h-3" />
+              <span>{activeConnectorsCount} on</span>
+            </button>
+          )}
+        </div>
+
+        {/* Right side: Model Selector, Thinking, Mic, Send */}
+        <div className="flex items-center space-x-1.5 shrink-0">
           <ModelSelector
             selectedModel={activeModel}
             onSelectModel={onSelectModel}
@@ -489,84 +542,19 @@ export default function ChatArea({
             isThinkingEnabled={isThinkingEnabled}
           />
 
-          {/* Extended Thinking Button */}
-          <button
-            type="button"
-            onClick={() => setIsThinkingEnabled(!isThinkingEnabled)}
-            className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium border transition-all ${
-              isThinkingEnabled
-                ? 'bg-[#cc785c]/15 text-[#cc785c] border-[#cc785c]/40 shadow-sm'
-                : 'bg-[#26241f] text-[#8a8579] border-[#38352d] hover:text-[#ece9e2]'
-            }`}
-            title="Toggle Claude Extended Thinking"
-          >
-            <Brain className="w-3.5 h-3.5" />
-            <span className="text-[11px] hidden sm:inline">Thinking: {isThinkingEnabled ? 'ON' : 'OFF'}</span>
-          </button>
-
-          {/* Style */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
-              className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-[#26241f] hover:bg-[#2f2d26] border border-[#38352d] text-[#8a8579] hover:text-[#ece9e2] transition-colors text-[11px]"
-              title="Response Style"
-            >
-              <SlidersHorizontal className="w-3 h-3 text-[#cc785c]" />
-              <span className="capitalize hidden lg:inline">{selectedStyle}</span>
-            </button>
-
-            {isStyleMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setIsStyleMenuOpen(false)} />
-                <div className="absolute left-0 bottom-8 mb-1 w-36 rounded-xl bg-[#23221e] border border-[#383630] shadow-xl z-40 p-1 space-y-0.5 text-xs">
-                  {(['normal', 'concise', 'explanatory', 'technical'] as ResponseStyle[]).map((st) => (
-                    <button
-                      key={st}
-                      type="button"
-                      onClick={() => {
-                        setSelectedStyle(st);
-                        setIsStyleMenuOpen(false);
-                      }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg capitalize ${
-                        selectedStyle === st
-                          ? 'bg-[#cc785c]/15 text-[#cc785c] font-semibold'
-                          : 'hover:bg-[#2b2923] text-[#dcd8ce]'
-                      }`}
-                    >
-                      {st}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Send Action */}
-        <div className="flex items-center space-x-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="p-1.5 rounded-lg hover:bg-[#2d2b23] text-[#8a8579] hover:text-[#ece9e2] transition-colors"
-            title="Attach documents, photos, or images"
-          >
-            <Paperclip className="w-4 h-4" />
-          </button>
-
           {/* Magic Wand Prompt Polish Button */}
           <button
             type="button"
             onClick={handlePolishPrompt}
             disabled={!input.trim()}
-            className={`p-1.5 rounded-lg transition-all ${
+            className={`p-1.5 rounded-lg transition-all hidden sm:flex ${
               input.trim()
                 ? 'hover:bg-[#2d2b23] text-[#cc785c] hover:text-[#db8a6e]'
                 : 'text-[#5c574e] cursor-not-allowed'
             }`}
-            title="Magic Wand: Polish prompt for Claude Enterprise"
+            title="Polish prompt for Claude Enterprise"
           >
-            <Wand2 className="w-4 h-4" />
+            <Wand2 className="w-3.5 h-3.5" />
           </button>
 
           {/* Voice Dictation (Speech-to-Text) Button */}
@@ -578,9 +566,9 @@ export default function ChatArea({
                 ? 'bg-[#cc785c] text-black animate-pulse shadow-md shadow-[#cc785c]/40'
                 : 'hover:bg-[#2d2b23] text-[#8a8579] hover:text-[#ece9e2]'
             }`}
-            title={isListening ? 'Stop Voice Dictation' : 'Speak to Claude (Voice Dictation)'}
+            title={isListening ? 'Stop Voice Dictation' : 'Speak to Claude'}
           >
-            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
           </button>
 
           {isStreaming ? (
@@ -597,7 +585,7 @@ export default function ChatArea({
             <button
               type="submit"
               disabled={!input.trim() && attachments.length === 0}
-              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${
+              className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all ${
                 input.trim() || attachments.length > 0
                   ? 'bg-[#cc785c] hover:bg-[#db8a6e] text-black shadow-md shadow-[#cc785c]/25 active:scale-95'
                   : 'bg-[#2b2923] text-[#6d685e] cursor-not-allowed'
@@ -647,6 +635,16 @@ export default function ChatArea({
             </button>
           )}
 
+          {/* Free plan · Upgrade */}
+          <button
+            onClick={() => onOpenSettings?.()}
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl hover:bg-[#25241f] text-xs font-medium text-[#9c978b] hover:text-[#ece9e2] transition-colors"
+          >
+            <span>Free plan</span>
+            <span className="text-[#686358]">·</span>
+            <span className="text-[#cc785c] font-semibold hover:underline">Upgrade</span>
+          </button>
+
           {/* Autonomous Two-Way Proactive Mode Toggle */}
           <button
             onClick={onToggleProactiveMode}
@@ -658,7 +656,7 @@ export default function ChatArea({
             title="Two-Way Chat: AI proactively checks in and prepares updates while you are away/offline"
           >
             <Radio className={`w-3 h-3 ${isProactiveMode ? 'text-emerald-400 animate-pulse' : ''}`} />
-            <span className="hidden sm:inline">Two-Way Agent: {isProactiveMode ? 'Active' : 'Off'}</span>
+            <span className="hidden sm:inline">Two-Way: {isProactiveMode ? 'On' : 'Off'}</span>
           </button>
 
           {/* EXPORT CHAT BUTTON */}
@@ -691,57 +689,68 @@ export default function ChatArea({
       {/* Messages Stream / Hero Container */}
       <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 space-y-6">
         {!hasMessages ? (
-          /* Claude Hero Welcome View */
-          <div className="min-h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center space-y-4 py-6">
-            <div className="w-12 h-12 rounded-2xl bg-[#cc785c] flex items-center justify-center shadow-lg shadow-[#cc785c]/25 animate-in zoom-in-90 duration-300">
-              <Sparkles className="w-6 h-6 text-black fill-current" />
+          /* Claude Hero Welcome View - Exact match to official Claude screenshot */
+          <div className="min-h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center space-y-5 py-8 animate-in fade-in duration-200">
+            {/* Terracotta Claude Star */}
+            <div className="text-[#cc785c] text-4xl select-none leading-none font-serif">
+              ✳
             </div>
 
-            <div>
-              <div className="flex items-center justify-center gap-2 mb-1">
-                <span className="text-xs uppercase font-bold tracking-widest px-2 py-0.5 rounded bg-[#cc785c]/20 text-[#cc785c] border border-[#cc785c]/40 font-mono">
-                  Claude Enterprise Pro
-                </span>
-              </div>
-              <h2 className="text-3xl md:text-4xl font-serif text-[#f2eee6] tracking-tight">{getGreeting()}</h2>
-              <p className="text-sm text-[#9c978b] mt-2 max-w-md mx-auto leading-relaxed">
-                Unlimited hybrid reasoning with Claude 3.7 Sonnet, Artifacts, and two-way proactive offline synchronization.
-              </p>
-            </div>
+            {/* Serif Heading */}
+            <h1 className="text-3xl sm:text-4xl font-serif text-[#ece9e2] font-normal tracking-tight">
+              Coffee and Claude time?
+            </h1>
 
             {/* Centered Hero Prompt Box */}
-            <div className="w-full pt-2">
+            <div className="w-full pt-1">
               {renderPromptBox(true)}
             </div>
 
-            {/* Quick Starters */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl text-left pt-4">
+            {/* 5 Centered Quick Starter Pills (Exact match to official Claude screenshot) */}
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
               <button
-                onClick={() =>
-                  onSendMessage('Design a high-scale microservices architecture with Next.js, Redis, and Supabase in 5 clear sections.')
-                }
-                className="p-3.5 rounded-2xl bg-[#23221d] border border-[#333129] hover:border-[#cc785c]/50 hover:bg-[#2a2822] transition-all text-xs text-[#dcd8ce] space-y-1 group"
+                type="button"
+                onClick={() => onSendMessage('Help me write clean, robust code or debug an application.')}
+                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-[#23221d] hover:bg-[#2b2923] border border-[#333129] hover:border-[#cc785c]/50 text-xs font-medium text-[#dcd8ce] hover:text-[#f4efe6] transition-all shadow-sm group"
               >
-                <div className="font-semibold text-[#f2eee6] flex items-center gap-1.5 group-hover:text-[#cc785c]">
-                  <Brain className="w-3.5 h-3.5 text-[#cc785c]" />
-                  <span>🧠 3.7 Extended Reasoning Plan</span>
-                </div>
-                <p className="text-[#8a8579]">Architect a full-scale microservices cloud infrastructure.</p>
+                <span className="text-[#cc785c] font-mono text-[11px] group-hover:scale-110 transition-transform">&lt;/&gt;</span>
+                <span>Code</span>
               </button>
 
               <button
-                onClick={() =>
-                  onSendMessage(
-                    'Write a complete, responsive interactive dashboard component in HTML with Tailwind CSS and modern styling.'
-                  )
-                }
-                className="p-3.5 rounded-2xl bg-[#23221d] border border-[#333129] hover:border-[#cc785c]/50 hover:bg-[#2a2822] transition-all text-xs text-[#dcd8ce] space-y-1 group"
+                type="button"
+                onClick={() => onSendMessage('Help me develop a strategic business or engineering plan with actionable phases.')}
+                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-[#23221d] hover:bg-[#2b2923] border border-[#333129] hover:border-[#cc785c]/50 text-xs font-medium text-[#dcd8ce] hover:text-[#f4efe6] transition-all shadow-sm group"
               >
-                <div className="font-semibold text-[#f2eee6] flex items-center gap-1.5 group-hover:text-[#cc785c]">
-                  <FileCode className="w-3.5 h-3.5 text-[#cc785c]" />
-                  <span>🛠️ Build Code Artifact</span>
-                </div>
-                <p className="text-[#8a8579]">Generate a live interactive HTML artifact component.</p>
+                <span className="text-emerald-400 text-[12px] group-hover:scale-110 transition-transform">📈</span>
+                <span>Strategize</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onSendMessage('Explain a complex concept with clear analogies, real-world examples, and key takeaways.')}
+                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-[#23221d] hover:bg-[#2b2923] border border-[#333129] hover:border-[#cc785c]/50 text-xs font-medium text-[#dcd8ce] hover:text-[#f4efe6] transition-all shadow-sm group"
+              >
+                <span className="text-amber-400 text-[12px] group-hover:scale-110 transition-transform">🎓</span>
+                <span>Learn</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onSendMessage('Search my Google Drive files and summarize documents.')}
+                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-[#23221d] hover:bg-[#2b2923] border border-[#333129] hover:border-[#cc785c]/50 text-xs font-medium text-[#dcd8ce] hover:text-[#f4efe6] transition-all shadow-sm group"
+              >
+                <span className="text-blue-400 text-[12px] group-hover:scale-110 transition-transform">🔺</span>
+                <span>From Drive</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onSendMessage('Draft an email for me to send with subject line and 1-click send link.')}
+                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-[#23221d] hover:bg-[#2b2923] border border-[#333129] hover:border-[#cc785c]/50 text-xs font-medium text-[#dcd8ce] hover:text-[#f4efe6] transition-all shadow-sm group"
+              >
+                <span className="text-rose-400 text-[12px] group-hover:scale-110 transition-transform">✉️</span>
+                <span>From Gmail</span>
               </button>
             </div>
           </div>
@@ -950,14 +959,53 @@ export default function ChatArea({
                           );
                         },
                         a({ href, children }) {
+                          const childText = String(children || '');
+                          const isActionLink =
+                            childText.includes('✉️') ||
+                            childText.includes('🐙') ||
+                            childText.includes('📂') ||
+                            childText.includes('📝') ||
+                            childText.includes('📊') ||
+                            childText.includes('💬') ||
+                            childText.includes('📑') ||
+                            childText.includes('🎨') ||
+                            childText.includes('🔍') ||
+                            childText.includes('Send') ||
+                            childText.includes('Open in') ||
+                            childText.includes('View on') ||
+                            childText.includes('Gmail') ||
+                            href?.startsWith('https://mail.google.com/mail/') ||
+                            href?.startsWith('https://github.com/') ||
+                            href?.startsWith('https://drive.google.com/') ||
+                            href?.startsWith('https://docs.google.com/') ||
+                            href?.startsWith('https://app.slack.com/') ||
+                            href?.startsWith('https://notion.so/');
+
+                          if (isActionLink) {
+                            return (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-2 px-3.5 py-2 my-1.5 rounded-xl bg-[#26241f] hover:bg-[#322f27] border border-[#cc785c]/50 hover:border-[#cc785c] text-[#f4efe6] hover:text-[#ffffff] text-xs font-medium shadow-md shadow-black/30 hover:shadow-[#cc785c]/15 transition-all group/btn no-underline"
+                              >
+                                <span className="flex items-center gap-1.5 font-semibold text-[#f4efe6]">
+                                  {children}
+                                </span>
+                                <ExternalLink className="w-3.5 h-3.5 text-[#cc785c] group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform shrink-0" />
+                              </a>
+                            );
+                          }
+
                           return (
                             <a
                               href={href}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-[#cc785c] hover:underline inline-flex items-center gap-0.5"
+                              className="text-[#cc785c] hover:underline inline-flex items-center gap-0.5 font-medium"
                             >
                               {children}
+                              <ExternalLink className="w-3 h-3 inline-block opacity-70 ml-0.5" />
                             </a>
                           );
                         },

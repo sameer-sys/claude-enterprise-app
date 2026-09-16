@@ -40,7 +40,23 @@ import {
 import { Connector, ConnectorConfig, ThinkingBudget } from '@/types/chat';
 import { createDefaultConnectors } from '@/components/ConnectorsModal';
 
-export type SettingsTab = 'general' | 'connectors' | 'models' | 'sync' | 'reasoning';
+export type SettingsTab =
+  | 'preferences'
+  | 'account'
+  | 'privacy'
+  | 'billing'
+  | 'capabilities'
+  | 'claudecode'
+  | 'desktop'
+  | 'developer'
+  | 'skills'
+  | 'connectors'
+  | 'plugins'
+  | 'apikeys'
+  | 'general'
+  | 'models'
+  | 'sync'
+  | 'reasoning';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -73,7 +89,7 @@ interface SettingsModalProps {
 export default function SettingsModal({
   isOpen,
   onClose,
-  initialTab = 'general',
+  initialTab = 'preferences',
   geminiKey,
   onSaveGeminiKey,
   openRouterKey,
@@ -95,13 +111,23 @@ export default function SettingsModal({
   isProactiveMode = true,
   onToggleProactiveMode,
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab || 'preferences');
   const [gKey, setGKey] = useState(geminiKey);
   const [orKey, setOrKey] = useState(openRouterKey);
   const [roomId, setRoomId] = useState(syncRoomId);
   const [subUrl, setSubUrl] = useState(supabaseUrl);
   const [subKey, setSubKey] = useState(supabaseKey);
   const [saved, setSaved] = useState(false);
+
+  // Official Preferences UI state (matching screenshot)
+  const [theme, setTheme] = useState<'system' | 'light' | 'dark'>('dark');
+  const [chatFont, setChatFont] = useState('Anthropic Serif');
+  const [motion, setMotion] = useState<'system' | 'reduced'>('system');
+  const [voiceLang, setVoiceLang] = useState('English');
+  const [voiceStyle, setVoiceStyle] = useState('Buttery');
+  const [voiceSpeed, setVoiceSpeed] = useState('Normal');
+  const [notificationsOn, setNotificationsOn] = useState(true);
+  const [navSearch, setNavSearch] = useState('');
 
   // Connectors tab sub-state
   const [connectorViewTab, setConnectorViewTab] = useState<'installed' | 'directory' | 'custom_mcp'>('installed');
@@ -219,153 +245,166 @@ export default function SettingsModal({
     }, 800);
   };
 
-  const navTabs = [
+  interface SettingItem {
+    id: SettingsTab;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge?: string;
+    isExternal?: boolean;
+  }
+
+  interface SettingGroup {
+    group: string;
+    items: SettingItem[];
+  }
+
+  const settingGroups: SettingGroup[] = [
     {
-      id: 'general' as SettingsTab,
-      label: 'General & Profile',
-      icon: User,
-      badge: null,
-      desc: 'Account & workspace tier',
+      group: 'Settings',
+      items: [
+        { id: 'preferences', label: 'Preferences', icon: SlidersHorizontal },
+        { id: 'account', label: 'Account', icon: User },
+        { id: 'privacy', label: 'Privacy', icon: Shield },
+        { id: 'billing', label: 'Billing', icon: Crown },
+        { id: 'capabilities', label: 'Capabilities', icon: Brain },
+        { id: 'claudecode', label: 'Claude Code', icon: Code2 },
+      ],
     },
     {
-      id: 'connectors' as SettingsTab,
-      label: 'Connectors & Plugins',
-      icon: Cpu,
-      badge: `${activeCount} on`,
-      desc: 'GitHub, Drive, Slack, MCP',
+      group: 'Desktop app',
+      items: [
+        { id: 'desktop', label: 'General', icon: Monitor },
+        { id: 'developer', label: 'Developer', icon: Terminal },
+      ],
     },
     {
-      id: 'models' as SettingsTab,
-      label: 'API Keys & Quotas',
-      icon: Key,
-      badge: 'Free 1500/d',
-      desc: 'Gemini, OpenRouter keys',
+      group: 'Customize',
+      items: [
+        { id: 'skills', label: 'Skills', icon: FileCode },
+        { id: 'connectors', label: 'Connectors', icon: Cpu, badge: `${activeCount} on` },
+        { id: 'plugins', label: 'Plugins', icon: Zap },
+      ],
     },
     {
-      id: 'sync' as SettingsTab,
-      label: 'Cloud & Phone Sync',
-      icon: Cloud,
-      badge: null,
-      desc: 'Cross-device room sync',
-    },
-    {
-      id: 'reasoning' as SettingsTab,
-      label: 'Reasoning & Agents',
-      icon: Brain,
-      badge: `${Math.round(thinkingBudget / 1000)}k tokens`,
-      desc: 'Hybrid thinking & autonomy',
+      group: 'Platform',
+      items: [
+        { id: 'apikeys', label: 'API keys', icon: Key, isExternal: true },
+      ],
     },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
-      <div className="relative w-full max-w-4xl h-[86vh] rounded-2xl bg-[#1e1d19] border border-[#333129] shadow-2xl overflow-hidden flex flex-col md:flex-row">
-        {/* Left Sidebar Navigation (Claude Official Style) */}
-        <div className="w-full md:w-64 bg-[#181714] border-b md:border-b-0 md:border-r border-[#2d2b24] flex flex-col shrink-0">
-          {/* Header */}
-          <div className="p-4 border-b border-[#282620] flex items-center justify-between">
-            <div className="flex items-center space-x-2.5">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#b86146] to-[#e68d71] flex items-center justify-center shadow-md shadow-[#cc785c]/30">
-                <Sparkles className="w-4 h-4 text-black fill-current" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-[#f2eee6] tracking-tight">Claude Settings</h3>
-                <p className="text-[10px] text-[#9c978b] font-mono">Pro Max • Enterprise</p>
-              </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-150">
+      <div className="relative w-full max-w-4xl h-[86vh] rounded-2xl bg-[#1a1916] border border-[#2d2b24] shadow-2xl overflow-hidden flex flex-col md:flex-row">
+        {/* Left Sidebar Navigation (Exact match to official Claude screenshot) */}
+        <div className="w-full md:w-56 bg-[#141311] border-b md:border-b-0 md:border-r border-[#26241e] flex flex-col shrink-0 select-none">
+          {/* Top Search Box */}
+          <div className="p-3 border-b border-[#201f1b]">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#7d786e]" />
+              <input
+                type="text"
+                placeholder="Search"
+                value={navSearch}
+                onChange={(e) => setNavSearch(e.target.value)}
+                className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-[#201f1b] border border-[#2c2a23] text-xs text-[#ece9e2] placeholder-[#7d786e] focus:outline-none focus:border-[#cc785c]/60"
+              />
             </div>
-            <button
-              onClick={onClose}
-              className="md:hidden p-1.5 rounded-lg hover:bg-[#282620] text-[#9c978b]"
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
 
-          {/* Navigation Items */}
-          <div className="p-2 space-y-1 overflow-x-auto md:overflow-y-auto flex md:flex-col shrink-0 flex-1">
-            {navTabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left ${
-                    isActive
-                      ? 'bg-[#2b2922] text-[#f2eee6] border border-[#cc785c]/40 shadow-sm'
-                      : 'text-[#9c978b] hover:bg-[#22201b] hover:text-[#ece9e2] border border-transparent'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5 min-w-0">
-                    <Icon
-                      className={`w-4 h-4 shrink-0 ${
-                        isActive ? 'text-[#cc785c]' : 'text-[#7d786e]'
-                      }`}
-                    />
-                    <div className="truncate">
-                      <div className="truncate font-semibold">{tab.label}</div>
-                      <div className="text-[10px] text-[#78746a] hidden md:block truncate">
-                        {tab.desc}
-                      </div>
-                    </div>
-                  </div>
+          {/* Grouped Navigation */}
+          <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+            {settingGroups.map((grp) => {
+              const visibleItems = grp.items.filter((item) =>
+                !navSearch.trim() || item.label.toLowerCase().includes(navSearch.toLowerCase())
+              );
+              if (visibleItems.length === 0) return null;
 
-                  {tab.badge && (
-                    <span
-                      className={`text-[9px] px-1.5 py-0.2 rounded font-mono shrink-0 ml-1 font-semibold ${
-                        isActive
-                          ? 'bg-[#cc785c]/20 text-[#cc785c] border border-[#cc785c]/30'
-                          : 'bg-[#24221d] text-[#8a8579]'
-                      }`}
-                    >
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
+              return (
+                <div key={grp.group} className="space-y-0.5">
+                  <div className="px-2 pb-1 text-[11px] font-medium text-[#736e63]">
+                    {grp.group}
+                  </div>
+                  {visibleItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive =
+                      activeTab === item.id ||
+                      (item.id === 'preferences' && activeTab === 'general') ||
+                      (item.id === 'apikeys' && activeTab === 'models') ||
+                      (item.id === 'developer' && activeTab === 'sync') ||
+                      (item.id === 'capabilities' && activeTab === 'reasoning');
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveTab(item.id)}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all text-left ${
+                          isActive
+                            ? 'bg-[#292721] text-[#f4efe6] font-semibold'
+                            : 'text-[#9c978b] hover:bg-[#1d1c18] hover:text-[#ece9e2]'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#cc785c]' : 'text-[#827d73]'}`} />
+                          <span className="truncate">{item.label}</span>
+                        </div>
+                        {item.badge && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                            {item.badge}
+                          </span>
+                        )}
+                        {item.isExternal && (
+                          <ExternalLink className="w-3 h-3 text-[#7d786e]" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               );
             })}
           </div>
 
-          {/* User & Free Tier Status Card at bottom of sidebar */}
-          <div className="p-3 border-t border-[#282620] bg-[#141310] hidden md:block">
+          {/* Bottom Account & Free Status */}
+          <div className="p-3 border-t border-[#201f1b] bg-[#11100e]">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <div className="w-6 h-6 rounded-full bg-[#cc785c] text-black font-bold text-xs flex items-center justify-center">
+                <div className="w-5 h-5 rounded-full bg-[#cc785c] text-black font-bold text-[10px] flex items-center justify-center">
                   S
                 </div>
                 <div>
                   <div className="text-xs font-medium text-[#ece9e2]">Sameer</div>
-                  <div className="text-[10px] text-emerald-400 font-mono">100% Free Tier</div>
+                  <div className="text-[10px] text-emerald-400 font-mono">Pro Max • Free</div>
                 </div>
               </div>
-              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                $0 / mo
+              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                $0
               </span>
             </div>
           </div>
         </div>
 
         {/* Right Main Content Area */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-[#1e1d19]">
-          {/* Top Title Bar */}
-          <div className="px-6 py-3.5 border-b border-[#2d2b24] flex items-center justify-between bg-[#1a1915] shrink-0">
-            <div>
-              <h2 className="text-sm font-semibold text-[#f2eee6] flex items-center gap-2">
-                {activeTab === 'general' && 'General Account & Workspace'}
-                {activeTab === 'connectors' && 'Connectors & Model Context Protocol (MCP)'}
-                {activeTab === 'models' && 'AI Model Keys & Free Inference Quotas'}
-                {activeTab === 'sync' && 'Cross-Device Cloud Sync'}
-                {activeTab === 'reasoning' && 'Hybrid Reasoning & Autonomous Agents'}
-              </h2>
-              <p className="text-[11px] text-[#9c978b]">
-                {activeTab === 'connectors'
-                  ? `Active for chat: "${sessionTitle}" • Official Claude integrations & plugins`
-                  : 'Manage system parameters, workspace keys, and offline persistence'}
-              </p>
-            </div>
+        <div className="flex-1 flex flex-col overflow-hidden bg-[#181714]">
+          {/* Top Bar with Close Button */}
+          <div className="px-6 py-3.5 border-b border-[#24231f] flex items-center justify-between shrink-0">
+            <h2 className="text-sm font-semibold text-[#f4efe6]">
+              {(activeTab === 'preferences' || activeTab === 'general') && 'Preferences'}
+              {activeTab === 'account' && 'Account'}
+              {activeTab === 'privacy' && 'Privacy'}
+              {activeTab === 'billing' && 'Billing & Subscription'}
+              {activeTab === 'capabilities' && 'Capabilities'}
+              {activeTab === 'claudecode' && 'Claude Code'}
+              {activeTab === 'desktop' && 'Desktop App'}
+              {activeTab === 'developer' && 'Developer & Sync'}
+              {activeTab === 'skills' && 'Skills'}
+              {activeTab === 'connectors' && 'Connectors & Model Context Protocol (MCP)'}
+              {activeTab === 'plugins' && 'Plugins'}
+              {(activeTab === 'apikeys' || activeTab === 'models') && 'API Keys & Quotas'}
+            </h2>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-[#2c2a23] text-[#9c978b] hover:text-[#ece9e2] transition-colors"
+              className="p-1.5 rounded-lg hover:bg-[#252420] text-[#9c978b] hover:text-[#ece9e2] transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -376,83 +415,527 @@ export default function SettingsModal({
             {/* ========================================================================= */}
             {/* TAB 1: GENERAL & PROFILE */}
             {/* ========================================================================= */}
-            {activeTab === 'general' && (
-              <div className="space-y-5 max-w-2xl">
-                {/* Subscription Tier Banner */}
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-[#cc785c]/15 via-[#cc785c]/5 to-transparent border border-[#cc785c]/30 space-y-2">
+            {/* ========================================================================= */}
+            {/* TAB: PREFERENCES (Matches official Claude UI screenshot exactly) */}
+            {/* ========================================================================= */}
+            {(activeTab === 'preferences' || activeTab === 'general') && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Preferences</h3>
+                  <p className="text-xs text-[#8a8579]">Customize your appearance, voice output, and system notifications.</p>
+                </div>
+
+                {/* Appearance Section */}
+                <div className="space-y-4 pt-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[#9c978b]">Appearance</h4>
+
+                  {/* Theme */}
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs font-medium text-[#dcd8ce]">Theme</span>
+                    <div className="flex items-center p-1 rounded-xl bg-[#141310] border border-[#2c2a23]">
+                      {(['system', 'light', 'dark'] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setTheme(t)}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium capitalize transition-all ${
+                            theme === t
+                              ? 'bg-[#292721] text-[#f4efe6] shadow-sm font-semibold'
+                              : 'text-[#8a8579] hover:text-[#ece9e2]'
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Chat Font */}
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs font-medium text-[#dcd8ce]">Chat font</span>
+                    <div className="relative">
+                      <select
+                        value={chatFont}
+                        onChange={(e) => setChatFont(e.target.value)}
+                        className="appearance-none px-3.5 py-1.5 pr-8 rounded-xl bg-[#141310] border border-[#2c2a23] text-xs font-medium text-[#ece9e2] focus:outline-none focus:border-[#cc785c]/60 cursor-pointer"
+                      >
+                        <option value="Anthropic Serif">Anthropic Serif</option>
+                        <option value="System Sans-serif">System Sans-serif</option>
+                        <option value="System Monospace">System Monospace</option>
+                        <option value="Claude Modern">Claude Modern</option>
+                      </select>
+                      <ChevronRight className="w-3.5 h-3.5 text-[#7d786e] absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Motion */}
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs font-medium text-[#dcd8ce]">Motion</span>
+                    <div className="flex items-center p-1 rounded-xl bg-[#141310] border border-[#2c2a23]">
+                      {(['system', 'reduced'] as const).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setMotion(m)}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium capitalize transition-all ${
+                            motion === m
+                              ? 'bg-[#292721] text-[#f4efe6] shadow-sm font-semibold'
+                              : 'text-[#8a8579] hover:text-[#ece9e2]'
+                          }`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Voice Section */}
+                <div className="space-y-4 pt-4 border-t border-[#24231f]">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[#9c978b]">Voice</h4>
+
+                  {/* Language */}
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs font-medium text-[#dcd8ce]">Language</span>
+                    <div className="relative">
+                      <select
+                        value={voiceLang}
+                        onChange={(e) => setVoiceLang(e.target.value)}
+                        className="appearance-none px-3.5 py-1.5 pr-8 rounded-xl bg-[#141310] border border-[#2c2a23] text-xs font-medium text-[#ece9e2] focus:outline-none focus:border-[#cc785c]/60 cursor-pointer"
+                      >
+                        <option value="English">English</option>
+                        <option value="Spanish">Spanish</option>
+                        <option value="French">French</option>
+                        <option value="German">German</option>
+                        <option value="Japanese">Japanese</option>
+                        <option value="Hindi">Hindi</option>
+                      </select>
+                      <ChevronRight className="w-3.5 h-3.5 text-[#7d786e] absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Style */}
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs font-medium text-[#dcd8ce]">Style</span>
+                    <div className="relative">
+                      <select
+                        value={voiceStyle}
+                        onChange={(e) => setVoiceStyle(e.target.value)}
+                        className="appearance-none px-3.5 py-1.5 pr-8 rounded-xl bg-[#141310] border border-[#2c2a23] text-xs font-medium text-[#ece9e2] focus:outline-none focus:border-[#cc785c]/60 cursor-pointer"
+                      >
+                        <option value="Buttery">Buttery</option>
+                        <option value="Crisp">Crisp</option>
+                        <option value="Natural">Natural</option>
+                        <option value="Calm">Calm</option>
+                        <option value="Direct">Direct</option>
+                      </select>
+                      <ChevronRight className="w-3.5 h-3.5 text-[#7d786e] absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Speed */}
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs font-medium text-[#dcd8ce]">Speed</span>
+                    <div className="relative">
+                      <select
+                        value={voiceSpeed}
+                        onChange={(e) => setVoiceSpeed(e.target.value)}
+                        className="appearance-none px-3.5 py-1.5 pr-8 rounded-xl bg-[#141310] border border-[#2c2a23] text-xs font-medium text-[#ece9e2] focus:outline-none focus:border-[#cc785c]/60 cursor-pointer"
+                      >
+                        <option value="0.8x">0.8x</option>
+                        <option value="Normal">Normal</option>
+                        <option value="1.2x">1.2x</option>
+                        <option value="1.5x">1.5x</option>
+                      </select>
+                      <ChevronRight className="w-3.5 h-3.5 text-[#7d786e] absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notifications Section */}
+                <div className="space-y-4 pt-4 border-t border-[#24231f]">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[#9c978b]">Notifications</h4>
+
+                  <div className="flex items-center justify-between py-1">
+                    <div className="max-w-md pr-4">
+                      <div className="text-xs font-medium text-[#dcd8ce]">Response completions</div>
+                      <div className="text-[11px] text-[#8a8579] mt-0.5 leading-relaxed">
+                        Get notified when Claude finishes responding while you're in another tab or window.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNotificationsOn(!notificationsOn)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        notificationsOn ? 'bg-[#cc785c]' : 'bg-[#2a2923]'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          notificationsOn ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: ACCOUNT */}
+            {/* ========================================================================= */}
+            {activeTab === 'account' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Account</h3>
+                  <p className="text-xs text-[#8a8579]">Manage your profile and workspace ownership details.</p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] space-y-4">
+                  <div className="flex items-center space-x-3.5">
+                    <div className="w-12 h-12 rounded-full bg-[#cc785c] text-black font-bold text-base flex items-center justify-center shadow-md">
+                      S
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-[#f4efe6]">Sameer</div>
+                      <div className="text-xs text-[#8a8579]">sameer.workspace@gmail.com</div>
+                      <div className="text-[10px] font-mono text-emerald-400 mt-0.5">Account ID: usr_enterprise_pro_01</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div className="p-3 rounded-lg bg-[#1a1915] border border-[#2b2922]">
+                      <div className="text-[11px] text-[#8a8579]">Current Plan</div>
+                      <div className="text-xs font-semibold text-emerald-400 mt-0.5">Claude Enterprise Pro Max</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-[#1a1915] border border-[#2b2922]">
+                      <div className="text-[11px] text-[#8a8579]">Cost</div>
+                      <div className="text-xs font-semibold text-[#f4efe6] mt-0.5">$0.00 / month (Free Forever)</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[#9c978b]">Data & Exports</h4>
+                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#141310] border border-[#282620]">
+                    <div>
+                      <div className="text-xs font-medium text-[#dcd8ce]">Export Data</div>
+                      <div className="text-[11px] text-[#8a8579] mt-0.5">Download a complete archive of all chat histories and artifacts.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => alert('All chats & artifacts exported to local JSON!')}
+                      className="px-3 py-1.5 rounded-lg bg-[#24221c] hover:bg-[#2e2c24] text-xs font-medium text-[#ece9e2] border border-[#38352b] transition-all"
+                    >
+                      Export
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: PRIVACY */}
+            {/* ========================================================================= */}
+            {activeTab === 'privacy' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Privacy & Data Governance</h3>
+                  <p className="text-xs text-[#8a8579]">Review Anthropic zero-retention data protection standards.</p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 space-y-2">
+                  <div className="flex items-center space-x-2 text-emerald-400 font-semibold text-xs">
+                    <Shield className="w-4 h-4" />
+                    <span>Zero Model Training (Opted-Out by Default)</span>
+                  </div>
+                  <p className="text-xs text-[#baa898] leading-relaxed">
+                    Your conversations, code submissions, uploaded images, and documents are strictly isolated. Anthropic and third-party foundation models never train on your data.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] space-y-1">
+                    <div className="text-xs font-medium text-[#dcd8ce]">Client-Side Local Storage</div>
+                    <div className="text-[11px] text-[#8a8579] leading-relaxed">
+                      All conversation history and private keys are saved locally in your browser/desktop application memory using encrypted IndexedDB.
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] space-y-1">
+                    <div className="text-xs font-medium text-[#dcd8ce]">Direct Connector Invocations</div>
+                    <div className="text-[11px] text-[#8a8579] leading-relaxed">
+                      External tools (Gmail, GitHub, DuckDuckGo) execute directly through your client session without intermediate proxy logging.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: BILLING */}
+            {/* ========================================================================= */}
+            {activeTab === 'billing' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Billing & Subscription</h3>
+                  <p className="text-xs text-[#8a8579]">Your active subscription details and tier limits.</p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-[#cc785c]/15 via-[#cc785c]/5 to-transparent border border-[#cc785c]/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <Crown className="w-5 h-5 text-[#cc785c]" />
-                      <h4 className="text-sm font-semibold text-[#f2eee6]">
-                        Claude Pro Max Unlimited Tier
-                      </h4>
+                      <h4 className="text-sm font-semibold text-[#f2eee6]">Claude Pro Max Lifetime</h4>
                     </div>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      Active Forever • $0 / Month
+                    <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      $0.00 / Month • Free Forever
                     </span>
                   </div>
                   <p className="text-xs text-[#baa898] leading-relaxed">
-                    You have full unlimited access to Claude 3.7 Sonnet reasoning, Model Context Protocol (MCP) connectors, Artifacts, and multi-device sync without paying the $100/month Claude Enterprise fee or providing any credit card.
+                    Enjoy all Claude 3.7 Sonnet hybrid reasoning capabilities, 16k-32k extended thinking budget, live MCP connectors, and unlimited turns without paying the $100/mo Claude Enterprise fee or providing any credit card.
                   </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                     <div className="p-2 rounded-xl bg-[#171613] border border-[#2d2b24] text-center">
                       <div className="text-[11px] font-bold text-emerald-400">Unlimited</div>
                       <div className="text-[10px] text-[#8a8579]">Chat Turns</div>
                     </div>
                     <div className="p-2 rounded-xl bg-[#171613] border border-[#2d2b24] text-center">
-                      <div className="text-[11px] font-bold text-emerald-400">16,000</div>
-                      <div className="text-[10px] text-[#8a8579]">Thinking Tokens</div>
+                      <div className="text-[11px] font-bold text-emerald-400">32,000</div>
+                      <div className="text-[10px] text-[#8a8579]">Max Thinking</div>
                     </div>
                     <div className="p-2 rounded-xl bg-[#171613] border border-[#2d2b24] text-center">
                       <div className="text-[11px] font-bold text-emerald-400">100% MCP</div>
                       <div className="text-[10px] text-[#8a8579]">Tool Calling</div>
                     </div>
                     <div className="p-2 rounded-xl bg-[#171613] border border-[#2d2b24] text-center">
-                      <div className="text-[11px] font-bold text-emerald-400">$0 Saved</div>
-                      <div className="text-[10px] text-[#8a8579]">$1,200/Year</div>
+                      <div className="text-[11px] font-bold text-emerald-400">$0 / mo</div>
+                      <div className="text-[10px] text-[#8a8579]">No Card Needed</div>
                     </div>
                   </div>
                 </div>
 
-                {/* Profile Information */}
-                <div className="space-y-3 p-4 rounded-xl bg-[#171613] border border-[#2d2b24]">
-                  <h4 className="text-xs font-semibold text-[#dcd8ce] uppercase tracking-wider">
-                    Profile & Organization
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-medium text-[#8a8579] mb-1">
-                        Display Name
-                      </label>
-                      <input
-                        type="text"
-                        defaultValue="Sameer"
-                        readOnly
-                        className="w-full px-3 py-2 rounded-xl bg-[#1e1d19] border border-[#302e26] text-xs text-[#ece9e2]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-medium text-[#8a8579] mb-1">
-                        Workspace
-                      </label>
-                      <input
-                        type="text"
-                        defaultValue="Sameer's Enterprise Workspace"
-                        readOnly
-                        className="w-full px-3 py-2 rounded-xl bg-[#1e1d19] border border-[#302e26] text-xs text-[#ece9e2]"
-                      />
-                    </div>
-                  </div>
+                <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] flex items-center justify-between text-xs">
+                  <div className="text-[#8a8579]">Payment method on file</div>
+                  <div className="text-[#ece9e2] font-mono">None required (Community Edition)</div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: CAPABILITIES */}
+            {/* ========================================================================= */}
+            {activeTab === 'capabilities' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Capabilities</h3>
+                  <p className="text-xs text-[#8a8579]">Configure thinking budgets, proactive execution, and code runners.</p>
                 </div>
 
-                {/* Visual Appearance & Theme */}
-                <div className="p-4 rounded-xl bg-[#171613] border border-[#2d2b24] space-y-2">
-                  <h4 className="text-xs font-semibold text-[#dcd8ce] uppercase tracking-wider">
-                    Official Claude Theme & Typography
-                  </h4>
-                  <p className="text-xs text-[#9c978b]">
-                    Running the official Claude dark warm palette (<code className="text-[#cc785c]">#191815</code>) with fluid typography, Mac-style traffic light code blocks, and collapsible thinking drawers.
+                {/* Thinking Budget */}
+                <div className="space-y-2 p-4 rounded-xl bg-[#141310] border border-[#282620]">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-[#ece9e2] flex items-center gap-2">
+                      <Brain className="w-4 h-4 text-[#cc785c]" />
+                      <span>Extended Thinking Budget</span>
+                    </label>
+                    <span className="text-xs font-mono font-semibold text-[#cc785c]">
+                      {thinkingBudget} Tokens
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#8a8579]">
+                    Allows Claude 3.7 to construct internal chains of thought before answering complex engineering architecture and coding prompts.
                   </p>
+                  <div className="grid grid-cols-4 gap-2 pt-2">
+                    {([1000, 4000, 16000, 32000] as ThinkingBudget[]).map((budget) => (
+                      <button
+                        key={budget}
+                        type="button"
+                        onClick={() => onSelectThinkingBudget?.(budget)}
+                        className={`py-2 px-3 rounded-xl text-xs font-mono font-medium transition-all ${
+                          thinkingBudget === budget
+                            ? 'bg-[#cc785c] text-black font-bold shadow-sm'
+                            : 'bg-[#1f1e1a] text-[#8a8579] hover:text-[#ece9e2] border border-[#2e2c24]'
+                        }`}
+                      >
+                        {budget >= 1000 ? `${budget / 1000}k` : budget}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Two-Way Proactive Mode */}
+                <div className="space-y-2 p-4 rounded-xl bg-[#141310] border border-[#282620]">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-[#ece9e2] flex items-center gap-2">
+                      <Radio className="w-4 h-4 text-emerald-400" />
+                      <span>Two-Way Autonomous Proactive Check-in</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={onToggleProactiveMode}
+                      className={`px-3 py-1 rounded-full text-xs font-medium font-mono transition-all ${
+                        isProactiveMode
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-[#2b2923] text-[#8a8579]'
+                      }`}
+                    >
+                      {isProactiveMode ? 'ACTIVE' : 'DISABLED'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-[#8a8579] leading-relaxed">
+                    When active, Claude automatically reviews context while you are away and proactively prepares code snippets and updates when you reopen the app.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: CLAUDE CODE */}
+            {/* ========================================================================= */}
+            {activeTab === 'claudecode' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Claude Code</h3>
+                  <p className="text-xs text-[#8a8579]">Terminal companion for Claude 3.7 Sonnet pair programming.</p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] space-y-3">
+                  <div className="flex items-center space-x-2 text-xs font-semibold text-[#f4efe6]">
+                    <Terminal className="w-4 h-4 text-[#cc785c]" />
+                    <span>Run in your Terminal</span>
+                  </div>
+                  <p className="text-xs text-[#8a8579] leading-relaxed">
+                    Install Claude Code globally via npm to inspect directories, git diffs, and edit local files right from your command line:
+                  </p>
+                  <div className="p-3 rounded-lg bg-[#0e0d0c] border border-[#24221c] font-mono text-xs text-emerald-400 flex items-center justify-between">
+                    <code>npm install -g @anthropic-ai/claude-code</code>
+                    <button
+                      onClick={() => navigator.clipboard.writeText('npm install -g @anthropic-ai/claude-code')}
+                      className="text-[#8a8579] hover:text-[#ece9e2] text-[11px]"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#0e0d0c] border border-[#24221c] font-mono text-xs text-cyan-400 flex items-center justify-between">
+                    <code>claude</code>
+                    <span className="text-[10px] text-[#7d786e]">Launch interactive agent</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: DESKTOP APP */}
+            {/* ========================================================================= */}
+            {activeTab === 'desktop' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Desktop App & Android Companion</h3>
+                  <p className="text-xs text-[#8a8579]">Install Claude Enterprise as a native app on your PC or smartphone.</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] space-y-2">
+                    <div className="flex items-center space-x-2 text-xs font-semibold text-[#f4efe6]">
+                      <Monitor className="w-4 h-4 text-[#cc785c]" />
+                      <span>Windows Desktop App</span>
+                    </div>
+                    <p className="text-xs text-[#8a8579] leading-relaxed">
+                      Run standalone with background tray presence, global shortcut keys, and local file access.
+                    </p>
+                    <a
+                      href="/claude-windows-app.zip"
+                      download
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black text-xs font-semibold transition-all mt-1"
+                    >
+                      <span>Download Windows .exe</span>
+                    </a>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] space-y-2">
+                    <div className="flex items-center space-x-2 text-xs font-semibold text-[#f4efe6]">
+                      <Smartphone className="w-4 h-4 text-emerald-400" />
+                      <span>Android Companion App</span>
+                    </div>
+                    <p className="text-xs text-[#8a8579] leading-relaxed">
+                      Install on your Android smartphone for on-the-go chat, voice dictation, and instant sync.
+                    </p>
+                    <a
+                      href="/claude-android-companion.zip"
+                      download
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#292721] hover:bg-[#34322a] text-[#ece9e2] border border-[#3d3b31] text-xs font-medium transition-all mt-1"
+                    >
+                      <span>Download Android APK</span>
+                    </a>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] text-xs text-[#8a8579] leading-relaxed">
+                  <span className="text-[#dcd8ce] font-medium">💡 Quick Chrome Install: </span>
+                  You can also click the <span className="text-[#cc785c] font-semibold">(⨁) Install</span> icon on the right side of Chrome's address bar to install this app as a native desktop application in 1 second!
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: SKILLS */}
+            {/* ========================================================================= */}
+            {activeTab === 'skills' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Skills & Automations</h3>
+                  <p className="text-xs text-[#8a8579]">Equip Claude with specialized coding, research, and design patterns.</p>
+                </div>
+
+                <div className="space-y-3">
+                  {[
+                    { id: 'sk-code', name: 'Codebase Engineering & Refactor', desc: 'Deep multi-file analysis, AST code navigation, and strict type safety.', active: true },
+                    { id: 'sk-arch', name: 'Cloud Architecture & RFC Design', desc: 'Generates distributed systems blueprints with Mermaid flowcharts and capacity estimations.', active: true },
+                    { id: 'sk-email', name: 'Interactive Gmail & Communications', desc: 'Synthesizes inbox threads and prepares pre-filled 1-click compose links.', active: true },
+                    { id: 'sk-ui', name: 'Generative UI & Artifacts', desc: 'Renders rich interactive HTML, SVG, and React live preview widgets.', active: true },
+                  ].map((sk) => (
+                    <div key={sk.id} className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-semibold text-[#f4efe6]">{sk.name}</div>
+                        <div className="text-[11px] text-[#8a8579] mt-0.5 leading-relaxed">{sk.desc}</div>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                        Active
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: PLUGINS */}
+            {/* ========================================================================= */}
+            {activeTab === 'plugins' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Plugins & MCP Servers</h3>
+                  <p className="text-xs text-[#8a8579]">Manage Model Context Protocol extensions and external tools.</p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] space-y-3">
+                  <div className="flex items-center space-x-2 text-xs font-semibold text-[#f4efe6]">
+                    <Zap className="w-4 h-4 text-[#cc785c]" />
+                    <span>Model Context Protocol (MCP) Runtime</span>
+                  </div>
+                  <p className="text-xs text-[#8a8579] leading-relaxed">
+                    Full support for stdio and Server-Sent Events (SSE) plugin servers. You can add any PostgreSQL, SQLite, Filesystem, or custom API tool server.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setActiveTab('connectors');
+                      setConnectorViewTab('custom_mcp');
+                    }}
+                    className="px-3.5 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all"
+                  >
+                    + Add New MCP Plugin Server
+                  </button>
                 </div>
               </div>
             )}
@@ -724,7 +1207,7 @@ export default function SettingsModal({
             {/* ========================================================================= */}
             {/* TAB 3: API KEYS & QUOTAS */}
             {/* ========================================================================= */}
-            {activeTab === 'models' && (
+            {(activeTab === 'models' || activeTab === 'apikeys') && (
               <div className="space-y-5 max-w-2xl">
                 {/* Gemini Free Key */}
                 <div className="space-y-1.5">
@@ -816,7 +1299,7 @@ export default function SettingsModal({
             {/* ========================================================================= */}
             {/* TAB 4: CLOUD & PHONE SYNC */}
             {/* ========================================================================= */}
-            {activeTab === 'sync' && (
+            {(activeTab === 'sync' || activeTab === 'developer') && (
               <div className="space-y-5 max-w-2xl">
                 {/* Cloud Sync Room */}
                 <div className="space-y-1.5">

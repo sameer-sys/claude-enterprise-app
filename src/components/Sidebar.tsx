@@ -22,6 +22,7 @@ import {
   Globe,
   FileCode,
   Database,
+  Mail,
 } from 'lucide-react';
 import { Session, Project, Connector } from '@/types/chat';
 
@@ -196,6 +197,7 @@ export default function Sidebar({
                 title={`${conn.name} (${conn.enabled ? 'Active - Click to disable' : 'Inactive - Click to enable'})`}
               >
                 {conn.icon === 'github' && <Github className="w-3 h-3 text-white shrink-0" />}
+                {(conn.icon === 'gmail' || conn.icon === 'mail') && <Mail className="w-3 h-3 text-rose-400 shrink-0" />}
                 {conn.icon === 'websearch' && <Globe className="w-3 h-3 text-cyan-400 shrink-0" />}
                 {conn.icon === 'filesystem' && <FileCode className="w-3 h-3 text-amber-300 shrink-0" />}
                 {conn.icon === 'gdrive' && <HardDrive className="w-3 h-3 text-blue-400 shrink-0" />}

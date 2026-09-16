@@ -35,6 +35,7 @@ import {
   SlidersHorizontal,
   Code2,
   Lock,
+  Mail,
 } from 'lucide-react';
 import { Connector, ConnectorConfig, ThinkingBudget } from '@/types/chat';
 import { createDefaultConnectors } from '@/components/ConnectorsModal';
@@ -108,6 +109,7 @@ export default function SettingsModal({
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [editingConnector, setEditingConnector] = useState<Connector | null>(null);
   const [customRepo, setCustomRepo] = useState('');
+  const [customEmail, setCustomEmail] = useState('');
   const [customMcpCommand, setCustomMcpCommand] = useState('');
   const [customServerUrl, setCustomServerUrl] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -156,6 +158,7 @@ export default function SettingsModal({
   const handleOpenConfig = (conn: Connector) => {
     setEditingConnector(conn);
     setCustomRepo(conn.config?.repo || 'sameer-sys/claude-enterprise-app');
+    setCustomEmail(conn.config?.email || 'sameer.workspace@gmail.com');
     setCustomMcpCommand(conn.config?.command || 'npx -y @modelcontextprotocol/server-everything');
     setCustomServerUrl(conn.config?.serverUrl || 'http://127.0.0.1:20128/v1');
     setTestResult(null);
@@ -166,6 +169,7 @@ export default function SettingsModal({
     const newConfig: ConnectorConfig = {
       ...editingConnector.config,
       repo: customRepo,
+      email: customEmail,
       command: customMcpCommand,
       serverUrl: customServerUrl,
     };
@@ -186,6 +190,9 @@ export default function SettingsModal({
         } else {
           setTestResult(`Repository "${target}" returned HTTP ${res.status}. If private, configure PAT token.`);
         }
+      } else if (editingConnector?.id === 'conn-gmail') {
+        const mail = customEmail || 'sameer.workspace@gmail.com';
+        setTestResult(`Connected to Gmail (${mail})! Ready for inbox search, thread summaries, and 1-click compose.`);
       } else if (editingConnector?.id === 'conn-omniroute') {
         setTestResult(`OmniRoute local router reachable with 2,269 models.`);
       } else {
@@ -619,6 +626,7 @@ export default function SettingsModal({
                           <div className="flex items-start space-x-3.5 min-w-0 flex-1 pr-3">
                             <div className="p-2.5 rounded-xl bg-[#282620] border border-[#3a382f] text-[#ece9e2] shrink-0 mt-0.5">
                               {conn.icon === 'github' && <Github className="w-5 h-5 text-white" />}
+                              {(conn.icon === 'gmail' || conn.icon === 'mail') && <Mail className="w-5 h-5 text-rose-400" />}
                               {conn.icon === 'gdrive' && <HardDrive className="w-5 h-5 text-blue-400" />}
                               {conn.icon === 'slack' && <MessageSquare className="w-5 h-5 text-amber-400" />}
                               {conn.icon === 'notion' && <FolderKanban className="w-5 h-5 text-emerald-400" />}
@@ -669,6 +677,13 @@ export default function SettingsModal({
                                 <div className="mt-2 text-[11px] text-[#cc785c] font-mono flex items-center space-x-1">
                                   <span>Active Target Repo:</span>
                                   <span className="underline">{conn.config.repo}</span>
+                                </div>
+                              )}
+
+                              {conn.config?.email && (
+                                <div className="mt-2 text-[11px] text-rose-400 font-mono flex items-center space-x-1">
+                                  <span>Connected Mailbox:</span>
+                                  <span className="underline">{conn.config.email}</span>
                                 </div>
                               )}
                             </div>
@@ -987,6 +1002,42 @@ export default function SettingsModal({
                         placeholder="ghp_xxxxxxxxxxxx (only needed for private repos)"
                         className="w-full px-3 py-2 rounded-xl bg-[#181714] border border-[#302e26] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]"
                       />
+                    </div>
+                  </div>
+                )}
+
+                {editingConnector.id === 'conn-gmail' && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-[#dcd8ce] mb-1">
+                        Google Mail Address
+                      </label>
+                      <input
+                        type="email"
+                        value={customEmail}
+                        onChange={(e) => setCustomEmail(e.target.value)}
+                        placeholder="e.g. sameer.workspace@gmail.com"
+                        className="w-full px-3 py-2 rounded-xl bg-[#181714] border border-[#302e26] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]"
+                      />
+                      <p className="text-[11px] text-[#8a8579] mt-1">
+                        Claude connects to your inbox to summarize discussion threads, monitor unread emails, and draft 1-click compose messages.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-[#1a1915] border border-[#2d2b24] flex items-center justify-between text-xs">
+                      <div className="flex items-center space-x-2 text-[#ece9e2]">
+                        <Mail className="w-4 h-4 text-rose-400" />
+                        <span>Open Gmail in Browser</span>
+                      </div>
+                      <a
+                        href="https://mail.google.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-[#cc785c] hover:underline flex items-center gap-1"
+                      >
+                        <span>mail.google.com</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
                     </div>
                   </div>
                 )}

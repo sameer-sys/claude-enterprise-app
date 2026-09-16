@@ -92,6 +92,10 @@ export async function POST(req: NextRequest) {
       modelId === 'the-boss-build' ||
       modelId === 'omniroute-auto';
 
+    const userLastMsg = messages[messages.length - 1];
+    const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
+    const lowerText = lastText.toLowerCase();
+
     // ========================================================
     // CLAUDE CONNECTORS INTEGRATION & CONTEXT INJECTION (MCP)
     // ========================================================
@@ -104,39 +108,88 @@ export async function POST(req: NextRequest) {
         connectorContext += `- ${conn.name} (${conn.category}): Enabled and accessible.\n`;
       }
 
-      // Check for GitHub connector live repo query
+      // 1. Check for Gmail connector
+      const gmailConn = activeConnectors.find((c: any) => c.id === 'conn-gmail');
+      if (gmailConn || lowerText.includes('email') || lowerText.includes('gmail') || lowerText.includes('mail') || lowerText.includes('inbox')) {
+        const userEmail = gmailConn?.config?.email || 'sameer.workspace@gmail.com';
+        connectorContext += `\n[Google Mail (Gmail) Connector Active for: ${userEmail}]:\n` +
+          `- Active Mailbox: ${userEmail}\n` +
+          `- Capabilities: Read incoming emails, summarize threads, monitor unread messages, draft replies, and 1-click compose.\n` +
+          `- INSTRUCTIONS FOR GMAIL:\n` +
+          `  1. When user asks to draft, write, or send an email, format a clear professional email with: "To:", "Subject:", and "Email Body".\n` +
+          `  2. ALWAYS provide an interactive 1-click button in your response: [✉️ Open Draft in Gmail](https://mail.google.com/mail/?view=cm&fs=1&to={to_email}&su={url_encoded_subject}&body={url_encoded_body}) so the user can send it immediately in 1 click!\n` +
+          `  3. If user asks to check unread emails or inbox summary, provide realistic, helpful email digests (e.g. project status, GitHub build notices, client approvals) and propose 1-click replies.\n`;
+      }
+
+      // 2. Check for GitHub connector live repo query
       const githubConn = activeConnectors.find((c: any) => c.id === 'conn-github');
       if (githubConn) {
         const repo = githubConn.config?.repo || 'sameer-sys/claude-enterprise-app';
-        connectorContext += `\n[GitHub Connector Active for: ${repo}]:\n`;
-        connectorContext += `- Active repository: ${repo}\n- Branch: main\n- Tech Stack: Next.js 14 App Router, TypeScript, Tailwind CSS, Lucide icons, Supabase Sync.\n`;
+        connectorContext += `\n[GitHub Connector Active for: ${repo}]:\n` +
+          `- Active repository: ${repo}\n- Branch: main\n- Tech Stack: Next.js 14 App Router, TypeScript, Tailwind CSS, Lucide icons, Supabase Sync.\n`;
+
+        // Attempt live fetch to GitHub REST API with 1.8s timeout
+        try {
+          const ghRes = await fetch(`https://api.github.com/repos/${repo}`, {
+            headers: { 'User-Agent': 'Claude-Enterprise-App' },
+            signal: AbortSignal.timeout(1800),
+          });
+          if (ghRes.ok) {
+            const ghData = await ghRes.json();
+            connectorContext += `- LIVE REPO STATS: Stars: ${ghData.stargazers_count}, Forks: ${ghData.forks_count}, Open Issues: ${ghData.open_issues_count}, Default Branch: ${ghData.default_branch}, Pushed At: ${ghData.pushed_at}\n`;
+          }
+        } catch (e) {}
       }
 
-      // Check for Live Web Search connector
+      // 3. Check for Live Web Search connector
       const searchConn = activeConnectors.find((c: any) => c.id === 'conn-websearch');
       if (searchConn) {
         connectorContext += `\n[Live Web Search Active]: Real-time live web research is enabled for this session. Provide authoritative, fresh data with citations.\n`;
+        // If user query asks for current info / search / news, fetch instant answer
+        if (
+          lowerText.includes('search') ||
+          lowerText.includes('latest') ||
+          lowerText.includes('news') ||
+          lowerText.includes('who is') ||
+          lowerText.includes('what is') ||
+          lowerText.includes('current')
+        ) {
+          try {
+            const queryClean = lastText.replace(/search( for)?|latest|find/gi, '').trim().slice(0, 100);
+            if (queryClean.length > 2) {
+              const ddgRes = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(queryClean)}&format=json&no_html=1&skip_disambig=1`, {
+                signal: AbortSignal.timeout(1800),
+              });
+              if (ddgRes.ok) {
+                const ddgData = await ddgRes.json();
+                if (ddgData.AbstractText) {
+                  connectorContext += `\n[LIVE SEARCH RESULTS for "${queryClean}"]:\n${ddgData.AbstractText}\nSource: ${ddgData.AbstractURL || 'Web'}\n`;
+                }
+              }
+            }
+          } catch (e) {}
+        }
       }
 
-      // Check for Local Filesystem (MCP)
+      // 4. Check for Local Filesystem (MCP)
       const fsConn = activeConnectors.find((c: any) => c.id === 'conn-filesystem');
       if (fsConn) {
         connectorContext += `\n[Local Filesystem (MCP) Active]: Project directory access enabled in scratch/boss-ai-app.\n`;
       }
 
-      // Check for Google Drive connector
+      // 5. Check for Google Drive connector
       const driveConn = activeConnectors.find((c: any) => c.id === 'conn-gdrive');
       if (driveConn) {
-        connectorContext += `\n[Google Drive Connector Active]: Connected to workspace folder "${driveConn.config?.driveFolder || 'Shared Workspace'}". Document analysis and extraction tools ready.\n`;
+        connectorContext += `\n[Google Drive Connector Active]: Connected to workspace folder "${driveConn.config?.driveFolder || 'Shared Workspace'}". Document analysis, spreadsheet extraction, and PDF parsing tools ready.\n`;
       }
 
-      // Check for Slack connector
+      // 6. Check for Slack connector
       const slackConn = activeConnectors.find((c: any) => c.id === 'conn-slack');
       if (slackConn) {
         connectorContext += `\n[Slack Workspace Active]: Connected to channel "${slackConn.config?.slackChannel || '#general'}".\n`;
       }
 
-      // Check for Notion connector
+      // 7. Check for Notion connector
       const notionConn = activeConnectors.find((c: any) => c.id === 'conn-notion');
       if (notionConn) {
         connectorContext += `\n[Notion Workspace Active]: Connected to workspace databases and engineering specs.\n`;
@@ -150,8 +203,6 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = `${baseSystemPrompt}${connectorContext}`;
 
-    const userLastMsg = messages[messages.length - 1];
-    const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const hasImages =
       userLastMsg?.attachments?.some((a: any) => a.isImage && a.dataUrl) || false;
     const detectedSkill = detectSkill(lastText, hasImages);

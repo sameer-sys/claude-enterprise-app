@@ -39,13 +39,15 @@ export interface ConnectorConfig {
   notionDatabase?: string;
   serverUrl?: string;
   command?: string;
+  email?: string;
+  apiKey?: string;
 }
 
 export interface Connector {
   id: string;
   name: string;
   description: string;
-  icon: 'github' | 'gdrive' | 'slack' | 'notion' | 'figma' | 'websearch' | 'filesystem' | 'database' | 'mcp';
+  icon: 'github' | 'gdrive' | 'slack' | 'notion' | 'figma' | 'websearch' | 'filesystem' | 'database' | 'mcp' | 'gmail' | 'mail';
   enabled: boolean;
   status: 'connected' | 'ready' | 'idle';
   category: string;

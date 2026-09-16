@@ -24,6 +24,7 @@ import {
   Sliders,
   Terminal,
   RefreshCw,
+  Mail,
 } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
 export type { Connector, ConnectorConfig };
@@ -42,6 +43,20 @@ export function createDefaultConnectors(): Connector[] {
       capabilities: ['Code Search', 'Repo Inspection', 'Pull Requests', 'Issues'],
       config: {
         repo: 'sameer-sys/claude-enterprise-app',
+      },
+    },
+    {
+      id: 'conn-gmail',
+      name: 'Google Mail (Gmail)',
+      description: 'Search emails, summarize discussion threads, monitor unread messages, and draft professional replies.',
+      icon: 'gmail',
+      enabled: true,
+      status: 'connected',
+      category: 'Productivity',
+      provider: 'anthropic',
+      capabilities: ['Inbox Search', 'Thread Summaries', 'Draft Replies', '1-Click Send'],
+      config: {
+        email: 'sameer.workspace@gmail.com',
       },
     },
     {
@@ -454,6 +469,7 @@ export default function ConnectorsModal({
                   <div className="flex items-start space-x-3.5 min-w-0 flex-1 pr-3">
                     <div className="p-2.5 rounded-xl bg-[#282620] border border-[#3a382f] text-[#ece9e2] shrink-0 mt-0.5">
                       {conn.icon === 'github' && <Github className="w-5 h-5 text-white" />}
+                      {(conn.icon === 'gmail' || conn.icon === 'mail') && <Mail className="w-5 h-5 text-rose-400" />}
                       {conn.icon === 'gdrive' && <HardDrive className="w-5 h-5 text-blue-400" />}
                       {conn.icon === 'slack' && <MessageSquare className="w-5 h-5 text-amber-400" />}
                       {conn.icon === 'notion' && <FolderKanban className="w-5 h-5 text-emerald-400" />}

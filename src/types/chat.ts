@@ -97,12 +97,18 @@ export interface Artifact {
 
 export interface Project {
   id: string;
-  name: string;
+  name: string;           // e.g. "PM1", "PM2 — YouTube Manager"
+  email: string;          // Assigned email account e.g. samesuf629@gmail.com
+  task: string;           // Assigned continuous task/project brief
   description: string;
   customInstructions: string;
   filesCount: number;
   createdAt: number;
+  lastReport?: string;    // Latest progress/issue report snippet
+  hasIssue?: boolean;     // Red flag if PM has reported a problem
+  isActive?: boolean;     // Is PM currently working
 }
+
 
 export interface OpenWorkAgent {
   id: string;

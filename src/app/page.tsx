@@ -275,7 +275,59 @@ export default function Home() {
 
   const handleCreateProject = (project: Project) => {
     setProjects([project, ...projects]);
+    // Auto-open a first session for this PM
+    const pmPrompt = `You are ${project.name}${project.email ? `, managing the account ${project.email}` : ''}. Your assigned task: ${project.task || 'General project management'}. Report your progress, flag any issues, and ask the Manager (Sameer) for approvals when needed. Be concise and professional in your updates.`;
+    const firstMsg: Message = {
+      id: `msg_pm_intro_${Date.now()}`,
+      role: 'assistant',
+      content: `👋 **${project.name} reporting for duty!**\n\n**Assigned Account:** ${project.email || 'Not specified'}\n**Task:** ${project.task || 'Awaiting assignment'}\n\nI'm ready to handle this project. I'll keep you (Manager) updated on progress, flag any blockers, and report issues as they come up.\n\n*What should I start with first?*`,
+      timestamp: Date.now(),
+      modelId: 'claude-3-7-sonnet',
+    };
+    const pmSession: Session = {
+      id: `ses_pm_${Date.now()}`,
+      title: `${project.name} — Workspace`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [firstMsg],
+      activeModel: 'claude-3-7-sonnet',
+      projectId: project.id,
+      agentName: project.name,
+      agentPrompt: pmPrompt,
+      connectors: createDefaultConnectors(),
+    };
+    setSessions((prev) => [pmSession, ...prev]);
+    setActiveSessionId(pmSession.id);
+    setActiveArtifact(null);
   };
+
+  // Open a new chat inside a PM's workspace (called when clicking a PM in sidebar)
+  const handleNewPMSession = (project: Project) => {
+    const pmPrompt = `You are ${project.name}${project.email ? `, managing the account ${project.email}` : ''}. Your assigned task: ${project.task || 'General project management'}. Report your progress, flag any issues, and ask the Manager (Sameer) for approvals when needed. Be concise and professional in your updates.`;
+    const newSession: Session = {
+      id: `ses_pm_${Date.now()}`,
+      title: `${project.name} — Chat`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [],
+      activeModel: activeModel,
+      projectId: project.id,
+      agentName: project.name,
+      agentPrompt: pmPrompt,
+      connectors: createDefaultConnectors(),
+    };
+    setSessions((prev) => [newSession, ...prev]);
+    setActiveSessionId(newSession.id);
+    setActiveArtifact(null);
+  };
+
+  // Update a PM's lastReport and hasIssue from their latest message
+  const handleUpdatePMReport = (projectId: string, report: string, hasIssue: boolean) => {
+    setProjects((prev) =>
+      prev.map((p) => p.id === projectId ? { ...p, lastReport: report, hasIssue } : p)
+    );
+  };
+
 
   const handleToggleStar = (id: string) => {
     setSessions((prev) =>
@@ -583,6 +635,7 @@ export default function Home() {
           setIsSettingsOpen(true);
         }}
         onOpenNewProject={() => setIsProjectModalOpen(true)}
+        onNewPMSession={handleNewPMSession}
         onOpenAgents={() => setIsAgentsModalOpen(true)}
         onOpenSquad={() => setIsSquadOpen(true)}
         projects={projects}

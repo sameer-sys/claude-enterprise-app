@@ -43,6 +43,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Message, ModelId, Artifact, ResponseStyle, Attachment, ThinkingBudget, CustomButton, Connector, ConnectorConfig } from '@/types/chat';
+import CodeBlockRunner from '@/components/CodeBlockRunner';
 import ModelSelector from './ModelSelector';
 
 interface ChatAreaProps {
@@ -984,32 +985,13 @@ export default function ChatArea({
 
                               if (!inline && (lang || codeText.includes('\n'))) {
                                 return (
-                                  <div className="my-3 rounded-xl bg-[#151411] border border-[#2d2b24] overflow-hidden shadow-lg">
-                                    <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#1d1c18] border-b border-[#282620] text-xs text-[#9c978b]">
-                                      <div className="flex items-center space-x-2">
-                                        <div className="flex space-x-1">
-                                          <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
-                                          <div className="w-2.5 h-2.5 rounded-full bg-amber-500/60" />
-                                          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" />
-                                        </div>
-                                        <span className="font-mono text-[11px] font-semibold text-[#cc785c] uppercase ml-1.5">
-                                          {lang || 'code'}
-                                        </span>
-                                      </div>
-                                      <button
-                                        onClick={() => copyMessage(`code_${Date.now()}`, codeText)}
-                                        className="flex items-center gap-1 hover:text-[#ece9e2] transition-colors font-sans text-[11px] px-2 py-0.5 rounded hover:bg-[#282620]"
-                                      >
-                                        <Copy className="w-3 h-3" />
-                                        <span>Copy</span>
-                                      </button>
-                                    </div>
-                                    <pre className="p-3.5 overflow-x-auto text-xs font-mono text-[#e6e2d8] leading-relaxed">
-                                      <code className={className} {...props}>
-                                        {children}
-                                      </code>
-                                    </pre>
-                                  </div>
+                                  <CodeBlockRunner
+                                    code={codeText}
+                                    language={lang}
+                                    className={className}
+                                  >
+                                    {children}
+                                  </CodeBlockRunner>
                                 );
                               }
 

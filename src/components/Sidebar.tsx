@@ -243,9 +243,52 @@ export default function Sidebar({
                   className="p-1 rounded hover:bg-[#282620] text-[#8a8579] hover:text-[#ece9e2] transition-colors"
                   title="New project"
                 >
-                  <Plus className="w-3 h-3" />
+                  <Plus className="w-3.5 h-3.5" />
                 </button>
               )}
+            </div>
+            {projects && projects.length > 0 ? (
+              projects.map((project) => {
+                const projectSession = sessions.find((s) => s.projectId === project.id);
+                const isProjectActive = projectSession?.id === activeSessionId;
+                return (
+                  <div
+                    key={project.id}
+                    onClick={() => {
+                      if (projectSession) {
+                        onSelectSession(projectSession.id);
+                      } else if (onNewPMSession) {
+                        onNewPMSession(project);
+                      }
+                      onCloseMobile();
+                    }}
+                    className={`group relative flex items-center rounded-lg px-2.5 py-1.5 text-xs font-medium cursor-pointer transition-all ${
+                      isProjectActive
+                        ? 'bg-[#2b2923] text-[#f2eee6] border border-[#3b3830]'
+                        : 'text-[#bfb9ad] hover:bg-[#23221c] hover:text-[#ece9e2]'
+                    }`}
+                  >
+                    <FolderKanban className="w-3.5 h-3.5 mr-2 shrink-0 text-[#cc785c] opacity-80" />
+                    <span className="truncate flex-1">{project.name}</span>
+                    <ChevronRight className="w-3 h-3 text-[#7d786e] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                );
+              })
+            ) : (
+              <button
+                onClick={onOpenNewProject}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-[#7d786e] hover:text-[#bfb9ad] hover:bg-[#23221c] transition-colors flex items-center gap-2"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Create a project...</span>
+              </button>
+            )}
+          </div>
+
+          {/* Recent Chats Section */}
+          <div className="space-y-0.5 pt-2">
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wider font-semibold text-[#8a8579]">
+              Recent Chats
             </div>
             {regularSessions.length === 0 && starredSessions.length === 0 ? (
               <div className="text-center py-6 px-4 text-[#7d786e] text-xs">

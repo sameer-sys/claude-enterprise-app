@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'edge';
 
 const OPENROUTER_MODELS: Record<string, string> = {
-  'claude-3-7-sonnet': 'nex-agi/nex-n2.5-pro:free',
-  'claude-3-5-sonnet': 'nex-agi/nex-n2.5-mini:free',
-  'claude-3-5-haiku': 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+  'claude-3-7-sonnet': 'google/gemma-4-31b-it:free',
+  'claude-3-5-sonnet': 'nvidia/nemotron-3.5-lightning:free',
+  'claude-3-5-haiku': 'google/gemma-4-26b-a4b-it:free',
   'claude-3-opus': 'nvidia/nemotron-3-super-120b-a12b:free',
+  'the-boss-chat': 'nvidia/nemotron-3.5-lightning:free',
+  'the-boss-build': 'google/gemma-4-31b-it:free',
 };
 
 const BUILTIN_OPENROUTER_KEY =
@@ -639,7 +641,7 @@ export async function POST(req: NextRequest) {
                 system_instruction: { parts: [{ text: systemPrompt }] },
                 contents,
               }),
-              signal: AbortSignal.timeout(4000),
+              signal: AbortSignal.timeout(10000),
             });
 
             if (geminiResponse.ok) {
@@ -766,11 +768,12 @@ export async function POST(req: NextRequest) {
       const candidateModels = Array.from(
         new Set([
           selectedTargetModel,
-          'nex-agi/nex-n2.5-mini:free',
-          'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-          'nex-agi/nex-n2.5-pro:free',
+          'google/gemma-4-31b-it:free',
+          'nvidia/nemotron-3.5-lightning:free',
+          'google/gemma-4-26b-a4b-it:free',
+          'nvidia/nemotron-3-super-120b-a12b:free',
         ])
-      ).slice(0, 3);
+      ).slice(0, 4);
 
       const fullMessages = [
         { role: 'system', content: systemPrompt },
@@ -805,7 +808,7 @@ export async function POST(req: NextRequest) {
               messages: fullMessages,
               stream: true,
             }),
-            signal: AbortSignal.timeout(3500),
+            signal: AbortSignal.timeout(6000),
           });
 
           if (upstreamResponse.status === 429 || upstreamResponse.status === 401 || upstreamResponse.status === 403) {
@@ -890,7 +893,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ========================================================
-    // OMNIROUTER STAGE 4: Zero-Auth Cloud Edge Safety Fallback
+    // OMNIROUTER STAGE 4: Zero-Auth Cloud Edge Continuous Engine
     // ========================================================
     try {
       const edgeResp = await fetch('https://text.pollinations.ai/', {
@@ -904,8 +907,9 @@ export async function POST(req: NextRequest) {
               content: m.content || '',
             })),
           ],
+          model: 'openai-fast',
         }),
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(25000),
       });
 
       if (edgeResp.ok) {

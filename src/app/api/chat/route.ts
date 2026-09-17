@@ -907,7 +907,7 @@ export async function POST(req: NextRequest) {
               content: m.content || '',
             })),
           ],
-          model: 'openai-fast',
+          model: 'openai',
         }),
         signal: AbortSignal.timeout(25000),
       });

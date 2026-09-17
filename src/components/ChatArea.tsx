@@ -120,6 +120,57 @@ export default function ChatArea({
   const [editingDownsideConn, setEditingDownsideConn] = useState<Connector | null>(null);
   const [downsideEditValue, setDownsideEditValue] = useState('');
 
+  // Cowork Mode — File Access State
+  const [coworkFile, setCoworkFile] = useState<{ name: string; content: string; handle?: any } | null>(null);
+  const [coworkDirty, setCoworkDirty] = useState(false);
+
+  const handleOpenFile = async () => {
+    try {
+      const [handle] = await (window as any).showOpenFilePicker({
+        types: [{ description: 'Any File', accept: { '*/*': [] } }],
+        multiple: false,
+      });
+      const file = await handle.getFile();
+      const content = await file.text();
+      setCoworkFile({ name: file.name, content, handle });
+      setCoworkDirty(false);
+      // Auto-inject file content as context
+      onSendMessage(`I've opened the file "${file.name}" for cowork. Here is its content:\n\n\`\`\`\n${content.slice(0, 8000)}\n\`\`\`\n\nPlease review it. I'll tell you what changes to make.`);
+    } catch (e) { /* user cancelled */ }
+  };
+
+  const handleSaveFile = async () => {
+    if (!coworkFile) return;
+    try {
+      if (coworkFile.handle) {
+        const writable = await coworkFile.handle.createWritable();
+        await writable.write(coworkFile.content);
+        await writable.close();
+      } else {
+        const handle = await (window as any).showSaveFilePicker({ suggestedName: coworkFile.name });
+        const writable = await handle.createWritable();
+        await writable.write(coworkFile.content);
+        await writable.close();
+        setCoworkFile((prev) => prev ? { ...prev, handle } : prev);
+      }
+      setCoworkDirty(false);
+    } catch (e) { /* user cancelled */ }
+  };
+
+  const handleNewFile = async () => {
+    try {
+      const handle = await (window as any).showSaveFilePicker({ suggestedName: 'untitled.txt' });
+      const writable = await handle.createWritable();
+      await writable.write('');
+      await writable.close();
+      const file = await handle.getFile();
+      setCoworkFile({ name: file.name, content: '', handle });
+      setCoworkDirty(false);
+    } catch (e) { /* user cancelled */ }
+  };
+
+
+
   const handleSaveDownsideConfig = () => {
     if (!editingDownsideConn || !onUpdateConnectorConfig) return;
     if (editingDownsideConn.id === 'conn-gmail') {
@@ -819,8 +870,11 @@ export default function ChatArea({
         </div>
       </header>
 
-      {/* Messages Stream / Hero Container */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 space-y-6">
+      {/* Messages Stream / Hero Container — split with Cowork panel when active */}
+      <div className={`flex-1 flex overflow-hidden ${interactionMode === 'cowork' ? 'flex-row' : 'flex-col'}`}>
+
+        {/* Left: Chat messages */}
+        <div className={`overflow-y-auto px-4 py-6 md:px-8 space-y-6 ${interactionMode === 'cowork' ? 'w-1/2 border-r border-[#2b2923]' : 'flex-1'}`}>
         {!hasMessages ? (
           /* Claude Hero Welcome View - Exact match to official Claude screenshot */
           <div className="min-h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center space-y-5 py-8 animate-in fade-in duration-200">
@@ -1277,6 +1331,81 @@ export default function ChatArea({
         )}
 
         <div ref={messagesEndRef} />
+        </div>
+
+        {/* Right: Cowork File Editor Panel */}
+        {interactionMode === 'cowork' && (
+          <div className="w-1/2 flex flex-col bg-[#181714] border-l border-[#2b2923]">
+            {/* Cowork Toolbar */}
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#2b2923] bg-[#1c1b18] shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs font-semibold text-[#f2eee6]">
+                  {coworkFile ? coworkFile.name : 'Cowork — File Access'}
+                </span>
+                {coworkDirty && <span className="text-[10px] text-amber-400 font-mono">● unsaved</span>}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleNewFile}
+                  className="px-2 py-1 rounded-lg text-[11px] text-[#9c978b] hover:text-[#ece9e2] hover:bg-[#2a2822] transition-colors"
+                  title="New file on your PC"
+                >New</button>
+                <button
+                  onClick={handleOpenFile}
+                  className="px-2.5 py-1 rounded-lg text-[11px] bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] text-[#dcd8ce] transition-colors"
+                  title="Open file from your PC"
+                >📂 Open</button>
+                {coworkFile && (
+                  <button
+                    onClick={handleSaveFile}
+                    className="px-2.5 py-1 rounded-lg text-[11px] bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold transition-colors"
+                    title="Save file to your PC"
+                  >💾 Save</button>
+                )}
+              </div>
+            </div>
+
+            {/* File Content Editor */}
+            {coworkFile ? (
+              <textarea
+                className="flex-1 w-full bg-[#141210] text-[#e6e2d8] text-xs font-mono p-4 resize-none focus:outline-none leading-relaxed"
+                value={coworkFile.content}
+                onChange={(e) => {
+                  setCoworkFile((prev) => prev ? { ...prev, content: e.target.value } : prev);
+                  setCoworkDirty(true);
+                }}
+                spellCheck={false}
+                placeholder="File content will appear here..."
+              />
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
+                <div className="w-16 h-16 rounded-2xl bg-[#23221d] border border-[#38352d] flex items-center justify-center text-3xl">
+                  📂
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-[#f2eee6]">Open any file from your PC</p>
+                  <p className="text-xs text-[#8a8579] max-w-xs leading-relaxed">
+                    Read, edit, and save files directly. Claude can see the content and help you modify it.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleOpenFile}
+                    className="px-4 py-2 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black text-xs font-bold transition-all shadow-md"
+                  >Open File from PC</button>
+                  <button
+                    onClick={handleNewFile}
+                    className="px-4 py-2 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] text-[#dcd8ce] text-xs font-medium transition-all"
+                  >New File</button>
+                </div>
+                <p className="text-[10px] text-[#6b675d] font-mono">
+                  Supports: .txt .md .js .ts .py .json .html .css and any text file
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Floating Prompt Box + Downside Connectors Bar at Bottom */}
@@ -1286,6 +1415,7 @@ export default function ChatArea({
           {renderDownsideConnectorsBar()}
         </div>
       )}
+
 
       {/* Fullscreen Image Lightbox Modal */}
       {previewImage && (

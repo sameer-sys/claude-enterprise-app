@@ -14,35 +14,74 @@ export default function DownloadPage() {
 
   const handleDownloadWindows = () => {
     const origin = getAppOrigin();
-    const launcherScript = `@echo off
-title Claude Enterprise Desktop Launcher
-echo ========================================================
-echo Launching Claude Enterprise Pro Max Web App...
-echo URL: ${origin}
-echo ========================================================
+    // Launches in Chrome/Edge --app mode: dedicated window, own taskbar icon, no browser chrome
+    // Exactly how Claude's official desktop app works
+    const script = `@echo off
+title Claude Enterprise — Desktop Installer
+echo.
+echo  ========================================================
+echo   Claude Enterprise Pro Max — Desktop App Installer
+echo  ========================================================
+echo.
+echo  Installing dedicated desktop app window...
+echo.
+
+:: Create Desktop shortcut
+set SHORTCUT=%USERPROFILE%\\Desktop\\Claude Enterprise.url
+echo [InternetShortcut] > "%SHORTCUT%"
+echo URL=${origin} >> "%SHORTCUT%"
+echo IconFile=%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe >> "%SHORTCUT%"
+echo IconIndex=0 >> "%SHORTCUT%"
+
+:: Try Chrome first, then Edge
+where chrome >nul 2>&1
+if %ERRORLEVEL% == 0 (
+  echo  Launching with Google Chrome...
+  start "" chrome --app=${origin} --name="Claude Enterprise" --window-size=1280,900
+  goto done
+)
+
+where msedge >nul 2>&1
+if %ERRORLEVEL% == 0 (
+  echo  Launching with Microsoft Edge...
+  start "" msedge --app=${origin} --name="Claude Enterprise" --window-size=1280,900
+  goto done
+)
+
+:: Fallback: open in default browser
+echo  Falling back to default browser...
 start ${origin}
-exit
+
+:done
+echo.
+echo  Claude Enterprise desktop app launched!
+echo  Pin it to your taskbar for quick access.
+echo.
+timeout /t 3 >nul
 `;
-    const blob = new Blob([launcherScript], { type: 'application/octet-stream' });
+    const blob = new Blob([script], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Claude-Enterprise-Setup.bat';
+    a.download = 'Install-Claude-Enterprise.bat';
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const handleDownloadApk = () => {
     const origin = getAppOrigin();
-    const androidPayload = `[InternetShortcut]\nURL=${origin}\nIconIndex=0`;
-    const blob = new Blob([androidPayload], { type: 'application/octet-stream' });
+    // PWA install shortcut for Android
+    const payload = `[InternetShortcut]\nURL=${origin}\nIconIndex=0\n`;
+    const blob = new Blob([payload], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Claude-Mobile-App.url';
+    a.download = 'Claude-Mobile.url';
     a.click();
     URL.revokeObjectURL(url);
   };
+
+
 
   return (
     <div className="min-h-screen bg-[#1c1b18] text-[#ece9e2] flex flex-col">
@@ -86,21 +125,21 @@ exit
               <div>
                 <h3 className="text-lg font-semibold text-[#f2eee6]">Claude for Windows</h3>
                 <p className="text-xs text-[#9c978b] mt-1 leading-relaxed">
-                  Native Windows desktop app with dedicated window, system tray integration, and hardware acceleration.
+                  Dedicated app window — no browser tabs, no address bar. Runs exactly like Claude's official desktop app with its own taskbar icon.
                 </p>
               </div>
               <div className="space-y-1.5 text-xs text-[#baa898]">
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#cc785c]" />
-                  <span>Windows 10 & 11 (64-bit)</span>
+                  <span>Dedicated window — no browser chrome</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#cc785c]" />
-                  <span>Fast global shortcut Ctrl+Shift+C</span>
+                  <span>Own taskbar icon — pin it like any app</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#cc785c]" />
-                  <span>100% Free Forever</span>
+                  <span>Works on Chrome & Edge — 100% Free</span>
                 </div>
               </div>
             </div>
@@ -110,8 +149,9 @@ exit
               className="w-full py-3 px-4 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-bold text-sm shadow-md transition-all flex items-center justify-center space-x-2 active:scale-95"
             >
               <Download className="w-4 h-4 stroke-[2.5]" />
-              <span>Download for Windows (.exe)</span>
+              <span>Install Desktop App (.bat)</span>
             </button>
+
           </div>
 
           {/* Android & iOS Mobile */}

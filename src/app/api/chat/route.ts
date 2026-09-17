@@ -753,7 +753,80 @@ export async function POST(req: NextRequest) {
     }
 
     // ========================================================
-    // OMNIROUTER STAGE 3: OpenRouter Free Pool (Zero-Key Auto)
+    // OMNIROUTER STAGE 3: Instant Zero-Auth Cloud Engine (1.5s Fast Stream)
+    // ========================================================
+    const hasCustomUserOrKey = typeof openRouterKey === 'string' && openRouterKey.trim().length > 5;
+
+    // If user has NOT provided a custom OpenRouter key, use the instant zero-auth engine first
+    if (!hasCustomUserOrKey) {
+      try {
+        const edgeResp = await fetch('https://text.pollinations.ai/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages.map((m: any) => ({
+                role: m.role === 'user' ? 'user' : 'assistant',
+                content: m.content || '',
+              })),
+            ],
+            model: 'openai',
+          }),
+          signal: AbortSignal.timeout(18000),
+        });
+
+        if (edgeResp.ok) {
+          let fullText = await edgeResp.text();
+          if (
+            fullText &&
+            fullText.trim().length > 5 &&
+            !fullText.includes('budget') &&
+            !fullText.includes('rate limit') &&
+            !fullText.includes('Deprecation')
+          ) {
+            fullText = fullText.trim();
+            if (/^\*\s+(Target audience|Goal|Context|The "God Mode" logic):/i.test(fullText)) {
+              const paragraphs = fullText.split(/\n\n+/);
+              const meaningful = paragraphs.filter((p) => !/^\*\s+(Target|Goal|Context|Format|Persona|The ")/i.test(p));
+              if (meaningful.length > 0) {
+                fullText = meaningful.join('\n\n').trim();
+              }
+            }
+
+            const encoder = new TextEncoder();
+            const chunkSize = 28;
+            const stream = new ReadableStream({
+              start(controller) {
+                for (let pos = 0; pos < fullText.length; pos += chunkSize) {
+                  const piece = fullText.slice(pos, pos + chunkSize);
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ content: piece })}\n\n`)
+                  );
+                }
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                controller.close();
+              },
+            });
+
+            return new Response(stream, {
+              headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                Connection: 'keep-alive',
+                'X-Claude-Skill': detectedSkill,
+                'X-Claude-Router': 'cloud-instant-stream',
+              },
+            });
+          }
+        }
+      } catch (e) {
+        // Fall through to OpenRouter pool
+      }
+    }
+
+    // ========================================================
+    // OMNIROUTER STAGE 4: OpenRouter High-Capacity Pool
     // ========================================================
     const rawOrKey = openRouterKey || process.env.OPENROUTER_API_KEY || BUILTIN_OPENROUTER_KEY;
     const activeOrKey = typeof rawOrKey === 'string' && rawOrKey.trim().length > 5
@@ -811,7 +884,6 @@ export async function POST(req: NextRequest) {
           });
 
           if (upstreamResponse.status === 429 || upstreamResponse.status === 401 || upstreamResponse.status === 403) {
-            // Key quota reached or invalid; break immediately to prevent lag
             break;
           }
 
@@ -890,73 +962,6 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-
-    // ========================================================
-    // OMNIROUTER STAGE 4: Zero-Auth Cloud Edge Continuous Engine
-    // ========================================================
-    try {
-      const edgeResp = await fetch('https://text.pollinations.ai/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages.map((m: any) => ({
-              role: m.role === 'user' ? 'user' : 'assistant',
-              content: m.content || '',
-            })),
-          ],
-          model: 'openai',
-        }),
-        signal: AbortSignal.timeout(25000),
-      });
-
-      if (edgeResp.ok) {
-        let fullText = await edgeResp.text();
-        if (
-          fullText &&
-          fullText.trim().length > 5 &&
-          !fullText.includes('budget') &&
-          !fullText.includes('rate limit') &&
-          !fullText.includes('Deprecation')
-        ) {
-          // Clean any residual prompt reflection lines
-          fullText = fullText.trim();
-          if (/^\*\s+(Target audience|Goal|Context|The "God Mode" logic):/i.test(fullText)) {
-            const paragraphs = fullText.split(/\n\n+/);
-            const meaningful = paragraphs.filter((p) => !/^\*\s+(Target|Goal|Context|Format|Persona|The ")/i.test(p));
-            if (meaningful.length > 0) {
-              fullText = meaningful.join('\n\n').trim();
-            }
-          }
-
-          const encoder = new TextEncoder();
-          const chunkSize = 28;
-          const stream = new ReadableStream({
-            start(controller) {
-              for (let pos = 0; pos < fullText.length; pos += chunkSize) {
-                const piece = fullText.slice(pos, pos + chunkSize);
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ content: piece })}\n\n`)
-                );
-              }
-              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-              controller.close();
-            },
-          });
-
-          return new Response(stream, {
-            headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              Connection: 'keep-alive',
-              'X-Claude-Skill': detectedSkill,
-              'X-Claude-Router': 'cloud-edge-safety',
-            },
-          });
-        }
-      }
-    } catch (e) {}
 
     // ========================================================
     // DETERMINISTIC CONNECTOR FULFILLMENT (ZERO-FAILURE SHIELD)

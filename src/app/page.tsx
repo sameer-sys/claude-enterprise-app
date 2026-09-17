@@ -10,7 +10,6 @@ import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
 import AgentsModal from '@/components/AgentsModal';
 import FeaturesModal from '@/components/FeaturesModal';
-import ManagerSquadView from '@/components/ManagerSquadView';
 import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton, OpenWorkAgent, ConnectorConfig } from '@/types/chat';
 
 const DEFAULT_CUSTOM_BUTTONS: CustomButton[] = [
@@ -69,7 +68,6 @@ export default function Home() {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isAgentsModalOpen, setIsAgentsModalOpen] = useState(false);
-  const [isSquadOpen, setIsSquadOpen] = useState(false);
   const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>(DEFAULT_CONNECTORS);
@@ -567,9 +565,9 @@ export default function Home() {
                 m.id === assistantMessageId
                   ? {
                       ...m,
-                      content: err.message?.includes('504') || err.message?.includes('timeout')
-                        ? `I am currently operating via the **Enterprise Resilience Engine** while upstream cloud endpoints are busy.\n\nHere is what you need to know regarding your request:\n\n1. **Your Project & Workspaces:** All files, PM sessions, and settings remain safe and synced locally.\n2. **Zero-Drop Resilience:** The system has safely absorbed the network timeout without losing conversation state.\n\n> 💡 **Tip:** To bypass cloud queue delays completely and unlock instant multi-modal streaming, you can add your free Google AI Studio key in Settings.`
-                        : `⚠️ **Notice:** ${err.message || 'Error communicating with model.'}`,
+                      content: err.message
+                        ? `⚠️ **Connection notice:** ${err.message}. Please try sending again.`
+                        : '⚠️ **Connection notice:** Unable to reach model endpoint. Please try again.',
                     }
                   : m
               ),
@@ -654,7 +652,6 @@ export default function Home() {
         onOpenNewProject={() => setIsProjectModalOpen(true)}
         onNewPMSession={handleNewPMSession}
         onOpenAgents={() => setIsAgentsModalOpen(true)}
-        onOpenSquad={() => setIsSquadOpen(true)}
         projects={projects}
         activeConnectorsCount={activeConnectorsCount}
         activeConnectors={currentSessionConnectors}
@@ -697,7 +694,6 @@ export default function Home() {
             setIsSettingsOpen(true);
           }}
           onOpenFeatures={() => setIsFeaturesOpen(true)}
-          onOpenSquad={() => setIsSquadOpen(true)}
           hasGeminiKey={Boolean(geminiKey)}
         />
 
@@ -785,33 +781,8 @@ export default function Home() {
           setIsSettingsOpen(true);
         }}
         onOpenDownload={() => setIsDownloadOpen(true)}
-        onOpenSquad={() => setIsSquadOpen(true)}
         onSelectThinkingBudget={(budget) => setThinkingBudget(budget as ThinkingBudget)}
       />
-
-      {isSquadOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-5xl h-[85vh] rounded-2xl bg-[#1c1b18] border border-[#333129] shadow-2xl overflow-hidden flex flex-col">
-            <div className="flex justify-end p-2 border-b border-[#2d2b25]">
-              <button
-                onClick={() => setIsSquadOpen(false)}
-                className="px-3 py-1 text-xs rounded-lg bg-[#2b2923] hover:bg-[#38352d] text-[#ece9e2] font-medium transition-colors"
-              >
-                Close Squad View ✕
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <ManagerSquadView
-                onClose={() => setIsSquadOpen(false)}
-                onDeployToSession={(directive) => {
-                  setIsSquadOpen(false);
-                  handleSendMessage(directive);
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

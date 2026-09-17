@@ -852,21 +852,6 @@ export default function ChatArea({
             <span className="sm:hidden text-[10px] font-mono text-[#cc785c]">PRO</span>
           </div>
 
-          {/* AGENT TEAMS / SQUAD BUTTON */}
-          {onOpenSquad && (
-            <button
-              onClick={onOpenSquad}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-[#cc785c]/25 to-amber-500/20 hover:from-amber-500/30 hover:to-[#cc785c]/35 border border-amber-500/40 text-xs font-bold text-amber-200 transition-all hover:scale-[1.02] active:scale-95 shadow-sm group"
-              title="Open Multi-Agent Squad (PM1, PM2, PM3 Parallel Workforce)"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-400 group-hover:rotate-12 transition-transform" />
-              <span>Agent Teams</span>
-              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-amber-500/30 text-amber-300 ml-0.5">
-                3 PMs
-              </span>
-            </button>
-          )}
-
           {/* Autonomous Two-Way Proactive Mode Toggle */}
           <button
             onClick={onToggleProactiveMode}
@@ -960,17 +945,6 @@ export default function ChatArea({
 
             {/* Quick Starter Pills */}
             <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
-              {onOpenSquad && (
-                <button
-                  type="button"
-                  onClick={onOpenSquad}
-                  className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-[#cc785c]/25 hover:from-amber-500/30 hover:to-[#cc785c]/35 border border-amber-500/40 text-xs font-semibold text-amber-200 transition-all shadow-sm group"
-                >
-                  <Zap className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
-                  <span>Agent Teams (Squad)</span>
-                </button>
-              )}
-
               <button
                 type="button"
                 onClick={() => onSendMessage('Help me write clean, robust code or debug an application.')}

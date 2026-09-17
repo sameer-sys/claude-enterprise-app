@@ -7,6 +7,7 @@ import {
   Search,
   Sparkles,
   FolderKanban,
+  FolderPlus,
   Cpu,
   Settings,
   Star,
@@ -64,6 +65,20 @@ interface SidebarProps {
   onOpenFeatures?: () => void;
 }
 
+function formatRelativeTime(timestamp?: number): string {
+  if (!timestamp) return '';
+  const diffMs = Date.now() - timestamp;
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  if (diffMins < 1) return 'now';
+  if (diffMins < 60) return `${diffMins}m`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays}d`;
+  const diffMonths = Math.floor(diffDays / 30);
+  return `${diffMonths}mo`;
+}
+
 export default function Sidebar({
   sessions,
   activeSessionId,
@@ -91,6 +106,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const [search, setSearch] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isProjectsOpen, setIsProjectsOpen] = useState(false);
 
   // Filter out PM sessions (those with projectId) from main sessions list
   const mainSessions = sessions.filter((s) => !s.projectId);
@@ -233,120 +249,147 @@ export default function Sidebar({
 
 
 
-          {/* Projects Section */}
-          <div className="space-y-0.5">
-            <div className="px-2 py-1 text-[11px] font-semibold text-[#8a8579] flex items-center justify-between">
-              <span>Projects</span>
-              {onOpenNewProject && (
-                <button
-                  onClick={onOpenNewProject}
-                  className="p-1 rounded hover:bg-[#282620] text-[#8a8579] hover:text-[#ece9e2] transition-colors"
-                  title="New project"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-            {projects && projects.length > 0 ? (
-              projects.map((project) => {
-                const projectSession = sessions.find((s) => s.projectId === project.id);
-                const isProjectActive = projectSession?.id === activeSessionId;
-                return (
-                  <div
-                    key={project.id}
-                    onClick={() => {
-                      if (projectSession) {
-                        onSelectSession(projectSession.id);
-                      } else if (onNewPMSession) {
-                        onNewPMSession(project);
-                      }
-                      onCloseMobile();
-                    }}
-                    className={`group relative flex items-center rounded-lg px-2.5 py-1.5 text-xs font-medium cursor-pointer transition-all ${
-                      isProjectActive
-                        ? 'bg-[#2b2923] text-[#f2eee6] border border-[#3b3830]'
-                        : 'text-[#bfb9ad] hover:bg-[#23221c] hover:text-[#ece9e2]'
-                    }`}
-                  >
-                    <FolderKanban className="w-3.5 h-3.5 mr-2 shrink-0 text-[#cc785c] opacity-80" />
-                    <span className="truncate flex-1">{project.name}</span>
-                    <ChevronRight className="w-3 h-3 text-[#7d786e] opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
-                );
-              })
-            ) : (
+          {/* Projects Row (Exact match to screenshot) */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between px-2 py-1 text-xs text-[#9c978b]">
               <button
-                onClick={onOpenNewProject}
-                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-[#7d786e] hover:text-[#bfb9ad] hover:bg-[#23221c] transition-colors flex items-center gap-2"
+                onClick={() => setIsProjectsOpen(!isProjectsOpen)}
+                className="flex items-center gap-1 hover:text-[#ece9e2] transition-colors font-medium text-xs"
               >
-                <Plus className="w-3 h-3" />
-                <span>Create a project...</span>
+                <span>Projects</span>
+                <ChevronDown className={`w-3 h-3 transition-transform ${isProjectsOpen ? 'rotate-180' : ''}`} />
               </button>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setIsProjectsOpen(!isProjectsOpen)}
+                  className="p-1 rounded hover:bg-[#282620] text-[#8a8579] hover:text-[#ece9e2] transition-colors"
+                  title="Filter projects"
+                >
+                  <ListFilter className="w-3.5 h-3.5" />
+                </button>
+                {onOpenNewProject && (
+                  <button
+                    onClick={onOpenNewProject}
+                    className="p-1 rounded-md border border-[#38352d] hover:border-[#cc785c]/60 bg-[#201f1b] hover:bg-[#2a2822] text-[#dcd8ce] hover:text-[#f2eee6] transition-all shadow-sm"
+                    title="New project"
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Expandable Project List */}
+            {isProjectsOpen && (
+              <div className="space-y-0.5 pl-1 pr-1 pb-1 animate-in fade-in duration-150">
+                {projects && projects.length > 0 ? (
+                  projects.map((project) => {
+                    const projectSession = sessions.find((s) => s.projectId === project.id);
+                    const isProjectActive = projectSession?.id === activeSessionId;
+                    return (
+                      <div
+                        key={project.id}
+                        onClick={() => {
+                          if (projectSession) {
+                            onSelectSession(projectSession.id);
+                          } else if (onNewPMSession) {
+                            onNewPMSession(project);
+                          }
+                          onCloseMobile();
+                        }}
+                        className={`group flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-medium cursor-pointer transition-all ${
+                          isProjectActive
+                            ? 'bg-[#2a2924] text-[#f2eee6]'
+                            : 'text-[#9c978b] hover:bg-[#22211c] hover:text-[#ece9e2]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <FolderKanban className="w-3.5 h-3.5 text-[#cc785c] shrink-0" />
+                          <span className="truncate">{project.name}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <button
+                    onClick={onOpenNewProject}
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-[#7d786e] hover:text-[#bfb9ad] hover:bg-[#201f1b] transition-colors flex items-center gap-2"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Create a project...</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
-          {/* Recent Chats Section */}
-          <div className="space-y-0.5 pt-2">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wider font-semibold text-[#8a8579]">
-              Recent Chats
+          {/* Conversations Row (Exact match to screenshot) */}
+          <div className="space-y-1 pt-2">
+            <div className="flex items-center justify-between px-2 py-1 text-xs text-[#9c978b]">
+              <span className="font-medium text-xs">Conversations</span>
+              <button
+                onClick={() => {
+                  onNewSession();
+                  onCloseMobile();
+                }}
+                className="p-1 rounded hover:bg-[#282620] text-[#8a8579] hover:text-[#ece9e2] transition-colors"
+                title="Start new chat"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
             </div>
+
+            {/* Conversations List */}
             {regularSessions.length === 0 && starredSessions.length === 0 ? (
               <div className="text-center py-6 px-4 text-[#7d786e] text-xs">
-                No chats yet.
+                No conversations yet.
               </div>
             ) : (
               regularSessions.map((session) => {
                 const isActive = session.id === activeSessionId;
-                const sessionConnCount = (session.connectors || []).filter((c) => c.enabled).length;
+                const timeLabel = formatRelativeTime(session.updatedAt || session.createdAt);
                 return (
                   <div
                     key={session.id}
-                    className={`group relative flex items-center rounded-lg px-2.5 py-2 text-xs font-medium cursor-pointer transition-all ${
-                      isActive
-                        ? 'bg-[#2b2923] text-[#f2eee6] border border-[#3b3830]'
-                        : 'text-[#bfb9ad] hover:bg-[#23221c] hover:text-[#ece9e2]'
-                    }`}
                     onClick={() => {
                       onSelectSession(session.id);
                       onCloseMobile();
                     }}
+                    className={`group relative flex items-center justify-between rounded-xl px-3 py-2 text-xs font-medium cursor-pointer transition-all ${
+                      isActive
+                        ? 'bg-[#2b2b2b] text-[#f2eee6] shadow-sm'
+                        : 'text-[#9c978b] hover:bg-[#201f1b] hover:text-[#ece9e2]'
+                    }`}
                   >
-                    <MessageSquare className="w-3.5 h-3.5 mr-2 shrink-0 opacity-60" />
-                    <span className="truncate flex-1">{session.title}</span>
+                    <span className="truncate flex-1 pr-2">{session.title}</span>
 
-                    {/* Per-session connector indicator */}
-                    <span
-                      className={`text-[9px] px-1 py-0.2 rounded font-mono shrink-0 mx-1 border ${
-                        sessionConnCount > 0
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                          : 'bg-[#201f1b] text-[#6b675d] border-transparent'
-                      }`}
-                      title={`${sessionConnCount} connectors enabled for this chat`}
-                    >
-                      {sessionConnCount}⚡
-                    </span>
-
-                    <div className="opacity-0 group-hover:opacity-100 flex items-center space-x-1 shrink-0">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onToggleStar(session.id);
-                        }}
-                        className="p-1 rounded hover:bg-[#38352d] text-[#8a8579] hover:text-[#cc785c] transition-all"
-                        title="Star chat"
-                      >
-                        <Star className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteSession(session.id);
-                        }}
-                        className="p-1 rounded hover:bg-[#38352d] text-[#8a8579] hover:text-rose-400 transition-all"
-                        title="Delete chat"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      <span className="text-[11px] text-[#6e6a62] font-mono group-hover:hidden">
+                        {timeLabel}
+                      </span>
+                      <div className="hidden group-hover:flex items-center space-x-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleStar(session.id);
+                          }}
+                          className="p-1 rounded hover:bg-[#38352d] text-[#8a8579] hover:text-[#cc785c] transition-all"
+                          title="Star chat"
+                        >
+                          <Star className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteSession(session.id);
+                          }}
+                          className="p-1 rounded hover:bg-[#38352d] text-[#8a8579] hover:text-rose-400 transition-all"
+                          title="Delete chat"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );

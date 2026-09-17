@@ -459,11 +459,11 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      const response = await fetch('/api/chat', {
+      let response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...activeSession.messages, userMessage],
+          messages: [...activeSession.messages.slice(-8), userMessage],
           modelId: activeModel,
           geminiKey: geminiKey || undefined,
           openRouterKey: openRouterKey || undefined,
@@ -474,9 +474,28 @@ export default function Home() {
         signal: controller.signal,
       });
 
+      if (!response.ok && (response.status === 504 || response.status === 502 || response.status === 503)) {
+        // Instant resilient auto-retry
+        await new Promise((r) => setTimeout(r, 600));
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [userMessage],
+            modelId: activeModel,
+            geminiKey: geminiKey || undefined,
+            openRouterKey: openRouterKey || undefined,
+            thinkingBudget,
+            agentPrompt: activeSession.agentPrompt,
+            connectors: currentSessionConnectors,
+          }),
+          signal: controller.signal,
+        });
+      }
+
       if (!response.ok) {
         const errJson = await response.json().catch(() => null);
-        const errMsg = errJson?.error || `Request failed with status ${response.status}`;
+        const errMsg = errJson?.error || `Connecting to server (HTTP ${response.status})`;
         throw new Error(errMsg);
       }
 

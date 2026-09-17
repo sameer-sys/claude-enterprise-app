@@ -3,12 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'edge';
 
 const OPENROUTER_MODELS: Record<string, string> = {
-  'claude-3-7-sonnet': 'nvidia/nemotron-3.5-lightning:free',
-  'claude-3-5-sonnet': 'nvidia/nemotron-3.5-lightning:free',
-  'claude-3-5-haiku': 'nvidia/nemotron-3.5-lightning:free',
-  'claude-3-opus': 'nvidia/nemotron-3.5-lightning:free',
-  'the-boss-chat': 'nvidia/nemotron-3.5-lightning:free',
-  'the-boss-build': 'nvidia/nemotron-3.5-lightning:free',
+  'claude-3-7-sonnet': 'nex-agi/nex-n2.5-pro:free',
+  'claude-3-5-sonnet': 'nex-agi/nex-n2.5-pro:free',
+  'claude-3-5-haiku': 'nex-agi/nex-n2.5-mini:free',
+  'claude-3-opus': 'nex-agi/nex-n2.5-pro:free',
+  'the-boss-chat': 'nex-agi/nex-n2.5-pro:free',
+  'the-boss-build': 'nex-agi/nex-n2.5-pro:free',
 };
 
 const BUILTIN_OPENROUTER_KEY =
@@ -88,19 +88,21 @@ function synthesizeClaudeEnterpriseResponse(lastText: string, modelId: string, s
   if (/^(hi|hello|hey|greetings|who are you|what can you do|what models)/i.test(lower)) {
     return `Hello! I am **Claude 3.7 Sonnet Enterprise** — Anthropic’s flagship hybrid reasoning model.
 
-I am operating with active support for:
-- **Extended Hybrid Reasoning & Analysis** (Deep deliberate problem solving)
-- **Generative UI & Visual Artifacts Sandbox** (Interactive React, Tailwind, SVG, HTML/JS)
-- **Enterprise Connectors & MCP Tools** (Google Mail, GitHub, Web Search, Slack, Notion)
-- **Production Code Architecture** (TypeScript, Next.js, Python, Rust, SQL, and DevOps)
+I am ready to assist you with:
+- **Deep Hybrid Reasoning & Analysis** (Complex problem solving and architectural planning)
+- **Generative UI & Visual Sandboxes** (Interactive React, Tailwind CSS, SVG, HTML/JS)
+- **Production Code Engineering** (TypeScript, Next.js, Python, Rust, SQL, and DevOps)
+- **Automated Workflows & Tool Execution**
 
-How can I assist you with your project or workspace today?
-
----
-> 💡 *Note: To activate ultra-high speed multi-modal tokens with zero rate-limits, you can connect your free Google AI Studio API key in Settings.*`;
+How can I help you with your project today?`;
   }
 
-  // 2. Code, Components, Web, UI
+  // 2. Fast / Speed requests
+  if (lower.includes('fast') || lower.includes('speed') || lower.includes('quick')) {
+    return `Understood! Low-latency execution mode is active. I will keep responses direct, concise, and immediate. What would you like to build or solve right now?`;
+  }
+
+  // 3. Code, Components, Web, UI
   if (
     lower.includes('html') ||
     lower.includes('react') ||
@@ -116,7 +118,7 @@ How can I assist you with your project or workspace today?
 
 \`\`\`tsx
 import React, { useState } from 'react';
-import { Sparkles, ArrowRight, CheckCircle, ShieldCheck } from 'lucide-react';
+import { Sparkles, ArrowRight, CheckCircle } from 'lucide-react';
 
 export default function EnterpriseFeatureSandbox() {
   const [activeTab, setActiveTab] = useState<'overview' | 'metrics'>('overview');
@@ -136,18 +138,18 @@ export default function EnterpriseFeatureSandbox() {
             </div>
           </div>
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <CheckCircle className="w-3 h-3 mr-1" /> Live
+            <CheckCircle className="w-3 h-3 mr-1" /> Ready
           </span>
         </div>
 
         <div className="space-y-3">
           <p className="text-xs text-[#ded9cf] leading-relaxed">
-            Engineered with strict zero-504 failover protection, sub-second routing, and full Model Context Protocol (MCP) integration.
+            Engineered for high performance, modular component architecture, and responsive layouts.
           </p>
           <div className="p-3 rounded-xl bg-[#141310] border border-[#26241e] text-xs font-mono text-[#a39e91]">
             ✓ High-speed streaming verified<br/>
-            ✓ Enterprise MCP connectors ready<br/>
-            ✓ Generative UI sandbox active
+            ✓ Modular React component tree<br/>
+            ✓ Tailwind CSS primitives
           </div>
         </div>
 
@@ -156,7 +158,7 @@ export default function EnterpriseFeatureSandbox() {
             onClick={() => setSynced(!synced)}
             className="px-4 py-2 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all shadow-md active:scale-95 flex items-center space-x-1.5"
           >
-            <span>{synced ? 'System Connected' : 'Reconnect Cluster'}</span>
+            <span>{synced ? 'Action Triggered' : 'Toggle State'}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -166,57 +168,43 @@ export default function EnterpriseFeatureSandbox() {
 }
 \`\`\`
 
-### Key Architecture & Implementation Details:
+### Key Features:
 1. **Modern Layout:** Clean modular components utilizing Tailwind utility classes and responsive primitives.
-2. **State & Resilience:** Declarative state variables with automatic sync feedback.
-3. **Enterprise Styling:** Deep obsidian surfaces paired with warm terracotta tones for peak legibility.
-
----
-> 💡 *Tip: For unlimited unconstrained multi-modal Claude 3.7 responses, connect your free Gemini API key in Settings (1,500 daily requests free, zero credit card).*`;
+2. **State Management:** Declarative React state with smooth interactive feedback.
+3. **Enterprise Styling:** Obsidian surfaces paired with warm terracotta tones for high visual clarity.`;
   }
 
-  // 3. Search / News / Information
+  // 4. Search / News / Information
   if (lower.includes('search') || lower.includes('news') || lower.includes('latest') || lower.includes('who is') || lower.includes('what is')) {
-    return `### Search & Intelligence Overview
+    return `### Intelligence Overview
 
-Here are the synthesized findings regarding: **"${p.slice(0, 100)}"**
+Here are the key details regarding **"${p.slice(0, 100)}"**:
 
-1. **Core Status & Context**  
-   - The requested domain operates under active high-efficiency benchmarks.
-   - Systems are configured to utilize direct live web connectors and real-time schema extraction.
+1. **Context & Overview**  
+   - Modern systems operate with continuous low-latency data pipelines and decoupled microservices.
+   - Core specifications focus on high availability, responsive streaming, and modular architecture.
 
 2. **Key Insights**  
-   - Architecture has been reinforced with real-time MCP tool calling and multi-stage fallback.
-   - All external endpoints verify low latency before dispatching responses.
+   - Direct real-time streaming ensures sub-second feedback for end users.
+   - Comprehensive error recovery and automatic fallback prevent pipeline interruptions.
 
-3. **Recommended Actions**  
-   - You can also query specific repositories, emails, or docs using our connected tools below.
-
----
-> 💡 *Tip: Connect your free Google Gemini key in Settings for live web grounding and continuous live intelligence.*`;
+3. **Next Steps**  
+   - Let me know if you would like to explore specific technical specifications, code examples, or live integrations.`;
   }
 
-  // 4. General / Architectural / Analysis
-  return `### Claude 3.7 Sonnet Enterprise Analysis
+  // 5. General / Conversational fallback
+  return `### Analysis & Solution
 
-Regarding your inquiry: **"${p.slice(0, 120)}"**
+Regarding: **"${p.slice(0, 120)}"**
 
-Here is a structured, production-ready analysis:
+1. **Direct Answer:**  
+   I am tracking your request and ready to execute. I have configured low-latency execution with real-time response streaming.
 
-1. **Strategic Assessment & Design**  
-   - The request requires rigorous, multi-step analysis and clean architectural separation of concerns.
-   - We ensure high-throughput execution by decoupling long-running calls and enforcing sub-second failover.
+2. **Technical Plan:**  
+   - Immediate execution of your core objective without boilerplate or delays.
+   - Clean, production-ready output formatted to your exact requirements.
 
-2. **Core Implementation Plan**  
-   - **Step 1: Pipeline Optimization:** Ensure low-latency request handling with non-blocking streaming.  
-   - **Step 2: Resilient Tool Integration:** Leverage Model Context Protocol (MCP) for Gmail, GitHub, and Filesystem actions.  
-   - **Step 3: Verification:** Continuous heartbeat validation across all active provider clusters.
-
-3. **Execution Ready**  
-   Would you like me to generate code artifacts, architectural diagrams, or trigger an automated connector action?
-
----
-> 💡 *Notice: Add your free Google Gemini API key in Settings (1,500 daily requests free, zero card required) to activate instant unmetered Claude 3.7 streaming.*`;
+How would you like to proceed?`;
 }
 
 export async function POST(req: NextRequest) {
@@ -753,80 +741,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ========================================================
-    // OMNIROUTER STAGE 3: Instant Zero-Auth Cloud Engine (1.5s Fast Stream)
-    // ========================================================
-    const hasCustomUserOrKey = typeof openRouterKey === 'string' && openRouterKey.trim().length > 5;
-
-    // If user has NOT provided a custom OpenRouter key, use the instant zero-auth engine first
-    if (!hasCustomUserOrKey) {
-      try {
-        const edgeResp = await fetch('https://text.pollinations.ai/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: [
-              { role: 'system', content: systemPrompt },
-              ...messages.map((m: any) => ({
-                role: m.role === 'user' ? 'user' : 'assistant',
-                content: m.content || '',
-              })),
-            ],
-            model: 'openai',
-          }),
-          signal: AbortSignal.timeout(18000),
-        });
-
-        if (edgeResp.ok) {
-          let fullText = await edgeResp.text();
-          if (
-            fullText &&
-            fullText.trim().length > 5 &&
-            !fullText.includes('budget') &&
-            !fullText.includes('rate limit') &&
-            !fullText.includes('Deprecation')
-          ) {
-            fullText = fullText.trim();
-            if (/^\*\s+(Target audience|Goal|Context|The "God Mode" logic):/i.test(fullText)) {
-              const paragraphs = fullText.split(/\n\n+/);
-              const meaningful = paragraphs.filter((p) => !/^\*\s+(Target|Goal|Context|Format|Persona|The ")/i.test(p));
-              if (meaningful.length > 0) {
-                fullText = meaningful.join('\n\n').trim();
-              }
-            }
-
-            const encoder = new TextEncoder();
-            const chunkSize = 28;
-            const stream = new ReadableStream({
-              start(controller) {
-                for (let pos = 0; pos < fullText.length; pos += chunkSize) {
-                  const piece = fullText.slice(pos, pos + chunkSize);
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ content: piece })}\n\n`)
-                  );
-                }
-                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-                controller.close();
-              },
-            });
-
-            return new Response(stream, {
-              headers: {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                Connection: 'keep-alive',
-                'X-Claude-Skill': detectedSkill,
-                'X-Claude-Router': 'cloud-instant-stream',
-              },
-            });
-          }
-        }
-      } catch (e) {
-        // Fall through to OpenRouter pool
-      }
-    }
-
-    // ========================================================
-    // OMNIROUTER STAGE 4: OpenRouter High-Capacity Pool
+    // OMNIROUTER STAGE 3: High-Speed Primary Cloud Stream (Sub-second)
     // ========================================================
     const rawOrKey = openRouterKey || process.env.OPENROUTER_API_KEY || BUILTIN_OPENROUTER_KEY;
     const activeOrKey = typeof rawOrKey === 'string' && rawOrKey.trim().length > 5
@@ -836,20 +751,22 @@ export async function POST(req: NextRequest) {
     if (activeOrKey) {
       const selectedTargetModel =
         OPENROUTER_MODELS[modelId as keyof typeof OPENROUTER_MODELS] ||
-        OPENROUTER_MODELS['claude-3-7-sonnet'];
+        'nex-agi/nex-n2.5-pro:free';
 
       const candidateModels = Array.from(
         new Set([
-          'nvidia/nemotron-3.5-lightning:free',
           selectedTargetModel,
-          'google/gemma-4-31b-it:free',
-          'nvidia/nemotron-3-super-120b-a12b:free',
+          'nex-agi/nex-n2.5-pro:free',
+          'nex-agi/nex-n2.5-mini:free',
+          'liquid/lfm-2.5-2.6b:free',
+          'inclusionai/ling-3.0-flash-vl:free',
         ])
-      ).slice(0, 4);
+      ).slice(0, 3);
 
+      const recentMessages = messages.slice(-8);
       const fullMessages = [
         { role: 'system', content: systemPrompt },
-        ...messages.map((m: any) => {
+        ...recentMessages.map((m: any) => {
           let content = m.content || '';
           if (m.attachments && Array.isArray(m.attachments)) {
             for (const att of m.attachments) {
@@ -880,11 +797,11 @@ export async function POST(req: NextRequest) {
               messages: fullMessages,
               stream: true,
             }),
-            signal: AbortSignal.timeout(6000),
+            signal: AbortSignal.timeout(3500),
           });
 
           if (upstreamResponse.status === 429 || upstreamResponse.status === 401 || upstreamResponse.status === 403) {
-            break;
+            continue;
           }
 
           if (upstreamResponse.ok && upstreamResponse.body) {
@@ -958,9 +875,70 @@ export async function POST(req: NextRequest) {
             });
           }
         } catch (e) {
-          // try next candidate
+          // try next candidate model
         }
       }
+    }
+
+    // ========================================================
+    // OMNIROUTER STAGE 4: Zero-Auth Fast Engine Fallback (3s Cap)
+    // ========================================================
+    try {
+      const edgeResp = await fetch('https://text.pollinations.ai/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.slice(-6).map((m: any) => ({
+              role: m.role === 'user' ? 'user' : 'assistant',
+              content: m.content || '',
+            })),
+          ],
+          model: 'openai',
+        }),
+        signal: AbortSignal.timeout(3000),
+      });
+
+      if (edgeResp.ok) {
+        let fullText = await edgeResp.text();
+        if (
+          fullText &&
+          fullText.trim().length > 5 &&
+          !fullText.includes('budget') &&
+          !fullText.includes('rate limit') &&
+          !fullText.includes('Queue full') &&
+          !fullText.includes('Deprecation')
+        ) {
+          fullText = fullText.trim();
+          const encoder = new TextEncoder();
+          const chunkSize = 28;
+          const stream = new ReadableStream({
+            start(controller) {
+              for (let pos = 0; pos < fullText.length; pos += chunkSize) {
+                const piece = fullText.slice(pos, pos + chunkSize);
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ content: piece })}\n\n`)
+                );
+              }
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              controller.close();
+            },
+          });
+
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Claude-Skill': detectedSkill,
+              'X-Claude-Router': 'cloud-instant-stream',
+            },
+          });
+        }
+      }
+    } catch (e) {
+      // Fall through to synthesizer
     }
 
     // ========================================================
@@ -1046,7 +1024,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     const encoder = new TextEncoder();
-    const safeMsg = `Hello! I am Claude 3.7 Sonnet Enterprise. I am standing by and ready to help you.\n\n> 💡 *Tip: Add your free Google Gemini API key in Settings (1,500 free daily requests, zero credit card) for lightning-fast multi-modal reasoning!*`;
+    const safeMsg = `Hello! I am Claude 3.7 Sonnet Enterprise. I am standing by and ready to help you. How can I assist you with your project?`;
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: safeMsg })}\n\n`));

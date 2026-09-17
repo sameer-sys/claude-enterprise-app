@@ -894,69 +894,20 @@ export default function ChatArea({
                     </div>
                   )}
 
-                  {/* Proactive Autonomous Badge if generated while offline/away */}
-                  {!isUser && msg.isProactive && (
-                    <div className="mb-2 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono">
-                      <Radio className="w-3 h-3 animate-pulse" />
-                      <span>Two-Way Proactive Check-in • Claude updated this while you were away</span>
-                    </div>
-                  )}
-
-                  {/* Assistant Header Badge & Thinking Accordion */}
+                  {/* Clean Assistant Action Bar (hover only, zero clutter) */}
                   {!isUser && (
-                    <div className="space-y-2 pb-2 mb-2 border-b border-[#2a2822]">
-                      <div className="flex items-center justify-between text-xs text-[#8a8579]">
-                        <span className="font-semibold text-[#baa898] flex items-center gap-2 flex-wrap">
-                          <span>Claude 3.7 Sonnet</span>
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 font-mono">
-                            Enterprise Priority
-                          </span>
-                          {msg.skillActivated && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#cc785c]/15 text-[#cc785c] border border-[#cc785c]/30 font-medium flex items-center gap-1 shadow-sm animate-in fade-in">
-                              <Sparkles className="w-2.5 h-2.5 fill-current text-[#cc785c] animate-pulse" />
-                              <span>Skill: {msg.skillActivated}</span>
-                            </span>
-                          )}
-                        </span>
-                        <div className="flex items-center space-x-1">
-                          <button
-                            onClick={() => copyMessage(msg.id, msg.content)}
-                            className="p-1 rounded hover:bg-[#2c2a23] text-[#8a8579] hover:text-[#ece9e2] transition-all opacity-0 group-hover:opacity-100"
-                            title="Copy message"
-                          >
-                            {copiedId === msg.id ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Thinking Accordion */}
-                      {msg.thinking && (
-                        <div className="rounded-lg bg-[#181714] border border-[#2e2c25] overflow-hidden text-xs">
-                          <button
-                            onClick={() => toggleThinking(msg.id)}
-                            className="w-full flex items-center justify-between px-3 py-1.5 text-[#8a8579] hover:text-[#ece9e2] transition-colors"
-                          >
-                            <div className="flex items-center space-x-1.5">
-                              <Brain className="w-3.5 h-3.5 text-[#cc785c]" />
-                              <span>
-                                Thought for {msg.thinkingDuration || 2}s ({msg.thinkingBudget || 16000} token budget)
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-[#baa898]">
-                              {isThinkingOpen ? 'Hide' : 'Show details'}
-                            </span>
-                          </button>
-                          {isThinkingOpen && (
-                            <div className="px-3 py-2 border-t border-[#2a2821] text-[#9c978b] font-mono text-[11px] leading-relaxed whitespace-pre-wrap bg-[#141310]">
-                              {msg.thinking}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                    <div className="flex items-center justify-end mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => copyMessage(msg.id, msg.content)}
+                        className="p-1 rounded hover:bg-[#2c2a23] text-[#8a8579] hover:text-[#ece9e2] transition-all"
+                        title="Copy message"
+                      >
+                        {copiedId === msg.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
                     </div>
                   )}
 

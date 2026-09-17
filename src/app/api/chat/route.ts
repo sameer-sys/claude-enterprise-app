@@ -3,12 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'edge';
 
 const OPENROUTER_MODELS: Record<string, string> = {
-  'claude-3-7-sonnet': 'google/gemma-4-31b-it:free',
+  'claude-3-7-sonnet': 'nvidia/nemotron-3.5-lightning:free',
   'claude-3-5-sonnet': 'nvidia/nemotron-3.5-lightning:free',
-  'claude-3-5-haiku': 'google/gemma-4-26b-a4b-it:free',
-  'claude-3-opus': 'nvidia/nemotron-3-super-120b-a12b:free',
+  'claude-3-5-haiku': 'nvidia/nemotron-3.5-lightning:free',
+  'claude-3-opus': 'nvidia/nemotron-3.5-lightning:free',
   'the-boss-chat': 'nvidia/nemotron-3.5-lightning:free',
-  'the-boss-build': 'google/gemma-4-31b-it:free',
+  'the-boss-build': 'nvidia/nemotron-3.5-lightning:free',
 };
 
 const BUILTIN_OPENROUTER_KEY =
@@ -767,10 +767,9 @@ export async function POST(req: NextRequest) {
 
       const candidateModels = Array.from(
         new Set([
+          'nvidia/nemotron-3.5-lightning:free',
           selectedTargetModel,
           'google/gemma-4-31b-it:free',
-          'nvidia/nemotron-3.5-lightning:free',
-          'google/gemma-4-26b-a4b-it:free',
           'nvidia/nemotron-3-super-120b-a12b:free',
         ])
       ).slice(0, 4);

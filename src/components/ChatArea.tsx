@@ -707,22 +707,63 @@ export default function ChatArea({
         </div>
 
         <div className="flex items-center space-x-2">
-          {/* Simple Clean Connectors Button (Matches User Screenshot) */}
+          {/* EXPORT CHAT BUTTON */}
           <button
-            onClick={onOpenConnectors}
-            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] hover:border-[#cc785c]/60 text-xs font-semibold text-[#f2eee6] transition-all shadow-sm group active:scale-95"
-            title="Configure Connectors for this chat"
+            onClick={handleExportChat}
+            disabled={messages.length === 0}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
+              messages.length > 0
+                ? 'bg-[#26241f] hover:bg-[#302e27] border-[#38352d] text-[#dcd8ce] hover:text-[#ece9e2]'
+                : 'bg-[#21201b] border-[#2e2c24] text-[#6d685e] cursor-not-allowed'
+            }`}
+            title="Export conversation as Markdown (.md)"
           >
-            <Cpu className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform" />
-            <span>Connectors</span>
-            {activeConnectorsCount > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-400 font-mono border border-emerald-500/20">
-                {activeConnectorsCount}
-              </span>
-            )}
+            <FileDown className="w-3.5 h-3.5 text-[#cc785c]" />
+            <span className="hidden sm:inline">Export</span>
+          </button>
+
+          {/* OPENWORK CLOUD WEBSITE */}
+          <a
+            href="/cloud"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#cc785c]/20 to-[#cc785c]/10 hover:from-[#cc785c]/30 hover:to-[#cc785c]/20 border border-[#cc785c]/30 text-xs font-semibold text-[#f2eee6] transition-all hover:text-white group"
+            title="Open the official OpenWork Cloud Website (Apps & Showcase)"
+          >
+            <Globe className="w-3.5 h-3.5 text-[#cc785c] group-hover:scale-110 transition-transform" />
+            <span className="hidden sm:inline">OpenWork Cloud ↗</span>
+          </a>
+
+          {/* DOWNLOAD BUTTON */}
+          <button
+            onClick={onOpenDownload}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] text-xs font-medium text-[#dcd8ce] transition-all hover:text-[#ece9e2]"
+            title="Download Desktop & Android Apps"
+          >
+            <Download className="w-3.5 h-3.5 text-[#cc785c]" />
+            <span>Download</span>
           </button>
         </div>
       </header>
+
+      {/* Session-Level Connectors (Directly downside of Download button to be part of chat/session) */}
+      <div className="flex justify-end items-center px-4 sm:px-6 pt-2.5 pb-1 shrink-0 z-10">
+        <button
+          onClick={onOpenConnectors}
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] hover:border-[#cc785c]/60 text-xs font-semibold text-[#f2eee6] transition-all shadow-sm group active:scale-95"
+          title="Configure Connectors for this chat session"
+        >
+          <Cpu className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform" />
+          <span>Connectors</span>
+          {activeConnectorsCount > 0 ? (
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-400 font-mono border border-emerald-500/20">
+              {activeConnectorsCount}
+            </span>
+          ) : (
+            <span className="text-[10px] text-[#8a8579] font-mono">0</span>
+          )}
+        </button>
+      </div>
 
       {/* Messages Stream / Hero Container — split with Cowork panel when active */}
       <div className={`flex-1 flex overflow-hidden ${interactionMode === 'cowork' ? 'flex-row' : 'flex-col'}`}>

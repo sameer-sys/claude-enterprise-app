@@ -593,13 +593,14 @@ export async function POST(req: NextRequest) {
           };
         });
 
-        // Discover supported models for this specific API key
-        let targetModels = [
+        // Robust Text-Generation Models for Google Gemini
+        const priorityModels = [
+          'gemini-2.0-flash',
           'gemini-1.5-flash',
           'gemini-1.5-pro',
-          'gemini-2.0-flash',
           'gemini-2.5-flash',
         ];
+        let targetModels = [...priorityModels];
 
         try {
           const listResp = await fetch(
@@ -609,20 +610,26 @@ export async function POST(req: NextRequest) {
           if (listResp.ok) {
             const listData = await listResp.json();
             const discovered = (listData.models || [])
-              .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+              .filter((m: any) =>
+                m.supportedGenerationMethods?.includes('generateContent') &&
+                !m.name.includes('tts') &&
+                !m.name.includes('audio') &&
+                !m.name.includes('embedding') &&
+                !m.name.includes('imagen')
+              )
               .map((m: any) => m.name.replace('models/', ''));
+
             if (discovered.length > 0) {
-              targetModels = [
-                ...discovered.filter((n: string) => n.includes('flash')),
-                ...discovered.filter((n: string) => !n.includes('flash')),
-              ];
+              targetModels = Array.from(new Set([
+                ...priorityModels.filter((p) => discovered.includes(p)),
+                ...discovered.filter((d: string) => d.includes('2.0') || d.includes('1.5')),
+                ...discovered,
+              ]));
             }
           }
         } catch (listErr) {}
 
-        let lastGeminiError = '';
-
-        for (const candidate of targetModels.slice(0, 2)) {
+        for (const candidate of targetModels.slice(0, 3)) {
           try {
             const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${candidate}:streamGenerateContent?alt=sse&key=${activeGeminiKey}`;
             const geminiResponse = await fetch(geminiUrl, {
@@ -632,7 +639,7 @@ export async function POST(req: NextRequest) {
                 system_instruction: { parts: [{ text: systemPrompt }] },
                 contents,
               }),
-              signal: AbortSignal.timeout(3500),
+              signal: AbortSignal.timeout(4000),
             });
 
             if (geminiResponse.ok) {
@@ -686,23 +693,12 @@ export async function POST(req: NextRequest) {
                   'X-Claude-Router': candidate,
                 },
               });
-            } else {
-              const errBody = await geminiResponse.json().catch(() => null);
-              lastGeminiError = errBody?.error?.message || `HTTP ${geminiResponse.status}`;
             }
           } catch (modelErr) {
             // try next candidate
           }
         }
-
-        if (lastGeminiError) {
-          return new NextResponse(
-            JSON.stringify({
-              error: `Gemini Key Notice: ${lastGeminiError}. Please click Settings to check your key or create a free key at https://aistudio.google.com/app/apikey`,
-            }),
-            { status: 400, headers: { 'Content-Type': 'application/json' } }
-          );
-        }
+        // If Gemini models fail, cleanly fall through to OpenRouter / Synthesizer instead of throwing 400
       } catch (e) {
         // Fallback to next provider in OmniRouter chain
       }

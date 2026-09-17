@@ -1022,6 +1022,20 @@ export default function ConnectorsModal({
               </div>
             </div>
 
+            {/* Connected Mailbox Badge */}
+            {(() => {
+              const connectedEmail = activeConnectors.find((c) => c.id === 'conn-gmail')?.config?.email || 'sameer.workspace@gmail.com';
+              return (
+                <div className="flex items-center space-x-2.5 bg-[#131210] border border-[#26241f] rounded-xl px-3.5 py-2 select-none shadow-sm">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-mono text-[#8a8579] uppercase">Active Mailbox</span>
+                    <span className="text-xs font-semibold text-[#cc785c] font-mono">{connectedEmail}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Primary & Sub Switchers */}
             <div className="flex items-center flex-wrap gap-2 sm:gap-3">
               <div className="flex items-center bg-[#141310] border border-[#26241f] rounded-xl p-1 text-xs">
@@ -1757,8 +1771,9 @@ function ConnectorCard({
           </p>
 
           {isEnabled && connector.config?.email && (
-            <p className="text-[10px] text-[#cc785c] truncate">
-              Account: {connector.config.email}
+            <p className="text-[10px] text-emerald-400 font-mono flex items-center gap-1 truncate">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
+              <span>Mailbox: {connector.config.email}</span>
             </p>
           )}
           {isEnabled && connector.config?.repo && (

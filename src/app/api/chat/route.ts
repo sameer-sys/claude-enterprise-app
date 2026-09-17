@@ -423,6 +423,90 @@ export async function POST(req: NextRequest) {
           `- Structure: Next.js 14 App Router, TypeScript, Tailwind CSS, Lucide Icons, Supabase Sync.\n` +
           `- INSTRUCTIONS: Present project file hierarchy and component structure clearly.\n`;
       }
+
+      // 9. Google Calendar Connector
+      const calendarConn = activeConnectors.find((c: any) => c.id === 'conn-gcalendar');
+      const isCalendarQuery = lowerText.includes('calendar') || lowerText.includes('meeting') || lowerText.includes('schedule') || lowerText.includes('event');
+      if (calendarConn || isCalendarQuery) {
+        const calTitle = lastText.slice(0, 40) || 'Claude Workspace Meeting';
+        const calUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(calTitle)}`;
+        connectorContext += `\n[⚡ GOOGLE CALENDAR CONNECTOR ACTIVE]:\n` +
+          `- Action Link to provide: [📅 Open in Google Calendar](${calUrl})\n` +
+          `- INSTRUCTIONS: Format meetings with date, time, timezone, agenda, and provide the 1-click Google Calendar link.\n`;
+      }
+
+      // 10. Linear Issue Tracker Connector
+      const linearConn = activeConnectors.find((c: any) => c.id === 'conn-linear');
+      const isLinearQuery = lowerText.includes('linear') || lowerText.includes('ticket') || lowerText.includes('bug') || lowerText.includes('backlog');
+      if (linearConn || isLinearQuery) {
+        connectorContext += `\n[⚡ LINEAR CONNECTOR ACTIVE]:\n` +
+          `- Workspace: Sameer Engineering Squad\n` +
+          `- Action Link to provide: [⚡ Open Linear Workspace](https://linear.app)\n` +
+          `- INSTRUCTIONS: Render a structured Linear Issue Card (Identifier, Priority, Status, Assignee, Estimate) and provide the 1-click link.\n`;
+      }
+
+      // 11. Canva Connector
+      const canvaConn = activeConnectors.find((c: any) => c.id === 'conn-canva');
+      const isCanvaQuery = lowerText.includes('canva') || lowerText.includes('banner') || lowerText.includes('poster') || lowerText.includes('flyer');
+      if (canvaConn || isCanvaQuery) {
+        connectorContext += `\n[⚡ CANVA CONNECTOR ACTIVE]:\n` +
+          `- Action Link to provide: [🎨 Open in Canva](https://www.canva.com)\n` +
+          `- INSTRUCTIONS: Outline visual design specs, layout hierarchy, color palette, and provide the 1-click Canva link.\n`;
+      }
+
+      // 12. Asana Connector
+      const asanaConn = activeConnectors.find((c: any) => c.id === 'conn-asana');
+      const isAsanaQuery = lowerText.includes('asana') || lowerText.includes('task') || lowerText.includes('milestone');
+      if (asanaConn || isAsanaQuery) {
+        connectorContext += `\n[⚡ ASANA CONNECTOR ACTIVE]:\n` +
+          `- Action Link to provide: [🎯 Open in Asana](https://app.asana.com)\n` +
+          `- INSTRUCTIONS: Present task cards with due dates, sections, assignees, and provide the 1-click link.\n`;
+      }
+
+      // 13. HubSpot CRM Connector
+      const hubspotConn = activeConnectors.find((c: any) => c.id === 'conn-hubspot');
+      const isHubspotQuery = lowerText.includes('hubspot') || lowerText.includes('crm') || lowerText.includes('deal') || lowerText.includes('pipeline');
+      if (hubspotConn || isHubspotQuery) {
+        connectorContext += `\n[⚡ HUBSPOT CRM CONNECTOR ACTIVE]:\n` +
+          `- Action Link to provide: [💼 Open in HubSpot](https://app.hubspot.com)\n` +
+          `- INSTRUCTIONS: Present CRM deal lifecycle, contact status, and stage values with the 1-click link.\n`;
+      }
+
+      // 14. Composio Unified Connectors
+      const composioConn = activeConnectors.find((c: any) => c.id === 'conn-composio');
+      if (composioConn) {
+        connectorContext += `\n[⚡ COMPOSIO UNIFIED CONNECTOR ACTIVE (connect.composio.dev)]:\n` +
+          `- Provider: Composio Multi-App Tool Executor\n` +
+          `- Action Link to provide: [🔗 View on Composio](https://connect.composio.dev)\n` +
+          `- INSTRUCTIONS: Confirm tools are routed through Composio and provide multi-app action confirmations.\n`;
+      }
+
+      // 15. Shopify Store Connector
+      const shopifyConn = activeConnectors.find((c: any) => c.id === 'conn-shopify');
+      const isShopifyQuery = lowerText.includes('shopify') || lowerText.includes('store') || lowerText.includes('product') || lowerText.includes('order');
+      if (shopifyConn || isShopifyQuery) {
+        connectorContext += `\n[⚡ SHOPIFY CONNECTOR ACTIVE]:\n` +
+          `- Action Link to provide: [🛍️ Open Shopify Admin](https://admin.shopify.com)\n` +
+          `- INSTRUCTIONS: Format product SKUs, inventory, and order summaries with the 1-click link.\n`;
+      }
+
+      // 16. Salesforce Connector
+      const salesforceConn = activeConnectors.find((c: any) => c.id === 'conn-salesforce');
+      const isSalesforceQuery = lowerText.includes('salesforce') || lowerText.includes('lead') || lowerText.includes('opportunity');
+      if (salesforceConn || isSalesforceQuery) {
+        connectorContext += `\n[⚡ SALESFORCE CONNECTOR ACTIVE]:\n` +
+          `- Action Link to provide: [☁️ Open Salesforce](https://login.salesforce.com)\n` +
+          `- INSTRUCTIONS: Format Enterprise accounts, pipeline stages, and contact leads with the 1-click link.\n`;
+      }
+
+      // 17. Microsoft 365 Connector
+      const m365Conn = activeConnectors.find((c: any) => c.id === 'conn-m365');
+      const isM365Query = lowerText.includes('microsoft') || lowerText.includes('sharepoint') || lowerText.includes('onedrive') || lowerText.includes('teams');
+      if (m365Conn || isM365Query) {
+        connectorContext += `\n[⚡ MICROSOFT 365 CONNECTOR ACTIVE]:\n` +
+          `- Action Link to provide: [🏢 Open Microsoft 365](https://www.office.com)\n` +
+          `- INSTRUCTIONS: Format company SharePoint documents and OneDrive files with the 1-click link.\n`;
+      }
     }
 
     // ========================================================

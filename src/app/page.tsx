@@ -289,6 +289,16 @@ export default function Home() {
     );
   };
 
+  const handleAddCustomConnector = (newConn: Connector) => {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSession.id) return s;
+        const curConns = s.connectors || createDefaultConnectors();
+        return { ...s, connectors: [newConn, ...curConns] };
+      })
+    );
+  };
+
   const handleCreateProject = (project: Project) => {
     setProjects([project, ...projects]);
     // Auto-open a first session for this PM
@@ -751,6 +761,7 @@ export default function Home() {
         activeConnectors={currentSessionConnectors}
         onToggleConnector={handleToggleConnector}
         onUpdateConnectorConfig={handleUpdateConnectorConfig}
+        onAddCustomConnector={handleAddCustomConnector}
         onResetConnectors={handleResetConnectorsForChat}
         sessionTitle={activeSession.title}
       />

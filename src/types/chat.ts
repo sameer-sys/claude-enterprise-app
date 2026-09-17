@@ -47,13 +47,19 @@ export interface Connector {
   id: string;
   name: string;
   description: string;
-  icon: 'github' | 'gdrive' | 'slack' | 'notion' | 'figma' | 'websearch' | 'filesystem' | 'database' | 'mcp' | 'gmail' | 'mail';
+  icon: string;
   enabled: boolean;
   status: 'connected' | 'ready' | 'idle';
   category: string;
   provider?: 'anthropic' | 'mcp' | 'community';
   capabilities?: string[];
   config?: ConnectorConfig;
+  isVerified?: boolean;
+  isTrending?: boolean;
+  isBeta?: boolean;
+  isCustom?: boolean;
+  url?: string;
+  section?: 'custom' | 'top' | 'trending';
 }
 
 export interface CustomButton {

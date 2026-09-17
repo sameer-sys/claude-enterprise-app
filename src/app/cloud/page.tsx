@@ -73,7 +73,7 @@ exit
     setTimeout(() => {
       setDemoOutput(
         `### ⚡ Google Mail (Gmail) Connector Executed\n\n` +
-        `* **Mailbox Account:** sameer.workspace@gmail.com\n` +
+        `* **Mailbox Account:** samesuf786@gmail.com (Sameer Shaik)\n` +
         `* **Recipient (To):** team@company.com\n` +
         `* **Subject:** Project Status & Production Update\n` +
         `* **Status:** Staged & Ready to Send\n\n` +

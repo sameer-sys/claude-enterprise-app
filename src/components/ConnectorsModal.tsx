@@ -418,7 +418,93 @@ export function createDefaultConnectors(): Connector[] {
       section: 'top',
       isVerified: true,
       capabilities: ['Inbox Search', 'Thread Summaries', 'Draft Replies', '1-Click Send'],
-      config: { email: 'sameer.workspace@gmail.com' },
+      config: { email: 'samesuf786@gmail.com' },
+    },
+    {
+      id: 'conn-gcalendar',
+      name: 'Google Calendar',
+      description: 'Manage your schedule and coordinate meetings effortlessly',
+      icon: 'gcalendar',
+      enabled: false,
+      status: 'ready',
+      category: 'Productivity',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Event Creation', 'Agenda Lookup', 'Conflict Detection'],
+      config: { email: 'samesuf786@gmail.com' },
+    },
+    {
+      id: 'conn-canva',
+      name: 'Canva',
+      description: 'Search, create, autofill, and export Canva designs',
+      icon: 'canva',
+      enabled: false,
+      status: 'ready',
+      category: 'Design',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Template Generation', 'Design Autofill', 'Asset Export'],
+    },
+    {
+      id: 'conn-m365',
+      name: 'Microsoft 365',
+      description: "Access your company's SharePoint, OneDrive, Outlook, and Teams directly in...",
+      icon: 'm365',
+      enabled: false,
+      status: 'ready',
+      category: 'Productivity',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['SharePoint Access', 'OneDrive Files', 'Teams Messages'],
+    },
+    {
+      id: 'conn-notion',
+      name: 'Notion',
+      description: 'Connect your Notion workspace to search, update, and power workflows across tools',
+      icon: 'notion',
+      enabled: false,
+      status: 'ready',
+      category: 'Productivity',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Database Query', 'PRD Search', 'Page Creation'],
+    },
+    {
+      id: 'conn-figma',
+      name: 'Figma',
+      description: 'Generate diagrams and better code from Figma context',
+      icon: 'figma',
+      enabled: false,
+      status: 'ready',
+      category: 'Design',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Design Tokens', 'Frame Inspection', 'Code Export'],
+    },
+    {
+      id: 'conn-slack',
+      name: 'Slack',
+      description: 'Send messages, create canvases, and fetch Slack data',
+      icon: 'slack',
+      enabled: false,
+      status: 'ready',
+      category: 'Communication',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Channel Messages', 'Thread Summaries', 'Canvas Generation'],
+      config: { slackChannel: '#general' },
+    },
+    {
+      id: 'conn-hubspot',
+      name: 'HubSpot',
+      description: 'CRM context for every answer, insight, and action',
+      icon: 'hubspot',
+      enabled: false,
+      status: 'ready',
+      category: 'Sales and marketing',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Contact CRM', 'Deal Pipelines', 'Sales Activity'],
     },
     {
       id: 'conn-youtube',
@@ -484,79 +570,6 @@ export function createDefaultConnectors(): Connector[] {
       isVerified: true,
       capabilities: ['B2B Thought Leadership', 'Article Drafting', 'Network Announcements', '1-Click Share'],
       config: { handle: 'sameer-workspace' },
-    },
-    {
-      id: 'conn-gcalendar',
-      name: 'Google Calendar',
-      description: 'Manage your schedule and coordinate meetings effortlessly',
-      icon: 'gcalendar',
-      enabled: false,
-      status: 'ready',
-      category: 'Productivity',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Event Creation', 'Agenda Lookup', 'Conflict Detection'],
-    },
-    {
-      id: 'conn-canva',
-      name: 'Canva',
-      description: 'Search, create, autofill, and export Canva designs',
-      icon: 'canva',
-      enabled: false,
-      status: 'ready',
-      category: 'Design',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Template Generation', 'Design Autofill', 'Asset Export'],
-    },
-    {
-      id: 'conn-m365',
-      name: 'Microsoft 365',
-      description: "Access your company's SharePoint, OneDrive, Outlook, and Teams directly in...",
-      icon: 'm365',
-      enabled: false,
-      status: 'ready',
-      category: 'Productivity',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['SharePoint Access', 'OneDrive Files', 'Teams Messages'],
-    },
-    {
-      id: 'conn-notion',
-      name: 'Notion',
-      description: 'Connect your Notion workspace to search, update, and power workflows across tools',
-      icon: 'notion',
-      enabled: false,
-      status: 'ready',
-      category: 'Productivity',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Database Query', 'PRD Search', 'Page Creation'],
-    },
-    {
-      id: 'conn-figma',
-      name: 'Figma',
-      description: 'Generate diagrams and better code from Figma context',
-      icon: 'figma',
-      enabled: false,
-      status: 'ready',
-      category: 'Design',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Design Tokens', 'Frame Inspection', 'Code Export'],
-    },
-    {
-      id: 'conn-slack',
-      name: 'Slack',
-      description: 'Send messages, create canvases, and fetch Slack data',
-      icon: 'slack',
-      enabled: false,
-      status: 'ready',
-      category: 'Communication',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Channel Messages', 'Thread Summaries', 'Canvas Generation'],
-      config: { slackChannel: '#general' },
     },
     {
       id: 'conn-rovo',
@@ -900,6 +913,33 @@ export default function ConnectorsModal({
   const [configHandle, setConfigHandle] = useState('');
   const [configSubreddit, setConfigSubreddit] = useState('');
 
+  // Google OAuth Modal state (matches Screenshot 1: media_1789661196153.png)
+  const [googleOAuthConnector, setGoogleOAuthConnector] = useState<Connector | null>(null);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [showCustomGoogleAccount, setShowCustomGoogleAccount] = useState(false);
+  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
+
+  const handleSelectGoogleAccount = (email: string, name: string) => {
+    if (!googleOAuthConnector) return;
+    setIsGoogleSigningIn(true);
+    setTimeout(() => {
+      setIsGoogleSigningIn(false);
+      if (onUpdateConnectorConfig) {
+        onUpdateConnectorConfig(googleOAuthConnector.id, {
+          ...googleOAuthConnector.config,
+          email: email.trim(),
+          accountName: name.trim(),
+        });
+      }
+      if (!googleOAuthConnector.enabled) {
+        onToggleConnector(googleOAuthConnector.id);
+      }
+      setGoogleOAuthConnector(null);
+      setShowCustomGoogleAccount(false);
+      setCustomGoogleEmail('');
+    }, 450);
+  };
+
   if (!isOpen) return null;
 
   const activeCount = activeConnectors.filter((c) => c.enabled).length;
@@ -923,7 +963,7 @@ export default function ConnectorsModal({
   const handleOpenConfig = (e: React.MouseEvent, conn: Connector) => {
     e.stopPropagation();
     setEditingConnector(conn);
-    setConfigEmail(conn.config?.email || 'sameer.workspace@gmail.com');
+    setConfigEmail(conn.config?.email || 'samesuf786@gmail.com');
     setConfigRepo(conn.config?.repo || 'sameer-sys/claude-enterprise-app');
     setConfigChannel(conn.config?.channelName || 'My Official Channel');
     setConfigHandle(conn.config?.handle || '@sameer.official');
@@ -1006,25 +1046,27 @@ export default function ConnectorsModal({
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-4">
-            {/* Tally Card (Matches Screenshot 1 Box) */}
-            <div className="flex items-center space-x-3 bg-[#131210] border border-[#26241f] rounded-xl px-3.5 py-2 select-none shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-              <div className="flex flex-col">
-                <div className="flex items-center space-x-2 text-[10px] font-mono text-[#8a8579]">
-                  <span>TALLY · CURRENT SESSION</span>
+            {/* Tally Card (Matches Screenshot 2 Box) */}
+            <div className="flex flex-col justify-between bg-[#131210] border border-[#26241f] rounded-2xl p-3 min-w-[180px] select-none shadow-sm">
+              <div className="flex items-center space-x-1.5 text-[10px] font-mono text-[#8a8579]">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                <span className="tracking-wide">TALLY · CURRENT SESSION</span>
+              </div>
+              <div className="my-1.5">
+                <div className="text-xs font-mono text-[#dcd8ce] mb-1">── %</div>
+                <div className="w-full bg-[#26241f] h-1.5 rounded-full overflow-hidden">
+                  <div className="bg-[#1a73e8] h-full w-4/5 rounded-full"></div>
                 </div>
-                <div className="flex items-center space-x-2 mt-0.5">
-                  <div className="w-24 bg-[#282622] h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-blue-500 h-full w-3/4 rounded-full"></div>
-                  </div>
-                  <span className="text-[11px] font-mono text-[#dcd8ce]">{activeCount} active</span>
-                </div>
+              </div>
+              <div className="flex items-center justify-between text-[10px] font-mono text-[#6d685e]">
+                <span>weekly · all models</span>
+                <span>──</span>
               </div>
             </div>
 
             {/* Connected Mailbox Badge */}
             {(() => {
-              const connectedEmail = activeConnectors.find((c) => c.id === 'conn-gmail')?.config?.email || 'sameer.workspace@gmail.com';
+              const connectedEmail = activeConnectors.find((c) => c.id === 'conn-gmail')?.config?.email || 'samesuf786@gmail.com';
               return (
                 <div className="flex items-center space-x-2.5 bg-[#131210] border border-[#26241f] rounded-xl px-3.5 py-2 select-none shadow-sm">
                   <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
@@ -1055,7 +1097,7 @@ export default function ConnectorsModal({
                   onClick={() => setMainTab('connectors')}
                   className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
                     mainTab === 'connectors'
-                      ? 'bg-[#282622] text-[#f2eee6] shadow-sm'
+                      ? 'bg-[#282622] text-[#f2eee6] shadow-sm font-semibold'
                       : 'text-[#8a8579] hover:text-[#dcd8ce]'
                   }`}
                 >
@@ -1082,7 +1124,7 @@ export default function ConnectorsModal({
                   onClick={() => setSubView('yours')}
                   className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center space-x-1.5 ${
                     subView === 'yours'
-                      ? 'bg-[#282622] text-[#f2eee6] shadow-sm'
+                      ? 'bg-[#282622] text-[#f2eee6] shadow-sm font-semibold'
                       : 'text-[#8a8579] hover:text-[#dcd8ce]'
                   }`}
                 >
@@ -1098,7 +1140,7 @@ export default function ConnectorsModal({
                   onClick={() => setSubView('discover')}
                   className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
                     subView === 'discover'
-                      ? 'bg-[#282622] text-[#f2eee6] shadow-sm'
+                      ? 'bg-[#282622] text-[#f2eee6] shadow-sm font-semibold'
                       : 'text-[#8a8579] hover:text-[#dcd8ce]'
                   }`}
                 >
@@ -1106,21 +1148,29 @@ export default function ConnectorsModal({
                 </button>
               </div>
 
-              {/* Add Button -> Triggers Exact Modal from Screenshot 4 */}
+              {/* Add Button (Matches Screenshot 2 rounded button) */}
               <button
                 type="button"
                 onClick={() => {
                   setAddStep('form');
                   setIsAddModalOpen(true);
                 }}
-                className="px-3.5 py-1.5 rounded-xl bg-[#282622] hover:bg-[#33302a] border border-[#38352d] text-xs font-medium text-[#f2eee6] transition-all shadow-sm active:scale-95 flex items-center space-x-1"
+                className="px-4 py-1.5 rounded-xl bg-[#282622] hover:bg-[#33302a] border border-[#38352d] text-xs font-medium text-[#f2eee6] transition-all shadow-sm active:scale-95 flex items-center space-x-1"
               >
-                <Plus className="w-3.5 h-3.5" />
                 <span>Add</span>
               </button>
             </div>
           </div>
         </div>
+
+        {/* BREADCRUMB (Screenshot 2: Connectors / Directory) */}
+        {mainTab === 'connectors' && (
+          <div className="flex items-center space-x-2 text-xs text-[#8a8579] px-6 pt-3 pb-1 bg-[#191816]">
+            <span className="cursor-pointer hover:text-[#dcd8ce] transition-colors" onClick={() => setSubView('yours')}>Connectors</span>
+            <span className="text-[#555146]">/</span>
+            <span className="text-[#f2eee6] font-semibold">Directory</span>
+          </div>
+        )}
 
         {/* SEARCH & FILTER BAR */}
         {mainTab === 'connectors' && (
@@ -1297,13 +1347,14 @@ export default function ConnectorsModal({
                         connector={conn}
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
+                        onGoogleAuth={(c) => setGoogleOAuthConnector(c)}
                       />
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* 2. TOP CONNECTORS (Image 1 & 2) */}
+              {/* 2. TOP CONNECTORS (Screenshot 2: 8 items in 2 columns) */}
               {topConnectors.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -1320,19 +1371,26 @@ export default function ConnectorsModal({
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {(showAllTop ? topConnectors : topConnectors.slice(0, 6)).map((conn) => (
+                    {(showAllTop ? topConnectors : topConnectors.slice(0, 8)).map((conn) => (
                       <ConnectorCard
                         key={conn.id}
                         connector={conn}
-                        onToggle={() => onToggleConnector(conn.id)}
+                        onToggle={() => {
+                          if ((conn.id === 'conn-gmail' || conn.id === 'conn-gdrive' || conn.id === 'conn-gcalendar') && !conn.enabled) {
+                            setGoogleOAuthConnector(conn);
+                          } else {
+                            onToggleConnector(conn.id);
+                          }
+                        }}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
+                        onGoogleAuth={(c) => setGoogleOAuthConnector(c)}
                       />
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* 3. TRENDING CONNECTORS (Image 2 & 3) */}
+              {/* 3. TRENDING CONNECTORS */}
               {trendingConnectors.length > 0 && subView === 'discover' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -1349,12 +1407,13 @@ export default function ConnectorsModal({
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {(showAllTrending ? trendingConnectors : trendingConnectors.slice(0, 6)).map((conn) => (
+                    {(showAllTrending ? trendingConnectors : trendingConnectors.slice(0, 8)).map((conn) => (
                       <ConnectorCard
                         key={conn.id}
                         connector={conn}
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
+                        onGoogleAuth={(c) => setGoogleOAuthConnector(c)}
                       />
                     ))}
                   </div>
@@ -1700,6 +1759,153 @@ export default function ConnectorsModal({
           </div>
         )}
 
+        {/* ================================================================= */}
+        {/* POPUP: EXACT GOOGLE SIGN-IN DIALOG (Screenshot 1: media_1789661196153.png) */}
+        {/* ================================================================= */}
+        {googleOAuthConnector && (
+          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+            <div className="w-full max-w-2xl bg-[#131314] border border-[#303134] rounded-3xl p-8 shadow-2xl text-[#e3e3e3] animate-in zoom-in-95">
+              {/* Top Google Branding Header */}
+              <div className="flex items-center space-x-3 mb-8">
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
+                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z" />
+                  <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z" />
+                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
+                </svg>
+                <span className="text-sm font-medium text-[#e3e3e3]">Sign in with Google</span>
+              </div>
+
+              {/* 2-Column Responsive Split */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Left Column: Anthropic Asterisk + Title + App Info */}
+                <div className="flex flex-col justify-between">
+                  <div>
+                    {/* Anthropic Terracotta Asterisk Logo */}
+                    <div className="w-12 h-12 text-[#cc785c] mb-6">
+                      <svg viewBox="0 0 100 100" fill="currentColor" className="w-12 h-12">
+                        <circle cx="50" cy="50" r="10" />
+                        <rect x="46" y="4" width="8" height="32" rx="4" />
+                        <rect x="46" y="64" width="8" height="32" rx="4" />
+                        <rect x="4" y="46" width="32" height="8" rx="4" />
+                        <rect x="64" y="46" width="32" height="8" rx="4" />
+                        <rect x="17.5" y="17.5" width="8" height="32" rx="4" transform="rotate(-45 21.5 33.5)" />
+                        <rect x="60" y="60" width="8" height="32" rx="4" transform="rotate(-45 64 76)" />
+                        <rect x="17.5" y="60" width="8" height="32" rx="4" transform="rotate(45 21.5 76)" />
+                        <rect x="60" y="17.5" width="8" height="32" rx="4" transform="rotate(45 64 33.5)" />
+                      </svg>
+                    </div>
+
+                    <h2 className="text-3xl font-normal text-white tracking-tight mb-3">
+                      Choose an account
+                    </h2>
+                    <p className="text-sm text-[#9aa0a6]">
+                      to continue to <span className="text-[#8ab4f8] font-medium">Claude for {googleOAuthConnector.name}</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Right Column: Accounts List + Use another account + Disclaimer */}
+                <div className="flex flex-col justify-between space-y-4">
+                  <div className="space-y-1">
+                    {/* Account 1: Sameer Shaik (samesuf786@gmail.com) */}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectGoogleAccount('samesuf786@gmail.com', 'Sameer Shaik')}
+                      disabled={isGoogleSigningIn}
+                      className="w-full text-left py-3 px-2 rounded-xl hover:bg-[#202124] transition-colors border-b border-[#3c4043] flex items-center space-x-3.5 group cursor-pointer"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-[#e8710a] text-white flex items-center justify-center font-bold text-sm shrink-0">
+                        S
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-white group-hover:text-[#8ab4f8] transition-colors truncate">
+                          Sameer Shaik
+                        </div>
+                        <div className="text-xs text-[#9aa0a6] truncate font-mono">
+                          samesuf786@gmail.com
+                        </div>
+                      </div>
+                      {isGoogleSigningIn && (
+                        <div className="w-4 h-4 border-2 border-[#8ab4f8] border-t-transparent rounded-full animate-spin shrink-0"></div>
+                      )}
+                    </button>
+
+                    {/* Account 2: Use another account */}
+                    {!showCustomGoogleAccount ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowCustomGoogleAccount(true)}
+                        className="w-full text-left py-3.5 px-2 rounded-xl hover:bg-[#202124] transition-colors border-b border-[#3c4043] flex items-center space-x-3.5 group cursor-pointer"
+                      >
+                        <div className="w-8 h-8 rounded-full border border-[#5f6368] flex items-center justify-center text-[#9aa0a6] shrink-0">
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                          </svg>
+                        </div>
+                        <span className="text-sm font-medium text-white group-hover:text-[#8ab4f8] transition-colors">
+                          Use another account
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="py-3 px-2 border-b border-[#3c4043] space-y-2">
+                        <input
+                          type="email"
+                          value={customGoogleEmail}
+                          onChange={(e) => setCustomGoogleEmail(e.target.value)}
+                          placeholder="Enter your Google email"
+                          autoFocus
+                          className="w-full px-3 py-2 rounded-lg bg-[#1e1f20] border border-[#5f6368] text-xs text-white placeholder-[#80868b] focus:outline-none focus:border-[#8ab4f8]"
+                        />
+                        <div className="flex items-center justify-end space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowCustomGoogleAccount(false)}
+                            className="text-xs text-[#9aa0a6] hover:text-white px-2 py-1"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (customGoogleEmail.trim()) {
+                                handleSelectGoogleAccount(customGoogleEmail.trim(), customGoogleEmail.split('@')[0]);
+                              }
+                            }}
+                            className="text-xs font-semibold bg-[#8ab4f8] text-[#131314] px-3 py-1 rounded hover:bg-[#a8c7fa]"
+                          >
+                            Connect
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Privacy Disclaimer */}
+                  <p className="text-[11px] text-[#9aa0a6] leading-relaxed pt-2">
+                    Before using this app, you can review Claude for {googleOAuthConnector.name}&apos;s{' '}
+                    <span className="text-[#8ab4f8] cursor-pointer hover:underline">Privacy Policy</span> and{' '}
+                    <span className="text-[#8ab4f8] cursor-pointer hover:underline">Terms of Service</span>.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Links Outside Card (Exact match to Screenshot 1) */}
+            <div className="w-full max-w-2xl flex items-center justify-between text-xs text-[#9aa0a6] mt-4 px-2">
+              <div className="flex items-center space-x-1 cursor-pointer hover:text-white">
+                <span>English (United Kingdom)</span>
+                <span>▾</span>
+              </div>
+              <div className="flex items-center space-x-6">
+                <span className="cursor-pointer hover:text-white">Help</span>
+                <span className="cursor-pointer hover:text-white">Privacy</span>
+                <span className="cursor-pointer hover:text-white">Terms</span>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
@@ -1713,16 +1919,27 @@ function ConnectorCard({
   connector,
   onToggle,
   onOpenConfig,
+  onGoogleAuth,
 }: {
   connector: Connector;
   onToggle: () => void;
   onOpenConfig: (e: React.MouseEvent) => void;
+  onGoogleAuth?: (c: Connector) => void;
 }) {
   const isEnabled = connector.enabled;
+  const isGoogle = connector.id === 'conn-gmail' || connector.id === 'conn-gdrive' || connector.id === 'conn-gcalendar';
+
+  const handleClick = () => {
+    if (isGoogle && !isEnabled && onGoogleAuth) {
+      onGoogleAuth(connector);
+    } else {
+      onToggle();
+    }
+  };
 
   return (
     <div
-      onClick={onToggle}
+      onClick={handleClick}
       className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between group ${
         isEnabled
           ? 'bg-[#1e1c19] border-[#38352d] hover:border-[#4a463d]'
@@ -1825,7 +2042,11 @@ function ConnectorCard({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onToggle();
+            if (isGoogle && !isEnabled && onGoogleAuth) {
+              onGoogleAuth(connector);
+            } else {
+              onToggle();
+            }
           }}
           className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
             isEnabled

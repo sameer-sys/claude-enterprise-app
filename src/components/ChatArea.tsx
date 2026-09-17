@@ -734,6 +734,20 @@ export default function ChatArea({
             <span className="hidden sm:inline">OpenWork Cloud ↗</span>
           </a>
 
+          {/* Autonomous Two-Way Proactive Mode Toggle (User's favorite feature) */}
+          <button
+            onClick={onToggleProactiveMode}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold font-mono transition-all shadow-sm active:scale-95 ${
+              isProactiveMode
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25'
+                : 'bg-[#26241f] border-[#38352d] text-[#8a8579] hover:text-[#ece9e2]'
+            }`}
+            title="Two-Way Autonomous Proactive Mode: AI checks in and messages in background"
+          >
+            <Radio className={`w-3.5 h-3.5 ${isProactiveMode ? 'text-emerald-400 animate-pulse' : ''}`} />
+            <span>Two-Way: {isProactiveMode ? 'ON' : 'OFF'}</span>
+          </button>
+
           {/* DOWNLOAD BUTTON */}
           <button
             onClick={onOpenDownload}
@@ -749,7 +763,7 @@ export default function ChatArea({
       {/* Session-Level Connectors (Directly downside of Download button to be part of chat/session) */}
       <div className="flex justify-end items-center px-4 sm:px-6 pt-2.5 pb-1 shrink-0 z-10">
         {(() => {
-          const connectedEmail = activeConnectors?.find((c) => c.id === 'conn-gmail')?.config?.email || 'sameer.workspace@gmail.com';
+          const connectedEmail = activeConnectors?.find((c) => c.id === 'conn-gmail')?.config?.email || 'samesuf786@gmail.com';
           return (
             <button
               onClick={onOpenConnectors}

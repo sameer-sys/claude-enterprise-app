@@ -189,7 +189,7 @@ export default function SettingsModal({
   const handleOpenConfig = (conn: Connector) => {
     setEditingConnector(conn);
     setCustomRepo(conn.config?.repo || 'sameer-sys/claude-enterprise-app');
-    setCustomEmail(conn.config?.email || 'sameer.workspace@gmail.com');
+    setCustomEmail(conn.config?.email || 'samesuf786@gmail.com');
     setCustomMcpCommand(conn.config?.command || 'npx -y @modelcontextprotocol/server-everything');
     setCustomServerUrl(conn.config?.serverUrl || 'http://127.0.0.1:20128/v1');
     setTestResult(null);
@@ -222,7 +222,7 @@ export default function SettingsModal({
           setTestResult(`Repository "${target}" returned HTTP ${res.status}. If private, configure PAT token.`);
         }
       } else if (editingConnector?.id === 'conn-gmail') {
-        const mail = customEmail || 'sameer.workspace@gmail.com';
+        const mail = customEmail || 'samesuf786@gmail.com';
         setTestResult(`Connected to Gmail (${mail})! Ready for inbox search, thread summaries, and 1-click compose.`);
       } else if (editingConnector?.id === 'conn-omniroute') {
         setTestResult(`OmniRoute local router reachable with 2,269 models.`);
@@ -782,8 +782,8 @@ export default function SettingsModal({
                       S
                     </div>
                     <div>
-                      <div className="text-sm font-semibold text-[#f4efe6]">Sameer</div>
-                      <div className="text-xs text-[#8a8579]">sameer.workspace@gmail.com</div>
+                      <div className="text-sm font-semibold text-[#f4efe6]">Sameer Shaik</div>
+                      <div className="text-xs text-[#8a8579]">samesuf786@gmail.com</div>
                       <div className="text-[10px] font-mono text-emerald-400 mt-0.5">Tier: Claude Pro Max Unlimited ($0 Free Forever)</div>
                     </div>
                   </div>
@@ -1641,7 +1641,7 @@ export default function SettingsModal({
                         type="email"
                         value={customEmail}
                         onChange={(e) => setCustomEmail(e.target.value)}
-                        placeholder="e.g. sameer.workspace@gmail.com"
+                        placeholder="e.g. samesuf786@gmail.com"
                         className="w-full px-3 py-2 rounded-xl bg-[#181714] border border-[#302e26] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]"
                       />
                       <p className="text-[11px] text-[#8a8579] mt-1">

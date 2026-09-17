@@ -46,6 +46,7 @@ export interface ConnectorConfig {
   platform?: string;
   subreddit?: string;
   webhookUrl?: string;
+  accountName?: string;
 }
 
 export interface Connector {

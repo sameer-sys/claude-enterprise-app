@@ -559,7 +559,7 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...activeSession.messages.slice(-8), userMessage],
+          messages: [...activeSession.messages.slice(-30), userMessage],
           modelId: activeModel,
           geminiKey: geminiKey || undefined,
           openRouterKey: openRouterKey || undefined,
@@ -577,7 +577,7 @@ export default function Home() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            messages: [userMessage],
+            messages: [...activeSession.messages.slice(-30), userMessage],
             modelId: activeModel,
             geminiKey: geminiKey || undefined,
             openRouterKey: openRouterKey || undefined,

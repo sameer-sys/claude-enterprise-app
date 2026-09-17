@@ -14,59 +14,61 @@ export default function DownloadPage() {
 
   const handleDownloadWindows = () => {
     const origin = getAppOrigin();
-    // Launches in Chrome/Edge --app mode: dedicated window, own taskbar icon, no browser chrome
-    // Exactly how Claude's official desktop app works
+    // Full Electron-based desktop installer script
     const script = `@echo off
-title Claude Enterprise — Desktop Installer
+title Claude Enterprise — Desktop App Launcher
 echo.
-echo  ========================================================
-echo   Claude Enterprise Pro Max — Desktop App Installer
-echo  ========================================================
-echo.
-echo  Installing dedicated desktop app window...
+echo  =====================================================
+echo    Claude Enterprise Desktop App
+echo    Powered by Electron (like Slack, VS Code, Discord)
+echo  =====================================================
 echo.
 
-:: Create Desktop shortcut
-set SHORTCUT=%USERPROFILE%\\Desktop\\Claude Enterprise.url
-echo [InternetShortcut] > "%SHORTCUT%"
-echo URL=${origin} >> "%SHORTCUT%"
-echo IconFile=%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe >> "%SHORTCUT%"
-echo IconIndex=0 >> "%SHORTCUT%"
+:: Check if Node.js is installed
+where node >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+  echo  [!] Node.js not found. Installing via Chrome app-mode instead...
+  goto chromefallback
+)
 
-:: Try Chrome first, then Edge
+:: Check if the app folder is present
+if not exist "%USERPROFILE%\\claude-enterprise\\package.json" (
+  echo  [!] App not found locally. Opening web app in desktop mode...
+  goto chromefallback
+)
+
+cd /d "%USERPROFILE%\\claude-enterprise"
+echo  Starting Claude Enterprise desktop app...
+start "" npm run electron:prod
+goto done
+
+:chromefallback
 where chrome >nul 2>&1
 if %ERRORLEVEL% == 0 (
-  echo  Launching with Google Chrome...
-  start "" chrome --app=${origin} --name="Claude Enterprise" --window-size=1280,900
+  start "" chrome --app=${origin} --name="Claude Enterprise" --window-size=1400,900
   goto done
 )
-
 where msedge >nul 2>&1
 if %ERRORLEVEL% == 0 (
-  echo  Launching with Microsoft Edge...
-  start "" msedge --app=${origin} --name="Claude Enterprise" --window-size=1280,900
+  start "" msedge --app=${origin} --name="Claude Enterprise" --window-size=1400,900
   goto done
 )
-
-:: Fallback: open in default browser
-echo  Falling back to default browser...
 start ${origin}
 
 :done
-echo.
-echo  Claude Enterprise desktop app launched!
-echo  Pin it to your taskbar for quick access.
-echo.
-timeout /t 3 >nul
+echo  Done! Claude Enterprise launched.
+timeout /t 2 >nul
 `;
     const blob = new Blob([script], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Install-Claude-Enterprise.bat';
+    a.download = 'Launch-Claude-Enterprise.bat';
     a.click();
     URL.revokeObjectURL(url);
   };
+
+
 
   const handleDownloadApk = () => {
     const origin = getAppOrigin();

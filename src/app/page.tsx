@@ -596,6 +596,21 @@ export default function Home() {
     handleSendMessage(lastUserMsg.content, lastUserMsg.attachments);
   };
 
+  const handleEditAndResendMessage = (msgId: string, newText: string) => {
+    const msgs = activeSession.messages;
+    const msgIdx = msgs.findIndex((m) => m.id === msgId);
+    if (msgIdx === -1) return;
+    const oldMsg = msgs[msgIdx];
+    const truncated = msgs.slice(0, msgIdx);
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSession.id ? { ...s, messages: truncated } : s
+      )
+    );
+    handleSendMessage(newText, oldMsg.attachments);
+  };
+
+
   // Omnibox Direct Chrome Search (?q=... or ?prompt=...)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -654,6 +669,7 @@ export default function Home() {
           activeModel={activeModel}
           onSelectModel={(model) => setActiveModel(model)}
           onSendMessage={handleSendMessage}
+          onEditMessage={handleEditAndResendMessage}
           onStopStreaming={handleStopStreaming}
           onRegenerateLast={handleRegenerateLast}
           isStreaming={isStreaming}

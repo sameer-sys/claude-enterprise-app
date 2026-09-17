@@ -38,6 +38,7 @@ import {
   Github,
   Crown,
   CheckCircle2,
+  Pencil,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -49,6 +50,7 @@ interface ChatAreaProps {
   activeModel: ModelId;
   onSelectModel: (model: ModelId) => void;
   onSendMessage: (text: string, attachments?: Attachment[]) => void;
+  onEditMessage?: (id: string, newText: string) => void;
   onStopStreaming: () => void;
   onRegenerateLast: () => void;
   isStreaming: boolean;
@@ -79,6 +81,7 @@ export default function ChatArea({
   activeModel,
   onSelectModel,
   onSendMessage,
+  onEditMessage,
   onStopStreaming,
   onRegenerateLast,
   isStreaming,
@@ -120,12 +123,27 @@ export default function ChatArea({
   const [editingDownsideConn, setEditingDownsideConn] = useState<Connector | null>(null);
   const [downsideEditValue, setDownsideEditValue] = useState('');
 
+  // Message Edit State (official Claude hover-to-edit feature)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+
   // Cowork Mode — File Access State
-  const [coworkFile, setCoworkFile] = useState<{ name: string; content: string; handle?: any } | null>(null);
+  const [coworkFile, setCoworkFile] = useState<{ name: string; content: string; path?: string; handle?: any } | null>(null);
   const [coworkDirty, setCoworkDirty] = useState(false);
 
   const handleOpenFile = async () => {
     try {
+      // 1. If running in Electron Native Desktop App
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.openFile) {
+        const res = await (window as any).electronAPI.openFile();
+        if (res && res.content !== undefined) {
+          setCoworkFile({ name: res.name, content: res.content, path: res.path });
+          setCoworkDirty(false);
+          onSendMessage(`I've opened the file "${res.name}" (${res.path || ''}) for cowork. Here is its content:\n\n\`\`\`\n${res.content.slice(0, 8000)}\n\`\`\`\n\nPlease review it. I'll tell you what changes to make.`);
+          return;
+        }
+      }
+      // 2. Fallback to Browser File System Access API
       const [handle] = await (window as any).showOpenFilePicker({
         types: [{ description: 'Any File', accept: { '*/*': [] } }],
         multiple: false,
@@ -134,7 +152,6 @@ export default function ChatArea({
       const content = await file.text();
       setCoworkFile({ name: file.name, content, handle });
       setCoworkDirty(false);
-      // Auto-inject file content as context
       onSendMessage(`I've opened the file "${file.name}" for cowork. Here is its content:\n\n\`\`\`\n${content.slice(0, 8000)}\n\`\`\`\n\nPlease review it. I'll tell you what changes to make.`);
     } catch (e) { /* user cancelled */ }
   };
@@ -142,6 +159,16 @@ export default function ChatArea({
   const handleSaveFile = async () => {
     if (!coworkFile) return;
     try {
+      // 1. Electron Native Desktop App save
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.saveFile) {
+        const savedPath = await (window as any).electronAPI.saveFile(coworkFile.path, coworkFile.content);
+        if (savedPath) {
+          setCoworkFile((prev) => prev ? { ...prev, path: savedPath } : prev);
+          setCoworkDirty(false);
+          return;
+        }
+      }
+      // 2. Browser save
       if (coworkFile.handle) {
         const writable = await coworkFile.handle.createWritable();
         await writable.write(coworkFile.content);
@@ -159,6 +186,16 @@ export default function ChatArea({
 
   const handleNewFile = async () => {
     try {
+      // 1. Electron Native Desktop App new file
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.newFile) {
+        const res = await (window as any).electronAPI.newFile();
+        if (res) {
+          setCoworkFile({ name: res.name, content: '', path: res.path });
+          setCoworkDirty(false);
+          return;
+        }
+      }
+      // 2. Browser new file
       const handle = await (window as any).showSaveFilePicker({ suggestedName: 'untitled.txt' });
       const writable = await handle.createWritable();
       await writable.write('');
@@ -167,6 +204,17 @@ export default function ChatArea({
       setCoworkFile({ name: file.name, content: '', handle });
       setCoworkDirty(false);
     } catch (e) { /* user cancelled */ }
+  };
+
+  const handleSaveEdit = (msgId: string) => {
+    if (!editContent.trim()) return;
+    if (onEditMessage) {
+      onEditMessage(msgId, editContent.trim());
+    } else {
+      onSendMessage(editContent.trim());
+    }
+    setEditingMessageId(null);
+    setEditContent('');
   };
 
 
@@ -1065,72 +1113,103 @@ export default function ChatArea({
                     </div>
                   )}
 
-                  {/* Main Markdown Body */}
-                  <div className="markdown-body space-y-3 text-[14.5px] leading-relaxed text-[#ede8df]">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        code({ inline, className, children, ...props }: any) {
-                          const match = /language-(\w+)/.exec(className || '');
-                          const lang = match ? match[1] : '';
-                          const codeText = String(children).replace(/\n$/, '');
-
-                          if (!inline && (lang || codeText.includes('\n'))) {
-                            return (
-                              <div className="my-3 rounded-xl bg-[#151411] border border-[#2d2b24] overflow-hidden shadow-lg">
-                                <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#1d1c18] border-b border-[#282620] text-xs text-[#9c978b]">
-                                  <div className="flex items-center space-x-2">
-                                    <div className="flex space-x-1">
-                                      <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
-                                      <div className="w-2.5 h-2.5 rounded-full bg-amber-500/60" />
-                                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" />
-                                    </div>
-                                    <span className="font-mono text-[11px] font-semibold text-[#cc785c] uppercase ml-1.5">
-                                      {lang || 'code'}
-                                    </span>
-                                  </div>
-                                  <button
-                                    onClick={() => copyMessage(`code_${Date.now()}`, codeText)}
-                                    className="flex items-center gap-1 hover:text-[#ece9e2] transition-colors font-sans text-[11px] px-2 py-0.5 rounded hover:bg-[#282620]"
-                                  >
-                                    <Copy className="w-3 h-3" />
-                                    <span>Copy</span>
-                                  </button>
-                                </div>
-                                <pre className="p-3.5 overflow-x-auto text-xs font-mono text-[#e6e2d8] leading-relaxed">
-                                  <code className={className} {...props}>
-                                    {children}
-                                  </code>
-                                </pre>
-                              </div>
-                            );
+                  {/* User inline editor OR message body */}
+                  {isUser && editingMessageId === msg.id ? (
+                    <div className="space-y-2 w-full min-w-[280px] sm:min-w-[420px]">
+                      <textarea
+                        rows={3}
+                        autoFocus
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSaveEdit(msg.id);
+                          } else if (e.key === 'Escape') {
+                            setEditingMessageId(null);
                           }
+                        }}
+                        className="w-full p-3 rounded-xl bg-[#1d1c18] border border-[#cc785c]/60 text-sm text-[#f4efe6] focus:outline-none resize-none leading-relaxed shadow-inner"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingMessageId(null)}
+                          className="px-3 py-1.5 text-xs rounded-lg text-[#9c978b] hover:text-[#ece9e2] hover:bg-[#35332b] transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEdit(msg.id)}
+                          disabled={!editContent.trim()}
+                          className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black transition-all shadow-sm disabled:opacity-50"
+                        >
+                          Save & Submit
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Main Markdown Body */}
+                      <div className="markdown-body space-y-3 text-[14.5px] leading-relaxed text-[#ede8df]">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code({ inline, className, children, ...props }: any) {
+                              const match = /language-(\w+)/.exec(className || '');
+                              const lang = match ? match[1] : '';
+                              const codeText = String(children).replace(/\n$/, '');
 
-                          return (
-                            <code
-                              className="px-1.5 py-0.5 rounded bg-[#272520] text-[#cc785c] font-mono text-xs border border-[#36342b]"
-                              {...props}
-                            >
-                              {children}
-                            </code>
-                          );
-                        },
-                        table({ children }) {
-                          return (
-                            <div className="my-3 overflow-x-auto rounded-xl border border-[#302e27]">
-                              <table className="min-w-full text-xs text-left divide-y divide-[#302e27]">
-                                {children}
-                              </table>
-                            </div>
-                          );
-                        },
-                        th({ children }) {
-                          return (
-                            <th className="px-3 py-2 bg-[#23221d] font-semibold text-[#f2eee6]">
-                              {children}
-                            </th>
-                          );
-                        },
+                              if (!inline && (lang || codeText.includes('\n'))) {
+                                return (
+                                  <div className="my-3 rounded-xl bg-[#151411] border border-[#2d2b24] overflow-hidden shadow-lg">
+                                    <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#1d1c18] border-b border-[#282620] text-xs text-[#9c978b]">
+                                      <div className="flex items-center space-x-2">
+                                        <div className="flex space-x-1">
+                                          <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+                                          <div className="w-2.5 h-2.5 rounded-full bg-amber-500/60" />
+                                          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" />
+                                        </div>
+                                        <span className="font-mono text-[11px] font-semibold text-[#cc785c] uppercase ml-1.5">
+                                          {lang || 'code'}
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={() => copyMessage(`code_${Date.now()}`, codeText)}
+                                        className="flex items-center gap-1 hover:text-[#ece9e2] transition-colors font-sans text-[11px] px-2 py-0.5 rounded hover:bg-[#282620]"
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                        <span>Copy</span>
+                                      </button>
+                                    </div>
+                                    <pre className="p-3.5 overflow-x-auto text-xs font-mono text-[#e6e2d8] leading-relaxed">
+                                      <code className={className} {...props}>
+                                        {children}
+                                      </code>
+                                    </pre>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <code
+                                  className="px-1.5 py-0.5 rounded bg-[#272520] text-[#cc785c] font-mono text-xs border border-[#36342b]"
+                                  {...props}
+                                >
+                                  {children}
+                                </code>
+                              );
+                            },
+                            table({ children }) {
+                              return (
+                                <div className="my-3 overflow-x-auto rounded-xl border border-[#302e27]">
+                                  <table className="min-w-full text-xs text-left divide-y divide-[#302e27]">
+                                    {children}
+                                  </table>
+                                </div>
+                              );
+                            },
                         td({ children }) {
                           return (
                             <td className="px-3 py-2 border-t border-[#292822] text-[#dcd8ce]">
@@ -1201,6 +1280,31 @@ export default function ChatArea({
                       {msg.content}
                     </ReactMarkdown>
                   </div>
+
+                  {/* User message hover action bar (Copy & Edit) */}
+                  {isUser && (
+                    <div className="flex items-center justify-end gap-1.5 pt-1 mt-1.5 border-t border-[#3d3a31]/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => copyMessage(msg.id, msg.content)}
+                        className="p-1 rounded hover:bg-[#38352b] text-[#9c978b] hover:text-[#ece9e2] transition-colors"
+                        title="Copy message"
+                      >
+                        {copiedId === msg.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingMessageId(msg.id);
+                          setEditContent(msg.content);
+                        }}
+                        className="p-1 rounded hover:bg-[#38352b] text-[#9c978b] hover:text-[#cc785c] transition-colors"
+                        title="Edit prompt"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
 
                   {/* 1-Click Interactive Key Setup Card */}
                   {!isUser && (msg.content.includes('Settings') || msg.content.includes('Gemini') || msg.content.includes('Notice:') || msg.content.includes('API key')) && (

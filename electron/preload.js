@@ -1,4 +1,4 @@
-﻿const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 // Expose native desktop APIs to the web app
 // The web app can check window.electronAPI to know it is running inside Electron
@@ -12,4 +12,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // App info
   getVersion: () => ipcRenderer.invoke('get-version'),
+
+  // Continuous Automation — Prevent Sleep / Suspension
+  startAutomation: () => ipcRenderer.invoke('start-automation'),
+  stopAutomation: () => ipcRenderer.invoke('stop-automation'),
 });
+

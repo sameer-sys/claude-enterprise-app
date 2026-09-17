@@ -71,6 +71,17 @@ export function createDefaultConnectors(): Connector[] {
       capabilities: ['Real-time Search', 'Source Citations', 'Live Docs'],
     },
     {
+      id: 'conn-browser-operator',
+      name: 'Autonomous Web Operator & Platform Navigator',
+      description: 'Autonomous web agent to navigate websites, inspect live web pages, extract platform data, and automate workflows.',
+      icon: 'websearch',
+      enabled: true,
+      status: 'connected',
+      category: 'Autonomous Web Agents',
+      provider: 'anthropic',
+      capabilities: ['Web Navigation', 'Live DOM Scraping', 'Platform Automation', 'URL Bypasser'],
+    },
+    {
       id: 'conn-filesystem',
       name: 'Local Filesystem (MCP)',
       description: 'Model Context Protocol filesystem server: inspect project directories, source files, and workspace scripts.',

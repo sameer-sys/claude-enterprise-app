@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, shell, Menu, Tray, nativeImage, ipcMain, dialog, globalShortcut, Notification } = require("electron");
+const { app, BrowserWindow, shell, Menu, Tray, nativeImage, ipcMain, dialog, globalShortcut, Notification, powerSaveBlocker } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
@@ -108,6 +108,22 @@ ipcMain.handle("new-file", async () => {
 });
 
 ipcMain.handle("get-version", () => app.getVersion());
+
+let blockerId = null;
+ipcMain.handle("start-automation", () => {
+  if (blockerId === null) {
+    blockerId = powerSaveBlocker.start("prevent-app-suspension");
+  }
+  return true;
+});
+
+ipcMain.handle("stop-automation", () => {
+  if (blockerId !== null && powerSaveBlocker.isStarted(blockerId)) {
+    powerSaveBlocker.stop(blockerId);
+    blockerId = null;
+  }
+  return false;
+});
 
 ipcMain.handle("show-notification", (event, { title, body }) => {
   if (Notification.isSupported()) {

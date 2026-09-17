@@ -697,6 +697,7 @@ export default function Home() {
             setIsSettingsOpen(true);
           }}
           onOpenFeatures={() => setIsFeaturesOpen(true)}
+          onOpenSquad={() => setIsSquadOpen(true)}
           hasGeminiKey={Boolean(geminiKey)}
         />
 

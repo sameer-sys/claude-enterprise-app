@@ -232,6 +232,30 @@ export default function Sidebar({
           )}
 
 
+          {/* Agent Teams / Multi-Agent Squad Direct Launcher */}
+          {onOpenSquad && (
+            <div className="px-1 py-1">
+              <button
+                onClick={() => {
+                  onOpenSquad();
+                  onCloseMobile();
+                }}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500/15 via-[#cc785c]/20 to-amber-500/10 hover:from-amber-500/25 hover:to-[#cc785c]/30 border border-amber-500/30 text-xs font-semibold text-amber-200 transition-all shadow-sm group"
+                title="Open Multi-Agent Squad (PM1, PM2, PM3 Autonomous Execution)"
+              >
+                <div className="flex items-center space-x-2">
+                  <div className="w-5 h-5 rounded-lg bg-amber-400/20 flex items-center justify-center text-amber-300 group-hover:scale-110 transition-transform">
+                    <Zap className="w-3.5 h-3.5 fill-current" />
+                  </div>
+                  <span className="tracking-tight">Agent Teams</span>
+                </div>
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-amber-500/25 text-amber-300 font-bold border border-amber-500/30 animate-pulse">
+                  3 ACTIVE
+                </span>
+              </button>
+            </div>
+          )}
+
           {/* Manager Board — Projects / PM Hierarchy */}
           <div className="space-y-1">
             {/* Manager Header */}
@@ -240,14 +264,29 @@ export default function Sidebar({
                 <Crown className="w-3 h-3 text-amber-400" />
                 <span className="text-[10px] uppercase tracking-wider font-bold text-amber-400">Manager</span>
               </div>
-              <button
-                onClick={onOpenNewProject}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold bg-[#cc785c]/15 hover:bg-[#cc785c]/30 text-[#cc785c] border border-[#cc785c]/30 transition-colors"
-                title="Add new Project Manager"
-              >
-                <Plus className="w-3 h-3" />
-                <span>Add PM</span>
-              </button>
+              <div className="flex items-center gap-1">
+                {onOpenSquad && (
+                  <button
+                    onClick={() => {
+                      onOpenSquad();
+                      onCloseMobile();
+                    }}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 transition-colors"
+                    title="Executive Squad Command View"
+                  >
+                    <Zap className="w-2.5 h-2.5" />
+                    <span>Squad</span>
+                  </button>
+                )}
+                <button
+                  onClick={onOpenNewProject}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold bg-[#cc785c]/15 hover:bg-[#cc785c]/30 text-[#cc785c] border border-[#cc785c]/30 transition-colors"
+                  title="Add new Project Manager"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Add PM</span>
+                </button>
+              </div>
             </div>
 
             {projects.length === 0 ? (

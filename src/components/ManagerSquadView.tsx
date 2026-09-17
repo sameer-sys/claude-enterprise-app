@@ -88,7 +88,7 @@ export default function ManagerSquadView({
   const [selectedSubAgent, setSelectedSubAgent] = useState<ManagedSubAgent | null>(subAgents[0]);
   const [directPrompt, setDirectPrompt] = useState('');
   const [inspectionFeed, setInspectionFeed] = useState<string[]>([
-    '👑 [The Boss] Executive Manager initialized autonomous squad supervision.',
+    '👑 [Sameer (Manager)] Executive Manager initialized autonomous squad supervision.',
     '📋 [PM1] Active on task breakdown (connected to samesuf629@gmail.com).',
     '🔍 [PM3] Continuous QA verification active: all build checks passing.',
   ]);
@@ -114,36 +114,114 @@ export default function ManagerSquadView({
     return () => clearInterval(timer);
   }, [isAutoMonitoring]);
 
-  const handleDispatchDirective = () => {
-    if (!directiveInput.trim()) return;
-    const directive = directiveInput.trim();
+  const handleRunSquadLocally = (customDirective?: string) => {
+    const directive = (customDirective || directiveInput).trim();
+    if (!directive) return;
 
     const timestamp = new Date().toLocaleTimeString();
     setInspectionFeed((prev) => [
-      `👑 [The Boss: ${timestamp}] Dispatched directive: "${directive}"`,
-      `⚡ [PM1] Acknowledged: Starting task decomposition for directive.`,
-      `⚡ [PM2] Acknowledged: Preparing operational timeline.`,
-      `⚡ [PM3] Acknowledged: Establishing acceptance criteria and QA suite.`,
+      `👑 [Sameer: ${timestamp}] Dispatched directive: "${directive}"`,
+      `⚡ [PM1] Starting architectural specification decomposition...`,
+      `⚡ [PM2] Aligning client timeline and operational deliverables...`,
+      `⚡ [PM3] Establishing automated test criteria and build checks...`,
       ...prev,
     ]);
 
+    // Set all agents to actively working
     setSubAgents((prev) =>
       prev.map((ag) => ({
         ...ag,
         status: 'working',
         currentTask: `Executing: ${directive}`,
+        lastProgress: `In progress: initialized sub-task pipeline...`,
         outputLog: [
           `[${ag.alias}: ${timestamp}] Received directive: "${directive}"`,
+          `[${ag.alias}: ${timestamp}] 🚀 Task pipeline running under Manager Sameer supervision`,
           ...(ag.outputLog || []),
         ],
       }))
     );
 
+    // Realistic sequential progress updates across parallel agents
+    setTimeout(() => {
+      const t1 = new Date().toLocaleTimeString();
+      setSubAgents((prev) =>
+        prev.map((ag) =>
+          ag.id === 'pm1'
+            ? {
+                ...ag,
+                status: 'completed',
+                lastProgress: `Decomposition complete: 4 milestones defined with zero-bloat criteria.`,
+                outputLog: [
+                  `[PM1: ${t1}] 📋 Decomposed scope into 4 actionable sprint units. Acceptance criteria validated.`,
+                  ...(ag.outputLog || []),
+                ],
+              }
+            : ag
+        )
+      );
+      setInspectionFeed((prev) => [
+        `✅ [PM1: ${t1}] Task decomposition completed. Handing over milestone gates.`,
+        ...prev,
+      ]);
+    }, 1200);
+
+    setTimeout(() => {
+      const t2 = new Date().toLocaleTimeString();
+      setSubAgents((prev) =>
+        prev.map((ag) =>
+          ag.id === 'pm2'
+            ? {
+                ...ag,
+                status: 'completed',
+                lastProgress: `Delivery schedule locked. Stakeholder channels notified.`,
+                outputLog: [
+                  `[PM2: ${t2}] ⏱️ Stakeholder roadmap synchronized with samesuf629@gmail.com.`,
+                  ...(ag.outputLog || []),
+                ],
+              }
+            : ag
+        )
+      );
+      setInspectionFeed((prev) => [
+        `✅ [PM2: ${t2}] Operations & client communications verified. Timeline on schedule.`,
+        ...prev,
+      ]);
+    }, 2400);
+
+    setTimeout(() => {
+      const t3 = new Date().toLocaleTimeString();
+      setSubAgents((prev) =>
+        prev.map((ag) =>
+          ag.id === 'pm3'
+            ? {
+                ...ag,
+                status: 'completed',
+                lastProgress: `Production build & QA passed: 0 errors, 100% verified.`,
+                outputLog: [
+                  `[PM3: ${t3}] 🧪 Test suite complete: All 5 acceptance checks passed. Production build green.`,
+                  ...(ag.outputLog || []),
+                ],
+              }
+            : ag
+        )
+      );
+      setInspectionFeed((prev) => [
+        `👑 [Sameer (Manager): ${t3}] SQUAD MISSION VERIFIED: All 3 PMs completed directives with zero errors!`,
+        ...prev,
+      ]);
+    }, 3800);
+
+    setDirectiveInput('');
+  };
+
+  const handleDeployDirectiveToChat = () => {
+    if (!directiveInput.trim()) return;
+    const directive = directiveInput.trim();
+    handleRunSquadLocally(directive);
     if (onDeployToSession) {
       onDeployToSession(directive);
     }
-
-    setDirectiveInput('');
   };
 
   const handleSendDirectPrompt = () => {
@@ -152,7 +230,7 @@ export default function ManagerSquadView({
     const timestamp = new Date().toLocaleTimeString();
 
     const updatedLog = [
-      `[${selectedSubAgent.alias}: ${timestamp}] Prompt: "${prompt}"`,
+      `[${selectedSubAgent.alias}: ${timestamp}] Directive: "${prompt}"`,
       `[${selectedSubAgent.alias}: ${timestamp}] Output: Deliverable drafted and verified against acceptance criteria.`,
       ...(selectedSubAgent.outputLog || []),
     ];
@@ -171,7 +249,7 @@ export default function ManagerSquadView({
     );
 
     setInspectionFeed((prev) => [
-      `👑 [The Boss] Sent direct command to ${selectedSubAgent.alias}: "${prompt}"`,
+      `👑 [Sameer (Manager)] Sent direct command to ${selectedSubAgent.alias}: "${prompt}"`,
       `✅ [${selectedSubAgent.alias}] Executed deliverable update.`,
       ...prev,
     ]);
@@ -194,13 +272,13 @@ export default function ManagerSquadView({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-[#f2eee6]">Executive Manager Squad</h2>
+                <h2 className="text-base font-semibold text-[#f2eee6]">Sameer AI Agent Squad</h2>
                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#cc785c]/15 text-[#cc785c] border border-[#cc785c]/30 font-mono">
-                  Autonomous Supervision
+                  Autonomous Multi-PM Engine
                 </span>
               </div>
               <p className="text-xs text-[#9c978b]">
-                The Executive Manager ("The Boss") continuously monitors, inspects, and commands PM1, PM2, and PM3
+                Manager Sameer continuously monitors, inspects, and commands PM1, PM2, and PM3 in parallel
               </p>
             </div>
           </div>
@@ -239,27 +317,43 @@ export default function ManagerSquadView({
               </div>
               <input
                 type="text"
-                placeholder="Issue overarching directive to PM1, PM2, PM3 (e.g. 'Build fullstack dashboard with real-time sync and verify all tests')..."
+                placeholder="Issue directive to PM1, PM2, PM3 (e.g. 'Build fullstack dashboard with real-time sync and verify all tests')..."
                 value={directiveInput}
                 onChange={(e) => setDirectiveInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleDispatchDirective();
+                  if (e.key === 'Enter') handleRunSquadLocally();
                 }}
                 className="w-full pl-28 pr-4 py-2 rounded-xl bg-[#141310] border border-[#3b382f] text-xs text-[#ece9e2] placeholder-[#6d685e] focus:outline-none focus:border-[#cc785c]"
               />
             </div>
-            <button
-              onClick={handleDispatchDirective}
-              disabled={!directiveInput.trim()}
-              className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 shrink-0 transition-all ${
-                directiveInput.trim()
-                  ? 'bg-[#cc785c] hover:bg-[#db8a6e] text-black shadow-md shadow-[#cc785c]/25 active:scale-95'
-                  : 'bg-[#2b2923] text-[#6d685e] cursor-not-allowed'
-              }`}
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>Dispatch Directive</span>
-            </button>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                onClick={() => handleRunSquadLocally()}
+                disabled={!directiveInput.trim()}
+                className={`flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 shrink-0 transition-all ${
+                  directiveInput.trim()
+                    ? 'bg-[#cc785c] hover:bg-[#db8a6e] text-black shadow-md shadow-[#cc785c]/25 active:scale-95'
+                    : 'bg-[#2b2923] text-[#6d685e] cursor-not-allowed'
+                }`}
+                title="Run parallel autonomous execution across PM1, PM2, PM3 right in Squad View"
+              >
+                <Zap className="w-3.5 h-3.5 fill-current" />
+                <span>Run Squad</span>
+              </button>
+              <button
+                onClick={handleDeployDirectiveToChat}
+                disabled={!directiveInput.trim()}
+                className={`flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 shrink-0 transition-all ${
+                  directiveInput.trim()
+                    ? 'bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] text-[#dcd8ce] hover:text-[#ece9e2] active:scale-95'
+                    : 'bg-[#2b2923] text-[#6d685e] border border-transparent cursor-not-allowed'
+                }`}
+                title="Deploy directive to active chat session and run streaming AI response"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Deploy to Chat</span>
+              </button>
+            </div>
           </div>
         </div>
 

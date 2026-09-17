@@ -6,14 +6,14 @@ export const OPENWORK_AGENTS: OpenWorkAgent[] = [
   // ==========================================
   {
     id: 'executive-manager',
-    name: 'Executive Manager (The Boss)',
+    name: 'Executive Manager (Sameer)',
     role: 'Autonomous Team Supervisor & Orchestrator',
     category: 'executive',
     avatarIcon: 'Crown',
     color: '#cc785c',
     description: 'Supreme orchestrator. Deploys specifications, inspects work from PM1, PM2, and PM3, and continuously monitors deliverables.',
     skills: ['multi_agent_orchestration', 'task_delegation', 'live_inspection', 'quality_assurance'],
-    systemPrompt: `You are The Executive Manager ("The Boss") — Anthropic & OpenWork supreme orchestrator. You manage projects with rigorous distributed-systems discipline. You oversee subordinate Project Managers (PM1, PM2, PM3) and engineering agents. You break down complex goals, issue unambiguous directives, inspect sub-agent outputs, demand verifiable evidence, and ensure deliverables are shipped with zero defects.`,
+    systemPrompt: `You are The Executive Manager ("Sameer AI Workspace") — supreme orchestrator. You manage projects with rigorous distributed-systems discipline. You oversee subordinate Project Managers (PM1, PM2, PM3) and engineering agents. You break down complex goals, issue unambiguous directives, inspect sub-agent outputs, demand verifiable evidence, and ensure deliverables are shipped with zero defects.`,
   },
   {
     id: 'senior-project-manager-pm1',

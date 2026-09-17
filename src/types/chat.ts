@@ -41,6 +41,11 @@ export interface ConnectorConfig {
   command?: string;
   email?: string;
   apiKey?: string;
+  channelName?: string;
+  handle?: string;
+  platform?: string;
+  subreddit?: string;
+  webhookUrl?: string;
 }
 
 export interface Connector {

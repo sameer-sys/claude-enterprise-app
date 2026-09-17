@@ -255,6 +255,96 @@ export function BrandIcon({ name }: { name: string }) {
           <text x="24" y="33" fill="#FFFFFF" fontSize="22" fontWeight="bold" textAnchor="middle" fontFamily="sans-serif">Z</text>
         </svg>
       );
+    case 'youtube':
+    case 'conn-youtube':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="#FF0000" />
+          <path d="M20 18l11 6-11 6V18z" fill="#FFFFFF" />
+        </svg>
+      );
+    case 'instagram':
+    case 'conn-instagram':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="url(#ig-grad)" />
+          <rect x="13" y="13" width="22" height="22" rx="6" stroke="#FFFFFF" strokeWidth="2.5" />
+          <circle cx="24" cy="24" r="5" stroke="#FFFFFF" strokeWidth="2.5" />
+          <circle cx="30" cy="18" r="1.5" fill="#FFFFFF" />
+          <defs>
+            <linearGradient id="ig-grad" x1="0" y1="48" x2="48" y2="0" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#FA7E1E" />
+              <stop offset="0.5" stopColor="#D62976" />
+              <stop offset="1" stopColor="#962FBF" />
+            </linearGradient>
+          </defs>
+        </svg>
+      );
+    case 'facebook':
+    case 'conn-facebook':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="#1877F2" />
+          <path d="M28 25h-3.5v13h-5V25h-3v-4.5h3V17c0-3.3 1.8-5 5-5h3.5v4.5h-2.2c-1.3 0-1.8.6-1.8 1.6V20.5h4L28 25z" fill="#FFFFFF" />
+        </svg>
+      );
+    case 'twitter':
+    case 'conn-twitter':
+    case 'x':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="#000000" />
+          <path d="M14 13l8.2 11.2L14.3 35h3.2l6.5-7.7 5.6 7.7H36l-8.6-11.8L34.7 13h-3.2l-6 7-5.5-7H14zm4.8 2.5h3.6l10.8 17h-3.6l-10.8-17z" fill="#FFFFFF" />
+        </svg>
+      );
+    case 'linkedin':
+    case 'conn-linkedin':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="#0A66C2" />
+          <path d="M14 19h5v15h-5V19zm2.5-7a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm7.5 7h4.8v2.2h.1c.7-1.3 2.3-2.6 4.7-2.6 5 0 5.9 3.3 5.9 7.6V34h-5v-7.2c0-1.7 0-3.9-2.4-3.9s-2.7 1.8-2.7 3.7V34h-5V19z" fill="#FFFFFF" />
+        </svg>
+      );
+    case 'tiktok':
+    case 'conn-tiktok':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="#010101" />
+          <path d="M31.5 17c-2.2-.4-3.8-2-4.2-4.2h-3.8v16.2c0 2.2-1.8 4-4 4s-4-1.8-4-4 1.8-4 4-4c.4 0 .8.1 1.2.2V20.5c-.4 0-.8-.1-1.2-.1-4.4 0-8 3.6-8 8s3.6 8 8 8 8-3.6 8-8v-9.3c2.4 1.7 5.3 2.7 8.5 2.7v-4c-2.3 0-4.3-.8-4.5-.8z" fill="#FFFFFF" />
+        </svg>
+      );
+    case 'whatsapp':
+    case 'conn-whatsapp':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="#25D366" />
+          <path d="M24 10C16.3 10 10 16.3 10 24c0 2.8.8 5.4 2.2 7.6L10 38l6.7-2.1c2.1 1.2 4.6 1.9 7.3 1.9 7.7 0 14-6.3 14-14S31.7 10 24 10zm7.1 19.8c-.3.8-1.7 1.6-2.4 1.7-.7.1-1.6.2-5-1.2-4.2-1.7-6.9-6-7.1-6.3-.2-.3-1.6-2.1-1.6-4.1 0-1.9 1-2.9 1.4-3.3.4-.4.8-.5 1.1-.5.3 0 .5 0 .7.1.3.1.6.8.8 1.3.3.6.8 2 .9 2.2.1.2.1.4 0 .6-.1.2-.2.4-.4.6l-.6.7c-.2.2-.4.4-.2.8.2.4 1 1.7 2.2 2.7 1.5 1.3 2.7 1.8 3.1 2 .4.2.6.2.8-.1.3-.3 1.1-1.3 1.4-1.7.3-.4.6-.3 1-.2.4.1 2.5 1.2 2.9 1.4.4.2.7.3.8.5.1.2.1 1.3-.2 2.1z" fill="#FFFFFF" />
+        </svg>
+      );
+    case 'telegram':
+    case 'conn-telegram':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="#229ED9" />
+          <path d="M12 23.5l19-7.5c.9-.4 1.7.2 1.4 1.4l-3.2 15.3c-.2 1.1-.9 1.4-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.2 9.5-8.6c.4-.4-.1-.6-.6-.2l-11.8 7.4-5.1-1.6c-1.1-.3-1.1-1.1.2-1.6z" fill="#FFFFFF" />
+        </svg>
+      );
+    case 'discord':
+    case 'conn-discord':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="#5865F2" />
+          <path d="M32.5 15.5c-2.3-1-4.8-1.7-7.4-1.8-.3.6-.7 1.4-.9 2-2.8-.4-5.6-.4-8.4 0-.3-.6-.6-1.4-.9-2-2.6.1-5.1.8-7.4 1.8-4.7 7-6 13.8-5.3 20.5 3.1 2.3 6.1 3.7 9 3.8.7-1 1.4-2.1 2-3.2-1.1-.4-2.1-1-3.1-1.6.3-.2.5-.4.8-.6 6 2.8 12.5 2.8 18.4 0 .3.2.5.4.8.6-1 .7-2 1.2-3.1 1.6.6 1.1 1.3 2.2 2 3.2 2.9-.1 5.9-1.5 9-3.8.8-7.7-.6-14.4-5.4-20.5zM19 28.5c-1.7 0-3-1.6-3-3.5s1.3-3.5 3-3.5 3.1 1.6 3 3.5c0 2-1.3 3.5-3 3.5zm10 0c-1.7 0-3-1.6-3-3.5s1.3-3.5 3-3.5 3.1 1.6 3 3.5c0 2-1.3 3.5-3 3.5z" fill="#FFFFFF" />
+        </svg>
+      );
+    case 'reddit':
+    case 'conn-reddit':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="#FF4500" />
+          <path d="M37 23.5c0-1.7-1.3-3-3-3-.8 0-1.6.3-2.1.9-2.3-1.6-5.4-2.6-8.9-2.7l1.7-7.9 5.5 1.2c.1 1.4 1.3 2.5 2.8 2.5 1.7 0 3-1.3 3-3s-1.3-3-3-3c-1.1 0-2.1.6-2.6 1.6l-6.2-1.3c-.4-.1-.8.2-.9.6l-2 9.2c-3.6.1-6.8 1.1-9.1 2.7-.5-.6-1.3-.9-2.1-.9-1.7 0-3 1.3-3 3 0 1.2.7 2.2 1.7 2.7-.1.5-.1 1.1-.1 1.6 0 5 5.8 9 13 9s13-4 13-9c0-.6 0-1.1-.1-1.6 1-.5 1.7-1.5 1.7-2.7zM18 25c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm12.3 8.3c-1.6 1.6-4.7 1.7-6.3 1.7s-4.7-.1-6.3-1.7c-.3-.3-.3-.8 0-1.1.3-.3.8-.3 1.1 0 1.1 1.1 3.5 1.3 5.2 1.3 1.7 0 4.1-.2 5.2-1.3.3-.3.8-.3 1.1 0 .3.3.3.8 0 1.1zm-.3-4.3c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z" fill="#FFFFFF" />
+        </svg>
+      );
     case 'github':
     case 'conn-github':
     default:
@@ -329,6 +419,71 @@ export function createDefaultConnectors(): Connector[] {
       isVerified: true,
       capabilities: ['Inbox Search', 'Thread Summaries', 'Draft Replies', '1-Click Send'],
       config: { email: 'sameer.workspace@gmail.com' },
+    },
+    {
+      id: 'conn-youtube',
+      name: 'YouTube Studio',
+      description: 'Upload videos, optimize viral SEO titles & tags, manage channel schedules, and track analytics',
+      icon: 'youtube',
+      enabled: true,
+      status: 'connected',
+      category: 'Media and entertainment',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Studio Uploads', 'Shorts Automation', 'SEO Tags & Metadata', '1-Click Studio'],
+      config: { channelName: 'My Official Channel' },
+    },
+    {
+      id: 'conn-instagram',
+      name: 'Instagram Creator',
+      description: 'Publish Reels, generate 30 high-reach hashtags, format carousel captions, and automate DMs',
+      icon: 'instagram',
+      enabled: true,
+      status: 'connected',
+      category: 'Social media',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Reels Publishing', 'Carousel Staging', 'Hashtag Generator', '1-Click Creator'],
+      config: { handle: '@sameer.official' },
+    },
+    {
+      id: 'conn-facebook',
+      name: 'Facebook Meta Business',
+      description: 'Cross-post to Pages & Groups, schedule community updates, track reach, and run Meta Ads',
+      icon: 'facebook',
+      enabled: true,
+      status: 'connected',
+      category: 'Social media',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Page Publishing', 'Group Sync', 'Meta Business Suite', 'Audience Reach'],
+      config: { platform: 'Meta Business Suite' },
+    },
+    {
+      id: 'conn-twitter',
+      name: 'X (formerly Twitter)',
+      description: 'Draft viral tweets, build multi-post threads, schedule releases, and track impressions',
+      icon: 'twitter',
+      enabled: false,
+      status: 'ready',
+      category: 'Social media',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['Tweet Drafting', 'Thread Composer', '1-Click Tweet Intent', 'Viral Hooks'],
+      config: { handle: '@sameer_ai' },
+    },
+    {
+      id: 'conn-linkedin',
+      name: 'LinkedIn',
+      description: 'Draft professional thought-leadership posts, company updates, and Pulse articles',
+      icon: 'linkedin',
+      enabled: false,
+      status: 'ready',
+      category: 'Social media',
+      section: 'top',
+      isVerified: true,
+      capabilities: ['B2B Thought Leadership', 'Article Drafting', 'Network Announcements', '1-Click Share'],
+      config: { handle: 'sameer-workspace' },
     },
     {
       id: 'conn-gcalendar',
@@ -604,6 +759,71 @@ export function createDefaultConnectors(): Connector[] {
       isVerified: true,
       capabilities: ['Org Charts', 'Verified Phone & Email', 'Technographics'],
     },
+    {
+      id: 'conn-tiktok',
+      name: 'TikTok Studio',
+      description: 'Draft viral TikTok scripts, hooks, trending audio suggestions, and stage uploads',
+      icon: 'tiktok',
+      enabled: false,
+      status: 'ready',
+      category: 'Media and entertainment',
+      section: 'trending',
+      isVerified: true,
+      isTrending: true,
+      capabilities: ['Viral Scripts', 'Hook Formulations', 'Trending Sounds', 'TikTok Studio Upload'],
+      config: { handle: '@sameer_tok' },
+    },
+    {
+      id: 'conn-whatsapp',
+      name: 'WhatsApp Business',
+      description: 'Draft customer alerts, broadcast updates, and launch 1-click WhatsApp web chats',
+      icon: 'whatsapp',
+      enabled: false,
+      status: 'ready',
+      category: 'Communication',
+      section: 'trending',
+      isVerified: true,
+      isTrending: true,
+      capabilities: ['1-Click Direct Send', 'Broadcast Templates', 'Instant Chat Links'],
+    },
+    {
+      id: 'conn-telegram',
+      name: 'Telegram Broadcast',
+      description: 'Post markdown announcements, broadcast to channels, and trigger bot alerts',
+      icon: 'telegram',
+      enabled: false,
+      status: 'ready',
+      category: 'Communication',
+      section: 'trending',
+      isVerified: true,
+      isTrending: true,
+      capabilities: ['Channel Broadcast', 'Markdown Formatting', '1-Click Telegram Share'],
+    },
+    {
+      id: 'conn-discord',
+      name: 'Discord Webhooks',
+      description: 'Compose rich embed messages, send server announcements, and format developer alerts',
+      icon: 'discord',
+      enabled: false,
+      status: 'ready',
+      category: 'Communication',
+      section: 'trending',
+      isVerified: true,
+      capabilities: ['Rich Embeds', 'Webhook Dispatch', 'Developer Alerts'],
+    },
+    {
+      id: 'conn-reddit',
+      name: 'Reddit Community',
+      description: 'Draft discussion posts, AMA questions, and stage subreddit submissions with markdown',
+      icon: 'reddit',
+      enabled: false,
+      status: 'ready',
+      category: 'Social media',
+      section: 'trending',
+      isVerified: true,
+      capabilities: ['Subreddit Staging', 'Discussion Hooks', '1-Click Reddit Post'],
+      config: { subreddit: 'r/artificial' },
+    },
   ];
 }
 
@@ -625,6 +845,7 @@ const CATEGORIES_WITH_COUNTS = [
   { name: 'Other', count: 196 },
   { name: 'Productivity', count: 1449 },
   { name: 'Sales and marketing', count: 686 },
+  { name: 'Social media', count: 342 },
   { name: 'Travel', count: 70 },
 ];
 
@@ -675,6 +896,9 @@ export default function ConnectorsModal({
   const [editingConnector, setEditingConnector] = useState<Connector | null>(null);
   const [configEmail, setConfigEmail] = useState('');
   const [configRepo, setConfigRepo] = useState('');
+  const [configChannel, setConfigChannel] = useState('');
+  const [configHandle, setConfigHandle] = useState('');
+  const [configSubreddit, setConfigSubreddit] = useState('');
 
   if (!isOpen) return null;
 
@@ -701,6 +925,9 @@ export default function ConnectorsModal({
     setEditingConnector(conn);
     setConfigEmail(conn.config?.email || 'sameer.workspace@gmail.com');
     setConfigRepo(conn.config?.repo || 'sameer-sys/claude-enterprise-app');
+    setConfigChannel(conn.config?.channelName || 'My Official Channel');
+    setConfigHandle(conn.config?.handle || '@sameer.official');
+    setConfigSubreddit(conn.config?.subreddit || 'r/artificial');
   };
 
   const handleSaveConfig = () => {
@@ -709,6 +936,9 @@ export default function ConnectorsModal({
       ...editingConnector.config,
       email: configEmail.trim(),
       repo: configRepo.trim(),
+      channelName: configChannel.trim(),
+      handle: configHandle.trim(),
+      subreddit: configSubreddit.trim(),
     });
     setEditingConnector(null);
   };
@@ -1369,14 +1599,72 @@ export default function ConnectorsModal({
                 </div>
               )}
 
-              {editingConnector.id !== 'conn-gmail' && editingConnector.id !== 'conn-github' && (
-                <div className="p-3 rounded-xl bg-[#141310] border border-[#2b2923] text-xs text-[#a39e91] space-y-1">
-                  <p className="font-semibold text-[#dcd8ce]">Zero-Configuration Active</p>
-                  <p className="text-[11px]">
-                    This connector is pre-configured and immediately executes in the prompt context of this chat.
+              {editingConnector.id === 'conn-youtube' && (
+                <div className="space-y-1.5">
+                  <label className="text-xs text-[#dcd8ce]">YouTube Channel Name / ID:</label>
+                  <input
+                    type="text"
+                    value={configChannel}
+                    onChange={(e) => setConfigChannel(e.target.value)}
+                    placeholder="My Official Channel"
+                    className="w-full px-3 py-2 rounded-xl bg-[#141310] border border-[#2b2923] text-xs text-[#f2eee6] focus:outline-none focus:border-[#cc785c]"
+                  />
+                  <p className="text-[10px] text-[#8a8579]">
+                    Video staging, titles, SEO tags, and YouTube Studio links will be tied to this channel.
                   </p>
                 </div>
               )}
+
+              {(editingConnector.id === 'conn-instagram' ||
+                editingConnector.id === 'conn-twitter' ||
+                editingConnector.id === 'conn-tiktok' ||
+                editingConnector.id === 'conn-linkedin') && (
+                <div className="space-y-1.5">
+                  <label className="text-xs text-[#dcd8ce]">Account Username / Handle:</label>
+                  <input
+                    type="text"
+                    value={configHandle}
+                    onChange={(e) => setConfigHandle(e.target.value)}
+                    placeholder="@handle"
+                    className="w-full px-3 py-2 rounded-xl bg-[#141310] border border-[#2b2923] text-xs text-[#f2eee6] focus:outline-none focus:border-[#cc785c]"
+                  />
+                  <p className="text-[10px] text-[#8a8579]">
+                    Social post syndication and profile tags will be associated with this handle in this chat.
+                  </p>
+                </div>
+              )}
+
+              {editingConnector.id === 'conn-reddit' && (
+                <div className="space-y-1.5">
+                  <label className="text-xs text-[#dcd8ce]">Target Subreddit:</label>
+                  <input
+                    type="text"
+                    value={configSubreddit}
+                    onChange={(e) => setConfigSubreddit(e.target.value)}
+                    placeholder="r/artificial"
+                    className="w-full px-3 py-2 rounded-xl bg-[#141310] border border-[#2b2923] text-xs text-[#f2eee6] focus:outline-none focus:border-[#cc785c]"
+                  />
+                  <p className="text-[10px] text-[#8a8579]">
+                    Subreddit staging and markdown post links will default to this community.
+                  </p>
+                </div>
+              )}
+
+              {editingConnector.id !== 'conn-gmail' &&
+                editingConnector.id !== 'conn-github' &&
+                editingConnector.id !== 'conn-youtube' &&
+                editingConnector.id !== 'conn-instagram' &&
+                editingConnector.id !== 'conn-twitter' &&
+                editingConnector.id !== 'conn-tiktok' &&
+                editingConnector.id !== 'conn-linkedin' &&
+                editingConnector.id !== 'conn-reddit' && (
+                  <div className="p-3 rounded-xl bg-[#141310] border border-[#2b2923] text-xs text-[#a39e91] space-y-1">
+                    <p className="font-semibold text-[#dcd8ce]">Zero-Configuration Active</p>
+                    <p className="text-[11px]">
+                      This connector is pre-configured and immediately executes in the prompt context of this chat.
+                    </p>
+                  </div>
+                )}
 
               <div className="flex justify-end space-x-2 pt-2">
                 <button
@@ -1478,12 +1766,36 @@ function ConnectorCard({
               Repo: {connector.config.repo}
             </p>
           )}
+          {isEnabled && connector.config?.channelName && (
+            <p className="text-[10px] text-[#cc785c] truncate">
+              Channel: {connector.config.channelName}
+            </p>
+          )}
+          {isEnabled && connector.config?.handle && (
+            <p className="text-[10px] text-[#cc785c] truncate">
+              Handle: {connector.config.handle}
+            </p>
+          )}
+          {isEnabled && connector.config?.subreddit && (
+            <p className="text-[10px] text-[#cc785c] truncate">
+              Subreddit: {connector.config.subreddit}
+            </p>
+          )}
         </div>
       </div>
 
       {/* Right: Toggle Button & Config Gear */}
       <div className="flex items-center space-x-1.5 shrink-0">
-        {isEnabled && (connector.id === 'conn-gmail' || connector.id === 'conn-github') && (
+        {isEnabled && (
+          connector.id === 'conn-gmail' ||
+          connector.id === 'conn-github' ||
+          connector.id === 'conn-youtube' ||
+          connector.id === 'conn-instagram' ||
+          connector.id === 'conn-twitter' ||
+          connector.id === 'conn-tiktok' ||
+          connector.id === 'conn-linkedin' ||
+          connector.id === 'conn-reddit'
+        ) && (
           <button
             type="button"
             onClick={onOpenConfig}

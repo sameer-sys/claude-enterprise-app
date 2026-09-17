@@ -58,8 +58,8 @@ export default function Home() {
   const [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
 
-  // Two-Way Autonomous Proactive Mode
-  const [isProactiveMode, setIsProactiveMode] = useState<boolean>(true);
+  // Two-Way Autonomous Proactive Mode (Disabled by default)
+  const [isProactiveMode, setIsProactiveMode] = useState<boolean>(false);
 
   // Modals & Enterprise Features State
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
@@ -110,6 +110,17 @@ export default function Home() {
         if (Array.isArray(parsed) && parsed.length > 0) {
           const initialized = parsed.map((s: any) => ({
             ...s,
+            messages: Array.isArray(s.messages)
+              ? s.messages.filter((m: any) =>
+                  !m.isProactive &&
+                  !m.content?.includes('Quick update from the background') &&
+                  !m.content?.includes('Standing by. If you want me to stage') &&
+                  !m.content?.includes('Background check-in: Verified') &&
+                  !m.content?.includes('Audited active connectors') &&
+                  !m.content?.includes('just following up in the background') &&
+                  !m.content?.includes('Welcome back, Sameer!')
+                )
+              : [],
             connectors:
               Array.isArray(s.connectors) && s.connectors.length > 0
                 ? s.connectors
@@ -117,24 +128,6 @@ export default function Home() {
           }));
           setSessions(initialized);
           setActiveSessionId(initialized[0].id);
-
-          // Check if user was offline/away and trigger two-way proactive agent check-in
-          const lastActive = parsed[0].lastVisitedAt || parsed[0].updatedAt;
-          const awayMinutes = (Date.now() - lastActive) / (1000 * 60);
-
-          if (awayMinutes > 10 && parsed[0].messages.length > 1) {
-            const proactiveMsg: Message = {
-              id: `msg_proactive_${Date.now()}`,
-              role: 'assistant',
-              content: `👋 **Welcome back, Sameer!**\n\nWhile you were away, I reviewed our previous context. If you'd like to continue, let me know what we should tackle next!`,
-              timestamp: Date.now(),
-              modelId: parsed[0].activeModel,
-              isProactive: true,
-            };
-            parsed[0].messages.push(proactiveMsg);
-            parsed[0].lastVisitedAt = Date.now();
-            setSessions([...parsed]);
-          }
         }
       }
       const savedProjects = localStorage.getItem('claude_projects');
@@ -238,80 +231,12 @@ export default function Home() {
     localStorage.setItem('claude_openrouter_key', key);
   };
 
-  // Request Web Notifications permission for continuous background alerts
+  // Notification permission for user-requested background alerts
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().catch(() => {});
     }
   }, []);
-
-  // Two-Way Autonomous Background Proactive Agent (Messages user in the background like a human)
-  const lastProactiveTimeRef = useRef<number>(Date.now());
-  const proactivePoolIndexRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (!isProactiveMode) return;
-
-    const interval = setInterval(() => {
-      if (isStreaming) return;
-
-      const now = Date.now();
-      const currentSession = sessions.find((s) => s.id === activeSessionId);
-      if (!currentSession || currentSession.messages.length < 1) return;
-
-      const lastMsg = currentSession.messages[currentSession.messages.length - 1];
-      const timeSinceLastMsg = now - (lastMsg.timestamp || 0);
-      const timeSinceLastProactive = now - lastProactiveTimeRef.current;
-
-      // When user is idle for >= 30 seconds and >= 40 seconds since last proactive check-in
-      if (timeSinceLastMsg >= 30000 && timeSinceLastProactive >= 40000) {
-        lastProactiveTimeRef.current = now;
-
-        const PROACTIVE_HUMAN_MESSAGES = [
-          `Hey Sameer, just following up in the background — all systems and connector pipelines (Gmail, YouTube Studio, Social Syndication) are verified with zero blockers. Let me know what we should execute next!`,
-          `Quick update from the background: I'm keeping your session context active and listening for your next prompt. Want me to audit anything or draft new code?`,
-          `Hey! Standing by. If you want me to stage another channel upload, schedule posts, or run any research, I'm ready whenever you are.`,
-          `Background check-in: Verified that all recent dispatches completed cleanly. Standing by for your next objective!`,
-          `Audited active connectors — YouTube, Instagram, Facebook, and Gmail are all green. Let me know if you want to explore the next phase.`,
-        ];
-
-        const idx = proactivePoolIndexRef.current % PROACTIVE_HUMAN_MESSAGES.length;
-        proactivePoolIndexRef.current += 1;
-        const proactiveText = PROACTIVE_HUMAN_MESSAGES[idx];
-
-        const proactiveMsg: Message = {
-          id: `msg_proactive_${now}`,
-          role: 'assistant',
-          content: proactiveText,
-          timestamp: now,
-          modelId: currentSession.activeModel,
-          isProactive: true,
-        };
-
-        setSessions((prev) =>
-          prev.map((s) =>
-            s.id === currentSession.id
-              ? {
-                  ...s,
-                  messages: [...s.messages, proactiveMsg],
-                  updatedAt: now,
-                }
-              : s
-          )
-        );
-
-        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-          try {
-            new Notification('Claude 3.7 Enterprise', {
-              body: proactiveText,
-            });
-          } catch (e) {}
-        }
-      }
-    }, 4000);
-
-    return () => clearInterval(interval);
-  }, [isProactiveMode, isStreaming, activeSessionId, sessions]);
 
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) || sessions[0] || DEFAULT_SESSION;

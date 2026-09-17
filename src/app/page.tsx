@@ -549,8 +549,8 @@ export default function Home() {
 
       // Continuous 2-Way Notification: Alert user if they stepped away or minimized app
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
-        new Notification('Claude Enterprise', {
-          body: 'Claude completed generating your response and artifacts.',
+        new Notification('Sameer AI Workspace', {
+          body: 'Your response and artifacts are ready.',
           icon: '/favicon.ico',
         });
       }

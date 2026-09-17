@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'The Boss AI — Universal Cloud Workspace',
-  description: 'Fast, intelligent AI workspace with dual-engine model routing and Claude-style artifacts.',
+  title: 'Sameer AI Workspace',
+  description: 'Autonomous AI Workspace with PM Manager Hierarchy, Real PC Cowork, and Multi-Engine Intelligence.',
   manifest: '/manifest.json',
   icons: {
     icon: '/favicon.ico',

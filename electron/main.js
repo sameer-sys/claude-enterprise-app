@@ -15,7 +15,7 @@ function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: "Claude Enterprise",
+    title: "Sameer AI Workspace",
     backgroundColor: "#1c1b18",
     frame: true,
     show: false,
@@ -59,9 +59,9 @@ function createTray() {
   try {
     const trayIcon = nativeImage.createFromPath(path.join(__dirname, "icon.png")).resize({ width: 16, height: 16 });
     tray = new Tray(trayIcon);
-    tray.setToolTip("Claude Enterprise");
+    tray.setToolTip("Sameer AI Workspace");
     const menu = Menu.buildFromTemplate([
-      { label: "Open Claude Enterprise", click: () => { mainWindow?.show(); mainWindow?.focus(); } },
+      { label: "Open Sameer AI Workspace", click: () => { mainWindow?.show(); mainWindow?.focus(); } },
       { label: "New Chat", click: () => { mainWindow?.show(); mainWindow?.webContents.executeJavaScript("window.__newChat && window.__newChat()"); } },
       { type: "separator" },
       { label: "Quit", click: () => { tray = null; app.quit(); } },
@@ -134,7 +134,7 @@ ipcMain.handle("show-notification", (event, { title, body }) => {
 // App menu
 function buildMenu() {
   const template = [
-    { label: "Claude Enterprise", submenu: [
+    { label: "Sameer AI Workspace", submenu: [
       { label: "About", role: "about" },
       { type: "separator" },
       { label: "Check for Updates...", click: () => shell.openExternal(APP_URL) },
@@ -196,4 +196,4 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin" && !tray) app.quit();
 });
 
-app.setName("Claude Enterprise");
+app.setName("Sameer AI Workspace");

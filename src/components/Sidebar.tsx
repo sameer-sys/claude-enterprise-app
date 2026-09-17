@@ -131,13 +131,13 @@ export default function Sidebar({
             </div>
             <div>
               <div className="flex items-center space-x-1.5">
-                <h1 className="font-semibold text-sm text-[#f2eee6] tracking-tight">Claude</h1>
+                <h1 className="font-semibold text-sm text-[#f2eee6] tracking-tight">Sameer AI</h1>
                 <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-gradient-to-r from-amber-500/20 to-[#cc785c]/20 text-[#cc785c] border border-[#cc785c]/40 font-mono flex items-center gap-0.5">
                   <Crown className="w-2.5 h-2.5" />
-                  <span>Pro Max Unlimited</span>
+                  <span>Workspace</span>
                 </span>
               </div>
-              <p className="text-[11px] text-[#9c978b] truncate max-w-[140px]">Sameer's Workspace • $0 Tier</p>
+              <p className="text-[11px] text-[#9c978b] truncate max-w-[160px]">Autonomous PM &amp; Cloud Engine</p>
             </div>
           </div>
         </div>

@@ -16,11 +16,11 @@ export default function DownloadPage() {
     const origin = getAppOrigin();
     // Full Electron-based desktop installer script
     const script = `@echo off
-title Claude Enterprise — Desktop App Launcher
+title Sameer AI Workspace — Desktop App Launcher
 echo.
 echo  =====================================================
-echo    Claude Enterprise Desktop App
-echo    Powered by Electron (like Slack, VS Code, Discord)
+echo    Sameer AI Workspace Desktop App
+echo    Autonomous AI Workspace & PM Manager Engine
 echo  =====================================================
 echo.
 
@@ -32,38 +32,38 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 :: Check if the app folder is present
-if not exist "%USERPROFILE%\\claude-enterprise\\package.json" (
+if not exist "%USERPROFILE%\\sameer-ai-workspace\\package.json" (
   echo  [!] App not found locally. Opening web app in desktop mode...
   goto chromefallback
 )
 
-cd /d "%USERPROFILE%\\claude-enterprise"
-echo  Starting Claude Enterprise desktop app...
+cd /d "%USERPROFILE%\\sameer-ai-workspace"
+echo  Starting Sameer AI Workspace desktop app...
 start "" npm run electron:prod
 goto done
 
 :chromefallback
 where chrome >nul 2>&1
 if %ERRORLEVEL% == 0 (
-  start "" chrome --app=${origin} --name="Claude Enterprise" --window-size=1400,900
+  start "" chrome --app=${origin} --name="Sameer AI Workspace" --window-size=1400,900
   goto done
 )
 where msedge >nul 2>&1
 if %ERRORLEVEL% == 0 (
-  start "" msedge --app=${origin} --name="Claude Enterprise" --window-size=1400,900
+  start "" msedge --app=${origin} --name="Sameer AI Workspace" --window-size=1400,900
   goto done
 )
 start ${origin}
 
 :done
-echo  Done! Claude Enterprise launched.
+echo  Done! Sameer AI Workspace launched.
 timeout /t 2 >nul
 `;
     const blob = new Blob([script], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Launch-Claude-Enterprise.bat';
+    a.download = 'Launch-Sameer-AI-Workspace.bat';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -72,13 +72,26 @@ timeout /t 2 >nul
 
   const handleDownloadApk = () => {
     const origin = getAppOrigin();
-    // PWA install shortcut for Android
-    const payload = `[InternetShortcut]\nURL=${origin}\nIconIndex=0\n`;
-    const blob = new Blob([payload], { type: 'application/octet-stream' });
+    const script = `@echo off
+title Sameer AI Workspace WebApp Android / iOS Guide
+echo.
+echo  =====================================================
+echo    Sameer AI Workspace — Mobile Install Guide
+echo  =====================================================
+echo.
+echo  Open your phone browser to:
+echo  ${origin}
+echo.
+echo  Chrome: Tap 3 dots -> 'Install app' or 'Add to Home screen'
+echo  Safari: Tap Share -> 'Add to Home Screen'
+echo.
+pause
+`;
+    const blob = new Blob([script], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Claude-Mobile.url';
+    a.download = 'Sameer-AI-Workspace-Mobile-Guide.txt';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -86,18 +99,21 @@ timeout /t 2 >nul
 
 
   return (
-    <div className="min-h-screen bg-[#1c1b18] text-[#ece9e2] flex flex-col">
-      {/* Header */}
-      <header className="h-16 border-b border-[#2b2a24] bg-[#1c1b18]/90 backdrop-blur-md flex items-center justify-between px-6">
-        <Link href="/" className="flex items-center space-x-2 text-xs text-[#9c978b] hover:text-[#ece9e2]">
+    <div className="min-h-screen bg-[#1c1b18] text-[#ede8df] flex flex-col selection:bg-[#cc785c]/30">
+      {/* Top Bar */}
+      <header className="h-14 border-b border-[#2b2a24] bg-[#1c1b18]/90 backdrop-blur-md flex items-center justify-between px-6 z-10 shrink-0">
+        <Link
+          href="/"
+          className="flex items-center space-x-2 text-xs font-medium text-[#9c978b] hover:text-[#ece9e2] transition-colors"
+        >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Claude</span>
+          <span>Back to Workspace</span>
         </Link>
         <div className="flex items-center space-x-2">
           <div className="w-7 h-7 rounded-lg bg-[#cc785c] flex items-center justify-center">
             <Sparkles className="w-4 h-4 text-black fill-current" />
           </div>
-          <span className="font-semibold text-sm text-[#f2eee6]">Claude Enterprise</span>
+          <span className="font-semibold text-sm text-[#f2eee6]">Sameer AI Workspace</span>
         </div>
         <div className="w-20" />
       </header>
@@ -109,10 +125,10 @@ timeout /t 2 >nul
             Official Apps
           </span>
           <h1 className="text-4xl md:text-5xl font-serif text-[#f2eee6] tracking-tight">
-            Download Claude for Desktop & Mobile
+            Download Sameer AI Workspace
           </h1>
           <p className="text-sm text-[#9c978b] max-w-lg mx-auto leading-relaxed">
-            Experience Claude everywhere. Fast, seamless cross-device synchronization with instant hybrid reasoning.
+            Experience your autonomous workspace everywhere. Fast, seamless cross-device synchronization with instant hybrid reasoning.
           </p>
         </div>
 
@@ -125,9 +141,9 @@ timeout /t 2 >nul
                 <Monitor className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-[#f2eee6]">Claude for Windows</h3>
+                <h3 className="text-lg font-semibold text-[#f2eee6]">Sameer AI Workspace for Windows</h3>
                 <p className="text-xs text-[#9c978b] mt-1 leading-relaxed">
-                  Dedicated app window — no browser tabs, no address bar. Runs exactly like Claude's official desktop app with its own taskbar icon.
+                  Dedicated app window — no browser tabs, no address bar. Runs exactly like a native desktop app with its own taskbar icon.
                 </p>
               </div>
               <div className="space-y-1.5 text-xs text-[#baa898]">

@@ -85,10 +85,19 @@ export default function Home() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Service Worker Registration for offline PWA
+  // Service Worker Registration & Cache Invalidation for instant live updates
   useEffect(() => {
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      caches.keys().then((keys) => {
+        keys.forEach((key) => {
+          if (key !== 'claude-live-v2') caches.delete(key).catch(() => {});
+        });
+      }).catch(() => {});
+    }
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker.register('/sw.js').then((reg) => {
+        reg.update().catch(() => {});
+      }).catch(() => {});
     }
   }, []);
 

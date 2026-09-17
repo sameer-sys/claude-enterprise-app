@@ -137,7 +137,6 @@ export default function Sidebar({
                   <span>Workspace</span>
                 </span>
               </div>
-              <p className="text-[11px] text-[#9c978b] truncate max-w-[160px]">Autonomous PM &amp; Cloud Engine</p>
             </div>
           </div>
         </div>
@@ -234,11 +233,19 @@ export default function Sidebar({
 
 
 
-          {/* Recents Section */}
-
+          {/* Projects Section */}
           <div className="space-y-0.5">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wider font-semibold text-[#8a8579]">
-              Recent Chats
+            <div className="px-2 py-1 text-[11px] font-semibold text-[#8a8579] flex items-center justify-between">
+              <span>Projects</span>
+              {onOpenNewProject && (
+                <button
+                  onClick={onOpenNewProject}
+                  className="p-1 rounded hover:bg-[#282620] text-[#8a8579] hover:text-[#ece9e2] transition-colors"
+                  title="New project"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              )}
             </div>
             {regularSessions.length === 0 && starredSessions.length === 0 ? (
               <div className="text-center py-6 px-4 text-[#7d786e] text-xs">
@@ -305,23 +312,8 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Connectors & Navigation Quick Bar */}
+        {/* Navigation Quick Bar */}
         <div className="p-2 border-t border-[#282621] space-y-1 bg-[#161512]">
-          {onOpenSquad && (
-            <button
-              onClick={onOpenSquad}
-              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/10 to-[#cc785c]/10 hover:from-amber-500/20 hover:to-[#cc785c]/20 border border-[#cc785c]/30 text-xs text-[#f2eee6] transition-all group"
-            >
-              <div className="flex items-center space-x-2">
-                <Crown className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
-                <span className="font-medium text-xs">Executive Squad</span>
-              </div>
-              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
-                LIVE PMs
-              </span>
-            </button>
-          )}
-
           {onOpenFeatures && (
             <button
               onClick={onOpenFeatures}
@@ -351,34 +343,6 @@ export default function Sidebar({
               </span>
             </button>
           )}
-
-          <a
-            href="/cloud"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all group"
-          >
-            <div className="flex items-center space-x-2">
-              <Globe className="w-3.5 h-3.5 text-[#cc785c] group-hover:scale-110 transition-transform" />
-              <span className="font-medium text-[#ece9e2]">OpenWork Cloud</span>
-            </div>
-            <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#cc785c]/15 text-[#cc785c] font-mono border border-[#cc785c]/30 flex items-center gap-0.5">
-              Website ↗
-            </span>
-          </a>
-
-          <button
-            onClick={onOpenConnectors}
-            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all group"
-          >
-            <div className="flex items-center space-x-2">
-              <Cpu className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform" />
-              <span>Connectors Directory</span>
-            </div>
-            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono font-medium border border-emerald-500/20">
-              {activeConnectorsCount} active
-            </span>
-          </button>
 
           <button
             onClick={onOpenSettings}

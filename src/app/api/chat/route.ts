@@ -207,6 +207,10 @@ Regarding: **"${p.slice(0, 120)}"**
 How would you like to proceed?`;
 }
 
+export async function GET(req: NextRequest) {
+  return NextResponse.redirect(new URL('/', req.url));
+}
+
 export async function POST(req: NextRequest) {
   try {
     const {

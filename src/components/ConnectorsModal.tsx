@@ -193,6 +193,7 @@ interface ConnectorsModalProps {
   onToggleConnector: (id: string) => void;
   onUpdateConnectorConfig?: (id: string, config: ConnectorConfig) => void;
   sessionTitle?: string;
+  onResetConnectors?: () => void;
 }
 
 export default function ConnectorsModal({
@@ -202,6 +203,7 @@ export default function ConnectorsModal({
   onToggleConnector,
   onUpdateConnectorConfig,
   sessionTitle,
+  onResetConnectors,
 }: ConnectorsModalProps) {
   const [activeTab, setActiveTab] = useState<'installed' | 'directory' | 'custom_mcp'>('installed');
   const [searchQuery, setSearchQuery] = useState('');
@@ -310,12 +312,28 @@ export default function ConnectorsModal({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[#2c2a23] text-[#9c978b] hover:text-[#ece9e2] transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onResetConnectors && (
+              <button
+                type="button"
+                onClick={() => {
+                  onResetConnectors();
+                  setEditingConnector(null);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-[#2b2923] hover:bg-[#38352d] border border-[#3f3c32] hover:border-[#cc785c]/60 text-xs text-[#dcd8ce] hover:text-[#f2eee6] flex items-center gap-1.5 transition-all shadow-sm"
+                title="Reset all connectors to fresh default for this chat session"
+              >
+                <RefreshCw className="w-3 h-3 text-[#cc785c]" />
+                <span className="hidden sm:inline">Fresh Reset for Chat</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-[#2c2a23] text-[#9c978b] hover:text-[#ece9e2] transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Claude Pro Max Unlimited Guarantee Banner */}

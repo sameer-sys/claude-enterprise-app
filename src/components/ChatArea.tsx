@@ -545,45 +545,6 @@ export default function ChatArea({
         </div>
       )}
 
-      {/* Self-Customization Quick Buttons */}
-      <div className="flex items-center gap-1.5 pb-2 mb-1 overflow-x-auto no-scrollbar">
-        {customButtons.map((btn) => (
-          <button
-            key={btn.id}
-            type="button"
-            onClick={() => {
-              setInput(btn.prompt);
-              textareaRef.current?.focus();
-            }}
-            className="shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-lg bg-[#2b2923] hover:bg-[#38352d] text-[#ece9e2] border border-[#3f3c32] hover:border-[#cc785c]/60 transition-all flex items-center gap-1.5 shadow-sm group/btn"
-          >
-            <span>{btn.label}</span>
-            {onDeleteCustomButton && (
-              <span
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteCustomButton(btn.id);
-                }}
-                className="text-[#8a8579] hover:text-rose-400 text-xs px-0.5"
-                title="Remove custom button"
-              >
-                ×
-              </span>
-            )}
-          </button>
-        ))}
-        {onAddCustomButton && (
-          <button
-            type="button"
-            onClick={() => setIsAddingButton(true)}
-            className="shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-lg bg-[#24221d] hover:bg-[#2c2a23] text-[#8a8579] hover:text-[#cc785c] border border-dashed border-[#444136] hover:border-[#cc785c]/60 transition-all flex items-center gap-1"
-            title="Create a custom button across Web, Android, and Desktop"
-          >
-            <PlusCircle className="w-3 h-3 text-[#cc785c]" />
-            <span>+ Custom Action</span>
-          </button>
-        )}
-      </div>
 
       {/* Textarea */}
       <textarea
@@ -722,93 +683,6 @@ export default function ChatArea({
     </form>
   );
 
-  const renderDownsideConnectorsBar = () => {
-    if (!activeConnectors || activeConnectors.length === 0) return null;
-    const enabledCount = activeConnectors.filter((c) => c.enabled).length;
-
-    return (
-      <div className="w-full max-w-3xl mx-auto pt-2.5 px-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 select-none animate-in fade-in duration-150">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <div className="flex items-center gap-1 text-[11px] font-semibold text-[#8a8579] mr-1">
-            <Cpu className="w-3.5 h-3.5 text-[#cc785c]" />
-            <span>Active Connectors ({enabledCount}):</span>
-          </div>
-
-          {activeConnectors.map((conn) => {
-            const isConnEnabled = conn.enabled;
-            const detail =
-              conn.id === 'conn-gmail'
-                ? conn.config?.email || 'Gmail'
-                : conn.id === 'conn-github'
-                ? conn.config?.repo?.split('/')[1] || 'GitHub'
-                : conn.name;
-
-            return (
-              <div
-                key={conn.id}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all border ${
-                  isConnEnabled
-                    ? 'bg-[#25231e] text-[#f2eee6] border-emerald-500/40 shadow-sm'
-                    : 'bg-[#181714] text-[#6b675d] border-[#292721] hover:border-[#38352d]'
-                }`}
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    isConnEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-[#48453d]'
-                  }`}
-                />
-                <span className="truncate max-w-[130px] font-mono text-[10.5px]">
-                  {detail}
-                </span>
-
-                {/* Quick Toggle ON/OFF */}
-                <button
-                  type="button"
-                  onClick={() => onToggleConnector?.(conn.id)}
-                  className={`text-[9px] font-bold px-1.5 py-0.2 rounded font-mono transition-colors ${
-                    isConnEnabled
-                      ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
-                      : 'bg-[#282620] text-[#8a8579] hover:text-[#ece9e2]'
-                  }`}
-                  title={isConnEnabled ? `Turn off ${conn.name} for this chat` : `Turn on ${conn.name} for this chat`}
-                >
-                  {isConnEnabled ? 'ON' : 'OFF'}
-                </button>
-
-                {/* Per-Chat Quick Edit Button for Gmail & GitHub */}
-                {(conn.id === 'conn-gmail' || conn.id === 'conn-github') && isConnEnabled && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingDownsideConn(conn);
-                      setDownsideEditValue(
-                        conn.id === 'conn-gmail'
-                          ? conn.config?.email || 'sameer.workspace@gmail.com'
-                          : conn.config?.repo || 'sameer-sys/claude-enterprise-app'
-                      );
-                    }}
-                    className="p-0.5 rounded hover:bg-[#38352d] text-[#8a8579] hover:text-[#cc785c] transition-colors text-[11px]"
-                    title={`Edit ${conn.id === 'conn-gmail' ? 'email address' : 'GitHub repo'} for this chat session`}
-                  >
-                    ✎
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <button
-          type="button"
-          onClick={onOpenConnectors}
-          className="text-[11px] font-semibold text-[#cc785c] hover:text-[#db8a6e] transition-colors flex items-center gap-1 shrink-0 self-end sm:self-auto"
-          title="Open complete Connectors Directory with MCP tools"
-        >
-          <span>+ Connect More</span>
-        </button>
-      </div>
-    );
-  };
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#1c1b18] relative overflow-hidden">
@@ -833,89 +707,19 @@ export default function ChatArea({
         </div>
 
         <div className="flex items-center space-x-2">
-          {/* 1-Click Key Setup Alert if not configured */}
-          {!hasGeminiKey && onOpenSettings && (
-            <button
-              onClick={onOpenSettings}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-medium transition-all animate-pulse"
-              title="Add free Google Gemini API Key for 1,500 daily requests (zero credit card)"
-            >
-              <Key className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Add Free Key</span>
-            </button>
-          )}
-
-          {/* Enterprise Pro Max Status Badge */}
-          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-500/10 to-[#cc785c]/10 border border-[#cc785c]/30 text-xs font-semibold text-[#f2eee6] select-none">
-            <Crown className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Pro Max Unlimited</span>
-            <span className="sm:hidden text-[10px] font-mono text-[#cc785c]">PRO</span>
-          </div>
-
-          {/* Autonomous Two-Way Proactive Mode Toggle */}
+          {/* Simple Clean Connectors Button (Matches User Screenshot) */}
           <button
-            onClick={onToggleProactiveMode}
-            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium font-mono transition-all ${
-              isProactiveMode
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                : 'bg-[#26241f] border-[#38352d] text-[#8a8579] hover:text-[#ece9e2]'
-            }`}
-            title="Two-Way Chat: AI proactively checks in and prepares updates while you are away/offline"
+            onClick={onOpenConnectors}
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] hover:border-[#cc785c]/60 text-xs font-semibold text-[#f2eee6] transition-all shadow-sm group active:scale-95"
+            title="Configure Connectors for this chat"
           >
-            <Radio className={`w-3 h-3 ${isProactiveMode ? 'text-emerald-400 animate-pulse' : ''}`} />
-            <span className="hidden sm:inline">Two-Way: {isProactiveMode ? 'On' : 'Off'}</span>
-          </button>
-
-          {/* EXPORT CHAT BUTTON */}
-          <button
-            onClick={handleExportChat}
-            disabled={messages.length === 0}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
-              messages.length > 0
-                ? 'bg-[#26241f] hover:bg-[#302e27] border-[#38352d] text-[#dcd8ce] hover:text-[#ece9e2]'
-                : 'bg-[#21201b] border-[#2e2c24] text-[#6d685e] cursor-not-allowed'
-            }`}
-            title="Export conversation as Markdown (.md)"
-          >
-            <FileDown className="w-3.5 h-3.5 text-[#cc785c]" />
-            <span className="hidden sm:inline">Export</span>
-          </button>
-
-          {/* PRO MAX SUPERPOWERS & FEATURES BUTTON */}
-          {onOpenFeatures && (
-            <button
-              onClick={onOpenFeatures}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-[#cc785c]/25 to-rose-500/20 hover:from-amber-500/30 hover:to-rose-500/30 border border-[#cc785c]/50 text-xs font-bold text-[#f4efe6] transition-all hover:scale-[1.03] active:scale-95 shadow-sm group"
-              title="Explore all 12 App Superpowers & Unbelievable Features"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform" />
-              <span>Features</span>
-              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#cc785c]/30 text-[#cc785c] border border-[#cc785c]/40 ml-0.5">
-                12⚡
+            <Cpu className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform" />
+            <span>Connectors</span>
+            {activeConnectorsCount > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-400 font-mono border border-emerald-500/20">
+                {activeConnectorsCount}
               </span>
-            </button>
-          )}
-
-          {/* OPENWORK CLOUD WEBSITE */}
-          <a
-            href="/cloud"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#cc785c]/20 to-[#cc785c]/10 hover:from-[#cc785c]/30 hover:to-[#cc785c]/20 border border-[#cc785c]/30 text-xs font-semibold text-[#f2eee6] transition-all hover:text-white group"
-            title="Open the official OpenWork Cloud Website (Apps & Showcase)"
-          >
-            <Globe className="w-3.5 h-3.5 text-[#cc785c] group-hover:scale-110 transition-transform" />
-            <span className="hidden sm:inline">OpenWork Cloud ↗</span>
-          </a>
-
-          {/* DOWNLOAD BUTTON */}
-          <button
-            onClick={onOpenDownload}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] text-xs font-medium text-[#dcd8ce] transition-all hover:text-[#ece9e2]"
-            title="Download Desktop & Android Apps"
-          >
-            <Download className="w-3.5 h-3.5 text-[#cc785c]" />
-            <span>Download</span>
+            )}
           </button>
         </div>
       </header>
@@ -1480,11 +1284,10 @@ export default function ChatArea({
         )}
       </div>
 
-      {/* Floating Prompt Box + Downside Connectors Bar at Bottom */}
+      {/* Floating Prompt Box at Bottom */}
       {hasMessages && (
         <div className="p-4 md:p-6 bg-gradient-to-t from-[#1c1b18] via-[#1c1b18] to-transparent shrink-0">
           {renderPromptBox(false)}
-          {renderDownsideConnectorsBar()}
         </div>
       )}
 

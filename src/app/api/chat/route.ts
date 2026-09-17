@@ -497,50 +497,56 @@ export async function POST(req: NextRequest) {
     // OMNIROUTER STAGE 0: Direct OmniRoute Model Dispatch (Local)
     // ========================================================
     if (isOmniRouteModel) {
-      const OMNIROUTE_TARGET_MODELS: Record<string, string> = {
-        'the-boss-chat': 'openrouter/nex-agi/nex-n2.5-pro:free',
-        'the-boss-build': 'opencode/big-pickle',
-        'omniroute-auto': 'auto/best-reasoning',
-      };
-
-      const targetModel = OMNIROUTE_TARGET_MODELS[modelId] || 'auto/best-reasoning';
+      const isCloudEnv = Boolean(process.env.VERCEL || process.env.AWS_REGION);
       const targetOmniUrl =
         omniRouteUrl || process.env.OMNIROUTE_URL || 'http://127.0.0.1:20128/v1/chat/completions';
-      const omniKey = process.env.OMNIROUTE_API_KEY || 'sk-a982e8cabcf568c6-8a2c23-71657989';
+      const isLocalhost = targetOmniUrl.includes('127.0.0.1') || targetOmniUrl.includes('localhost');
 
-      try {
-        const omniResp = await fetch(targetOmniUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${omniKey}`,
-          },
-          body: JSON.stringify({
-            model: targetModel,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              ...messages.map((m: any) => ({
-                role: m.role === 'user' ? 'user' : 'assistant',
-                content: m.content || '',
-              })),
-            ],
-            stream: true,
-          }),
-        });
+      if (!isCloudEnv || !isLocalhost) {
+        const OMNIROUTE_TARGET_MODELS: Record<string, string> = {
+          'the-boss-chat': 'openrouter/nex-agi/nex-n2.5-pro:free',
+          'the-boss-build': 'opencode/big-pickle',
+          'omniroute-auto': 'auto/best-reasoning',
+        };
 
-        if (omniResp.ok) {
-          return new Response(omniResp.body, {
+        const targetModel = OMNIROUTE_TARGET_MODELS[modelId] || 'auto/best-reasoning';
+        const omniKey = process.env.OMNIROUTE_API_KEY || 'sk-a982e8cabcf568c6-8a2c23-71657989';
+
+        try {
+          const omniResp = await fetch(targetOmniUrl, {
+            method: 'POST',
             headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              Connection: 'keep-alive',
-              'X-Claude-Skill': detectedSkill,
-              'X-Claude-Router': `omniroute-${modelId}`,
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${omniKey}`,
             },
+            body: JSON.stringify({
+              model: targetModel,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                ...messages.map((m: any) => ({
+                  role: m.role === 'user' ? 'user' : 'assistant',
+                  content: m.content || '',
+                })),
+              ],
+              stream: true,
+            }),
+            signal: AbortSignal.timeout(1200),
           });
+
+          if (omniResp.ok) {
+            return new Response(omniResp.body, {
+              headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                Connection: 'keep-alive',
+                'X-Claude-Skill': detectedSkill,
+                'X-Claude-Router': `omniroute-${modelId}`,
+              },
+            });
+          }
+        } catch (omniErr) {
+          // Fall through to cloud fallback if local OmniRoute is unreachable (e.g. running on Vercel)
         }
-      } catch (omniErr) {
-        // Fall through to cloud fallback if local OmniRoute is unreachable (e.g. running on Vercel)
       }
     }
 
@@ -597,7 +603,8 @@ export async function POST(req: NextRequest) {
 
         try {
           const listResp = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models?key=${activeGeminiKey}`
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${activeGeminiKey}`,
+            { signal: AbortSignal.timeout(1500) }
           );
           if (listResp.ok) {
             const listData = await listResp.json();
@@ -615,7 +622,7 @@ export async function POST(req: NextRequest) {
 
         let lastGeminiError = '';
 
-        for (const candidate of targetModels) {
+        for (const candidate of targetModels.slice(0, 2)) {
           try {
             const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${candidate}:streamGenerateContent?alt=sse&key=${activeGeminiKey}`;
             const geminiResponse = await fetch(geminiUrl, {
@@ -625,6 +632,7 @@ export async function POST(req: NextRequest) {
                 system_instruction: { parts: [{ text: systemPrompt }] },
                 contents,
               }),
+              signal: AbortSignal.timeout(3500),
             });
 
             if (geminiResponse.ok) {
@@ -703,41 +711,47 @@ export async function POST(req: NextRequest) {
     // ========================================================
     // OMNIROUTER STAGE 2: Local / Custom OmniRoute Server
     // ========================================================
+    const isCloudEnv = Boolean(process.env.VERCEL || process.env.AWS_REGION);
     const targetOmniUrl =
       omniRouteUrl || process.env.OMNIROUTE_URL || 'http://127.0.0.1:20128/v1/chat/completions';
-    try {
-      const omniResp = await fetch(targetOmniUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer sk-omniroute-active',
-        },
-        body: JSON.stringify({
-          model: 'auto/claude-sonnet',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages.map((m: any) => ({
-              role: m.role === 'user' ? 'user' : 'assistant',
-              content: m.content,
-            })),
-          ],
-          stream: true,
-        }),
-      });
+    const isLocalhost = targetOmniUrl.includes('127.0.0.1') || targetOmniUrl.includes('localhost');
 
-      if (omniResp.ok) {
-        return new Response(omniResp.body, {
+    if (!isCloudEnv || !isLocalhost) {
+      try {
+        const omniResp = await fetch(targetOmniUrl, {
+          method: 'POST',
           headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-            'X-Claude-Skill': detectedSkill,
-            'X-Claude-Router': 'omniroute-local',
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer sk-omniroute-active',
           },
+          body: JSON.stringify({
+            model: 'auto/claude-sonnet',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages.map((m: any) => ({
+                role: m.role === 'user' ? 'user' : 'assistant',
+                content: m.content,
+              })),
+            ],
+            stream: true,
+          }),
+          signal: AbortSignal.timeout(1200),
         });
+
+        if (omniResp.ok) {
+          return new Response(omniResp.body, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Claude-Skill': detectedSkill,
+              'X-Claude-Router': 'omniroute-local',
+            },
+          });
+        }
+      } catch (e) {
+        // Fallback to next provider in OmniRouter chain
       }
-    } catch (e) {
-      // Fallback to next provider in OmniRouter chain
     }
 
     // ========================================================

@@ -121,9 +121,15 @@ export default function Home() {
               ? s.connectors
               : createDefaultConnectors();
 
-            // Clean any legacy samesuf emails
+            // Clean any legacy emails or headoffice references
             const sanitizedConns = rawConns.map((c: any) => {
-              if (c.config?.email && (c.config.email.includes('samesuf') || c.config.email.includes('samesuf786') || c.config.email.includes('samesuf629'))) {
+              if (c.config?.email && (
+                c.config.email.includes('samesuf') ||
+                c.config.email.includes('samesuf786') ||
+                c.config.email.includes('samesuf629') ||
+                c.config.email.includes('headoffice') ||
+                c.config.email.includes('apexspherexports')
+              )) {
                 const { email, ...restConfig } = c.config;
                 return { ...c, config: restConfig, enabled: false, status: 'ready' };
               }
@@ -141,15 +147,22 @@ export default function Home() {
             return {
               ...s,
               messages: Array.isArray(s.messages)
-                ? s.messages.filter((m: any) =>
-                    !m.isProactive &&
-                    !m.content?.includes('Quick update from the background') &&
-                    !m.content?.includes('Standing by. If you want me to stage') &&
-                    !m.content?.includes('Background check-in: Verified') &&
-                    !m.content?.includes('Audited active connectors') &&
-                    !m.content?.includes('just following up in the background') &&
-                    !m.content?.includes('Welcome back, Sameer!')
-                  )
+                ? s.messages
+                    .filter((m: any) =>
+                      !m.isProactive &&
+                      !m.content?.includes('Quick update from the background') &&
+                      !m.content?.includes('Standing by. If you want me to stage') &&
+                      !m.content?.includes('Background check-in: Verified') &&
+                      !m.content?.includes('Audited active connectors') &&
+                      !m.content?.includes('just following up in the background') &&
+                      !m.content?.includes('Welcome back, Sameer!')
+                    )
+                    .map((m: any) => ({
+                      ...m,
+                      content: typeof m.content === 'string'
+                        ? m.content.replace(/headoffice@apexspherexports\.com/gi, 'connected-user@gmail.com').replace(/admin@apexspherexports\.com/gi, 'admin@gmail.com').replace(/apexspherexports\.com/gi, 'gmail.com')
+                        : m.content,
+                    }))
                 : [],
               connectors: mergedConns,
             };

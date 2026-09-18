@@ -32,7 +32,7 @@ const DEFAULT_SUB_AGENTS: ManagedSubAgent[] = [
     id: 'pm1',
     name: 'Project Manager 1',
     alias: 'PM1',
-    email: 'samesuf629@gmail.com',
+    email: 'pm1.analyst@workspace.internal',
     role: 'Task Breakdown & Spec Analyst',
     status: 'working',
     currentTask: 'Decomposing site specifications into 30-minute developer tasks',
@@ -40,7 +40,7 @@ const DEFAULT_SUB_AGENTS: ManagedSubAgent[] = [
     modelId: 'claude-3-7-sonnet',
     assignedBy: 'Executive Manager',
     outputLog: [
-      '[PM1: 02:10] Connected to samesuf629@gmail.com',
+      '[PM1: 02:10] Connected to task breakdown engine',
       '[PM1: 02:12] Parsed spec: 4 milestones defined for frontend and API',
       '[PM1: 02:15] Tasklist created with realistic scoping and zero-bloat standards',
     ],
@@ -89,7 +89,7 @@ export default function ManagerSquadView({
   const [directPrompt, setDirectPrompt] = useState('');
   const [inspectionFeed, setInspectionFeed] = useState<string[]>([
     '👑 [Sameer (Manager)] Executive Manager initialized autonomous squad supervision.',
-    '📋 [PM1] Active on task breakdown (connected to samesuf629@gmail.com).',
+    '📋 [PM1] Active on task breakdown (connected to workspace engine).',
     '🔍 [PM3] Continuous QA verification active: all build checks passing.',
   ]);
 
@@ -176,7 +176,7 @@ export default function ManagerSquadView({
                 status: 'completed',
                 lastProgress: `Delivery schedule locked. Stakeholder channels notified.`,
                 outputLog: [
-                  `[PM2: ${t2}] ⏱️ Stakeholder roadmap synchronized with samesuf629@gmail.com.`,
+                  `[PM2: ${t2}] ⏱️ Stakeholder roadmap synchronized with workspace channels.`,
                   ...(ag.outputLog || []),
                 ],
               }

@@ -49,6 +49,8 @@ export interface ConnectorConfig {
   subreddit?: string;
   webhookUrl?: string;
   accountName?: string;
+  connectedAccountId?: string;
+  [key: string]: any;
 }
 
 export interface Connector {
@@ -112,7 +114,7 @@ export interface Artifact {
 export interface Project {
   id: string;
   name: string;           // e.g. "PM1", "PM2 — YouTube Manager"
-  email: string;          // Assigned email account e.g. samesuf629@gmail.com
+  email: string;          // Assigned email account (e.g. client@domain.com)
   task: string;           // Assigned continuous task/project brief
   description: string;
   customInstructions: string;

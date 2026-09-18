@@ -1,9 +1,13 @@
 export interface ComposioConnectedAccount {
   id: string;
   appUniqueId: string;
+  appName?: string;
   status: 'ACTIVE' | 'INITIATED' | 'FAILED' | 'EXPIRED';
   createdAt: string;
   updatedAt: string;
+  email?: string;
+  userUuid?: string;
+  accountIdentifier?: string;
 }
 
 export const COMPOSIO_APP_MAP: Record<string, string> = {
@@ -38,7 +42,11 @@ export async function listConnectedAccounts(
   entityId: string = 'default'
 ): Promise<ComposioConnectedAccount[]> {
   try {
-    const res = await fetch(`${COMPOSIO_API_BASE}/connectedAccounts?user_uuid=${encodeURIComponent(entityId)}`, {
+    const url = entityId && entityId !== 'all'
+      ? `${COMPOSIO_API_BASE}/connectedAccounts?user_uuid=${encodeURIComponent(entityId)}`
+      : `${COMPOSIO_API_BASE}/connectedAccounts`;
+
+    const res = await fetch(url, {
       method: 'GET',
       headers: {
         'x-api-key': apiKey,
@@ -52,7 +60,28 @@ export async function listConnectedAccounts(
     }
 
     const data = await res.json();
-    return Array.isArray(data.items) ? data.items : Array.isArray(data) ? data : [];
+    const rawList = Array.isArray(data.items) ? data.items : Array.isArray(data) ? data : [];
+    return rawList.map((item: any) => {
+      const email =
+        item.params?.email ||
+        item.connectionParams?.email ||
+        item.connectionParams?.headers?.['user_email'] ||
+        item.user_email ||
+        item.data?.email ||
+        (item.accountIdentifier && item.accountIdentifier.includes('@') ? item.accountIdentifier : undefined);
+
+      return {
+        id: item.id,
+        appUniqueId: item.appUniqueId || item.appName || '',
+        appName: item.appName || item.appUniqueId || '',
+        status: item.status,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        userUuid: item.userUuid,
+        email,
+        accountIdentifier: item.accountIdentifier || email,
+      };
+    });
   } catch (err) {
     return [];
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Search,
@@ -410,15 +410,15 @@ export function createDefaultConnectors(): Connector[] {
     {
       id: 'conn-gmail',
       name: 'Gmail',
-      description: 'Draft replies, summarize threads, & search your inbox',
+      description: 'Draft replies, summarize threads, & search your inbox via Composio',
       icon: 'gmail',
-      enabled: true,
-      status: 'connected',
+      enabled: false,
+      status: 'ready',
       category: 'Communication',
       section: 'top',
       isVerified: true,
-      capabilities: ['Inbox Search', 'Thread Summaries', 'Draft Replies', '1-Click Send'],
-      config: { email: 'samesuf786@gmail.com' },
+      capabilities: ['Inbox Search', 'Thread Summaries', 'Draft Replies', 'Zero-Click Send'],
+      config: {},
     },
     {
       id: 'conn-gcalendar',
@@ -431,7 +431,7 @@ export function createDefaultConnectors(): Connector[] {
       section: 'top',
       isVerified: true,
       capabilities: ['Event Creation', 'Agenda Lookup', 'Conflict Detection'],
-      config: { email: 'samesuf786@gmail.com' },
+      config: {},
     },
     {
       id: 'conn-canva',
@@ -871,6 +871,7 @@ interface ConnectorsModalProps {
   onAddCustomConnector?: (conn: Connector) => void;
   sessionTitle?: string;
   onResetConnectors?: () => void;
+  sessionId?: string;
 }
 
 export default function ConnectorsModal({
@@ -882,6 +883,7 @@ export default function ConnectorsModal({
   onAddCustomConnector,
   sessionTitle,
   onResetConnectors,
+  sessionId,
 }: ConnectorsModalProps) {
   // Main Top-Level Tab: Skills | Connectors | Plugins
   const [mainTab, setMainTab] = useState<'skills' | 'connectors' | 'plugins'>('connectors');
@@ -929,6 +931,44 @@ export default function ConnectorsModal({
   const [isConnectingComposio, setIsConnectingComposio] = useState<string | null>(null);
   const [composioError, setComposioError] = useState<string | null>(null);
 
+  // Synchronize authentic connected accounts from Composio for this chat session
+  useEffect(() => {
+    if (!composioApiKey || !isOpen) return;
+    const fetchComposioAccounts = async () => {
+      try {
+        const res = await fetch(
+          `/api/composio?apiKey=${encodeURIComponent(composioApiKey)}&entityId=${encodeURIComponent(sessionId || 'default')}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.connectedAccounts) && onUpdateConnectorConfig) {
+            for (const acc of data.connectedAccounts) {
+              const appUid = (acc.appUniqueId || acc.appName || '').toLowerCase();
+              const matchedConn = activeConnectors.find((c) => {
+                const cKey = c.id.replace('conn-', '').toLowerCase();
+                return appUid.includes(cKey) || cKey.includes(appUid);
+              });
+              if (matchedConn) {
+                const accEmail = acc.email || acc.accountIdentifier;
+                if (accEmail) {
+                  onUpdateConnectorConfig(matchedConn.id, {
+                    ...matchedConn.config,
+                    email: accEmail,
+                    connectedAccountId: acc.id,
+                  });
+                  if (!matchedConn.enabled) {
+                    onToggleConnector(matchedConn.id);
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {}
+    };
+    fetchComposioAccounts();
+  }, [composioApiKey, isOpen, sessionId]);
+
   const handleSaveComposioKey = (key: string) => {
     setComposioApiKey(key);
     if (typeof window !== 'undefined') {
@@ -949,12 +989,47 @@ export default function ConnectorsModal({
           action: 'connect',
           appName: connectorId,
           apiKey: composioApiKey,
+          entityId: sessionId || 'default',
         }),
       });
       const data = await res.json();
       if (data.redirectUrl) {
-        window.open(data.redirectUrl, '_blank', 'width=600,height=750');
+        const authWindow = window.open(data.redirectUrl, '_blank', 'width=600,height=750');
         onToggleConnector(connectorId);
+
+        // Poll for newly connected account and extract real email
+        let pollCount = 0;
+        const pollTimer = setInterval(async () => {
+          pollCount++;
+          if (pollCount > 30 || authWindow?.closed) {
+            clearInterval(pollTimer);
+          }
+          try {
+            const checkRes = await fetch(
+              `/api/composio?apiKey=${encodeURIComponent(composioApiKey)}&entityId=${encodeURIComponent(sessionId || 'default')}`
+            );
+            if (checkRes.ok) {
+              const checkData = await checkRes.json();
+              if (Array.isArray(checkData.connectedAccounts) && onUpdateConnectorConfig) {
+                const appKey = connectorId.replace('conn-', '').toLowerCase();
+                const matched = checkData.connectedAccounts.find((a: any) => {
+                  const name = (a.appUniqueId || a.appName || '').toLowerCase();
+                  return name.includes(appKey) || appKey.includes(name);
+                });
+                if (matched) {
+                  const resolvedEmail = matched.email || matched.accountIdentifier;
+                  if (resolvedEmail) {
+                    onUpdateConnectorConfig(connectorId, {
+                      email: resolvedEmail,
+                      connectedAccountId: matched.id,
+                    });
+                    clearInterval(pollTimer);
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+        }, 2500);
       } else if (data.error) {
         setComposioError(data.error);
       }
@@ -1009,7 +1084,7 @@ export default function ConnectorsModal({
   const handleOpenConfig = (e: React.MouseEvent, conn: Connector) => {
     e.stopPropagation();
     setEditingConnector(conn);
-    setConfigEmail(conn.config?.email || 'samesuf786@gmail.com');
+    setConfigEmail(conn.config?.email || '');
     setConfigRepo(conn.config?.repo || 'sameer-sys/claude-enterprise-app');
     setConfigChannel(conn.config?.channelName || 'My Official Channel');
     setConfigHandle(conn.config?.handle || '@sameer.official');
@@ -1093,15 +1168,18 @@ export default function ConnectorsModal({
 
           <div className="flex flex-wrap items-center justify-between gap-4">
             {/* Tally Card (Matches Screenshot 2 Box) */}
-            <div className="flex flex-col justify-between bg-[#131210] border border-[#26241f] rounded-2xl p-3 min-w-[180px] select-none shadow-sm">
-              <div className="flex items-center space-x-1.5 text-[10px] font-mono text-[#8a8579]">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-                <span className="tracking-wide">TALLY · CURRENT SESSION</span>
-              </div>
-              <div className="my-1.5">
-                <div className="text-xs font-mono text-[#dcd8ce] mb-1">── %</div>
-                <div className="w-full bg-[#26241f] h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-[#1a73e8] h-full w-4/5 rounded-full"></div>
+            <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#141310] border border-[#26241f] min-w-[200px] shadow-sm">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-xl bg-[#cc785c]/15 text-[#cc785c] flex items-center justify-center font-mono font-bold text-sm">
+                  {activeCount}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[#f2eee6]">
+                    {activeCount} active connector{activeCount !== 1 ? 's' : ''}
+                  </div>
+                  <div className="text-[11px] text-[#8a8579]">
+                    Configured for this chat
+                  </div>
                 </div>
               </div>
               <div className="flex items-center justify-between text-[10px] font-mono text-[#6d685e]">
@@ -1112,13 +1190,15 @@ export default function ConnectorsModal({
 
             {/* Connected Mailbox Badge */}
             {(() => {
-              const connectedEmail = activeConnectors.find((c) => c.id === 'conn-gmail')?.config?.email || 'samesuf786@gmail.com';
+              const connectedEmail = activeConnectors.find((c) => c.id === 'conn-gmail')?.config?.email;
               return (
                 <div className="flex items-center space-x-2.5 bg-[#131210] border border-[#26241f] rounded-xl px-3.5 py-2 select-none shadow-sm">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+                  <div className={`w-2 h-2 rounded-full ${connectedEmail ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-mono text-[#8a8579] uppercase">Active Mailbox</span>
-                    <span className="text-xs font-semibold text-[#cc785c] font-mono">{connectedEmail}</span>
+                    <span className="text-[10px] font-mono text-[#8a8579] uppercase">Composio Mailbox</span>
+                    <span className="text-xs font-semibold text-[#cc785c] font-mono truncate max-w-[220px]">
+                      {connectedEmail || 'No Mailbox Connected (Use ⚡ Connect)'}
+                    </span>
                   </div>
                 </div>
               );
@@ -1473,14 +1553,14 @@ export default function ConnectorsModal({
                         key={conn.id}
                         connector={conn}
                         onToggle={() => {
-                          if ((conn.id === 'conn-gmail' || conn.id === 'conn-gdrive' || conn.id === 'conn-gcalendar') && !conn.enabled) {
-                            setGoogleOAuthConnector(conn);
+                          if (!conn.enabled) {
+                            handleComposioConnect(conn.id);
                           } else {
                             onToggleConnector(conn.id);
                           }
                         }}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
-                        onGoogleAuth={(c) => setGoogleOAuthConnector(c)}
+                        onGoogleAuth={(c) => handleComposioConnect(c.id)}
                         onComposioConnect={handleComposioConnect}
                       />
                     ))}
@@ -1907,27 +1987,28 @@ export default function ConnectorsModal({
                 {/* Right Column: Accounts List + Use another account + Disclaimer */}
                 <div className="flex flex-col justify-between space-y-4">
                   <div className="space-y-1">
-                    {/* Account 1: Sameer Shaik (samesuf786@gmail.com) */}
+                    {/* Option 1: Real OAuth via Composio */}
                     <button
                       type="button"
-                      onClick={() => handleSelectGoogleAccount('samesuf786@gmail.com', 'Sameer Shaik')}
-                      disabled={isGoogleSigningIn}
-                      className="w-full text-left py-3 px-2 rounded-xl hover:bg-[#202124] transition-colors border-b border-[#3c4043] flex items-center space-x-3.5 group cursor-pointer"
+                      onClick={() => {
+                        if (googleOAuthConnector) {
+                          handleComposioConnect(googleOAuthConnector.id);
+                          setGoogleOAuthConnector(null);
+                        }
+                      }}
+                      className="w-full text-left py-3 px-3 rounded-xl bg-[#202124] hover:bg-[#2a2b2e] transition-colors border border-[#3c4043] flex items-center space-x-3.5 group cursor-pointer"
                     >
-                      <div className="w-8 h-8 rounded-full bg-[#e8710a] text-white flex items-center justify-center font-bold text-sm shrink-0">
-                        S
+                      <div className="w-8 h-8 rounded-full bg-[#cc785c] text-black flex items-center justify-center font-bold text-sm shrink-0">
+                        ⚡
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-white group-hover:text-[#8ab4f8] transition-colors truncate">
-                          Sameer Shaik
+                        <div className="text-sm font-medium text-white group-hover:text-[#8ab4f8] transition-colors">
+                          Log in with Google (via Composio Real OAuth)
                         </div>
                         <div className="text-xs text-[#9aa0a6] truncate font-mono">
-                          samesuf786@gmail.com
+                          Authenticate your real account securely with 0 hardcoded emails
                         </div>
                       </div>
-                      {isGoogleSigningIn && (
-                        <div className="w-4 h-4 border-2 border-[#8ab4f8] border-t-transparent rounded-full animate-spin shrink-0"></div>
-                      )}
                     </button>
 
                     {/* Account 2: Use another account */}

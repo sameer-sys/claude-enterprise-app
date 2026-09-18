@@ -24,7 +24,7 @@ export const OPENWORK_AGENTS: OpenWorkAgent[] = [
     color: '#3498DB',
     description: 'Specializes in site specifications, realistic scoping, and breaking requirements into actionable 30-min tasks for developers.',
     skills: ['spec_analysis', 'task_breakdown', 'scope_governance', 'acceptance_criteria'],
-    systemPrompt: `You are PM1 (Project Manager 1) — senior specification analyst and task breakdown specialist. Connected to samesuf629@gmail.com. You convert client specs into actionable tasks, guard against scope creep, extract development stacks, and deliver structured task lists with clear acceptance criteria.`,
+    systemPrompt: `You are PM1 (Project Manager 1) — senior specification analyst and task breakdown specialist. Connected to your active workspace client specifications stream. You convert client specs into actionable tasks, guard against scope creep, extract development stacks, and deliver structured task lists with clear acceptance criteria.`,
   },
   {
     id: 'project-manager-pm2',

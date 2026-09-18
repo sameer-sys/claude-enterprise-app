@@ -764,12 +764,12 @@ export default function ChatArea({
       {/* Session-Level Connectors (Directly downside of Download button to be part of chat/session) */}
       <div className="flex justify-end items-center px-4 sm:px-6 pt-2.5 pb-1 shrink-0 z-10">
         {(() => {
-          const connectedEmail = activeConnectors?.find((c) => c.id === 'conn-gmail')?.config?.email || 'samesuf786@gmail.com';
+          const connectedEmail = activeConnectors?.find((c) => c.id === 'conn-gmail')?.config?.email;
           return (
             <button
               onClick={onOpenConnectors}
               className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] hover:border-[#cc785c]/60 text-xs font-semibold text-[#f2eee6] transition-all shadow-sm group active:scale-95"
-              title={`Active Mailbox: ${connectedEmail}`}
+              title={connectedEmail ? `Active Mailbox: ${connectedEmail}` : 'Connect account via Composio'}
             >
               <Cpu className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform shrink-0" />
               <span>Connectors</span>
@@ -782,7 +782,7 @@ export default function ChatArea({
               )}
               <span className="text-[#4a473f]">•</span>
               <span className="text-[11px] text-[#cc785c] font-mono truncate max-w-[200px]">
-                {connectedEmail}
+                {connectedEmail || 'Composio Hub'}
               </span>
             </button>
           );

@@ -59,7 +59,7 @@ export default function ProjectModal({ isOpen, onClose, onCreateProject }: Proje
             <label className="text-[11px] font-semibold text-[#8a8579] block mb-1">Assigned Email</label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#8a8579]" />
-              <input type="email" placeholder="e.g. samesuf629@gmail.com"
+              <input type="email" placeholder="e.g. client@company.com"
                 value={email} onChange={(e) => setEmail(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#1a1916] border border-[#36342e] text-sm text-[#ece9e2] placeholder-[#7d786e] focus:outline-none focus:border-[#cc785c]" />
             </div>
@@ -68,7 +68,7 @@ export default function ProjectModal({ isOpen, onClose, onCreateProject }: Proje
             <label className="text-[11px] font-semibold text-[#8a8579] block mb-1">Assigned Task / Project</label>
             <div className="relative">
               <Briefcase className="absolute left-3 top-3 w-3.5 h-3.5 text-[#8a8579]" />
-              <textarea rows={2} placeholder="e.g. Handle YouTube platform uploads, upgrade channels, post content for samesuf629"
+              <textarea rows={2} placeholder="e.g. Handle YouTube platform uploads, upgrade channels, post content for project workspace"
                 value={task} onChange={(e) => setTask(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#1a1916] border border-[#36342e] text-sm text-[#ece9e2] placeholder-[#7d786e] focus:outline-none focus:border-[#cc785c] resize-none" />
             </div>

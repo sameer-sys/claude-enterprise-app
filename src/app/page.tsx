@@ -123,7 +123,13 @@ export default function Home() {
               : [],
             connectors:
               Array.isArray(s.connectors) && s.connectors.length > 0
-                ? s.connectors
+                ? s.connectors.map((c: any) => {
+                    if (c.config?.email && (c.config.email.includes('samesuf') || c.config.email.includes('samesuf786') || c.config.email.includes('samesuf629'))) {
+                      const { email, ...restConfig } = c.config;
+                      return { ...c, config: restConfig, enabled: false, status: 'ready' };
+                    }
+                    return c;
+                  })
                 : createDefaultConnectors(),
           }));
           setSessions(initialized);
@@ -778,6 +784,7 @@ export default function Home() {
         onAddCustomConnector={handleAddCustomConnector}
         onResetConnectors={handleResetConnectorsForChat}
         sessionTitle={activeSession.title}
+        sessionId={activeSession.id}
       />
 
       <SettingsModal

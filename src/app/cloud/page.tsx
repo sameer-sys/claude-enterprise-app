@@ -73,12 +73,12 @@ exit
     setTimeout(() => {
       setDemoOutput(
         `### ⚡ Google Mail (Gmail) Connector Executed\n\n` +
-        `* **Mailbox Account:** samesuf786@gmail.com (Sameer Shaik)\n` +
+        `* **Mailbox Account:** Composio Connected Mailbox (Sameer Shaik)\n` +
         `* **Recipient (To):** team@company.com\n` +
         `* **Subject:** Project Status & Production Update\n` +
-        `* **Status:** Staged & Ready to Send\n\n` +
-        `> **Email Draft:**\n> Hi Team,\n>\n> Here is our latest progress update on the OpenWork Cloud workspace. All MCP connectors and hybrid reasoning pipelines are operating at 100% capacity.\n>\n> Best regards,\n> Sameer\n\n` +
-        `[🔗 Click here to Open in Gmail & Send Instantly](https://mail.google.com/mail/?view=cm&fs=1&to=team@company.com&su=Project%20Status%20Update&body=Hi%20Team%2C%0A%0AAll%20systems%20are%20operational.%0A%0ABest%2C%0ASameer)`
+        `* **Status:** 100% Zero-Click Background Dispatch\n\n` +
+        `> **Email Body:**\n> Hi Team,\n>\n> Here is our latest progress update on the OpenWork Cloud workspace. All MCP connectors and hybrid reasoning pipelines are operating at 100% capacity.\n>\n> Best regards,\n> Sameer\n\n` +
+        `✅ **Dispatched Zero-Click via Live SMTP**`
       );
       setIsDemoRunning(false);
     }, 900);

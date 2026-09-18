@@ -39,12 +39,10 @@ export async function getComposioApiKey(userKey?: string): Promise<string | null
 
 export async function listConnectedAccounts(
   apiKey: string,
-  entityId: string = 'default'
+  entityId?: string
 ): Promise<ComposioConnectedAccount[]> {
   try {
-    const url = entityId && entityId !== 'all'
-      ? `${COMPOSIO_API_BASE}/connectedAccounts?user_uuid=${encodeURIComponent(entityId)}`
-      : `${COMPOSIO_API_BASE}/connectedAccounts`;
+    const url = `${COMPOSIO_API_BASE}/connectedAccounts`;
 
     const res = await fetch(url, {
       method: 'GET',
@@ -60,20 +58,31 @@ export async function listConnectedAccounts(
     }
 
     const data = await res.json();
-    const rawList = Array.isArray(data.items) ? data.items : Array.isArray(data) ? data : [];
+    const rawList = Array.isArray(data.items)
+      ? data.items
+      : Array.isArray(data)
+      ? data
+      : Array.isArray(data.connectedAccounts)
+      ? data.connectedAccounts
+      : [];
+
     return rawList.map((item: any) => {
       const email =
         item.params?.email ||
         item.connectionParams?.email ||
         item.connectionParams?.headers?.['user_email'] ||
+        item.connectionParams?.val?.email ||
         item.user_email ||
         item.data?.email ||
-        (item.accountIdentifier && item.accountIdentifier.includes('@') ? item.accountIdentifier : undefined);
+        (item.accountIdentifier && item.accountIdentifier.includes('@') ? item.accountIdentifier : undefined) ||
+        (item.userUuid && item.userUuid.includes('@') ? item.userUuid : undefined) ||
+        (item.clientUniqueUserId && item.clientUniqueUserId.includes('@') ? item.clientUniqueUserId : undefined) ||
+        (typeof item.label === 'string' && item.label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/)?.[1]);
 
       return {
         id: item.id,
-        appUniqueId: item.appUniqueId || item.appName || '',
-        appName: item.appName || item.appUniqueId || '',
+        appUniqueId: item.appUniqueId || item.appName || item.app?.name || '',
+        appName: item.appName || item.appUniqueId || item.app?.name || '',
         status: item.status,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,

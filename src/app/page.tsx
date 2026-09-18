@@ -104,34 +104,56 @@ export default function Home() {
   // Load from localStorage & Cloud Sync
   useEffect(() => {
     try {
+      let savedCustom: any[] = [];
+      const savedCustomStr = localStorage.getItem('claude_custom_connectors');
+      if (savedCustomStr) {
+        try {
+          savedCustom = JSON.parse(savedCustomStr);
+        } catch (e) {}
+      }
+
       const saved = localStorage.getItem('claude_cloud_sessions');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const initialized = parsed.map((s: any) => ({
-            ...s,
-            messages: Array.isArray(s.messages)
-              ? s.messages.filter((m: any) =>
-                  !m.isProactive &&
-                  !m.content?.includes('Quick update from the background') &&
-                  !m.content?.includes('Standing by. If you want me to stage') &&
-                  !m.content?.includes('Background check-in: Verified') &&
-                  !m.content?.includes('Audited active connectors') &&
-                  !m.content?.includes('just following up in the background') &&
-                  !m.content?.includes('Welcome back, Sameer!')
-                )
-              : [],
-            connectors:
-              Array.isArray(s.connectors) && s.connectors.length > 0
-                ? s.connectors.map((c: any) => {
-                    if (c.config?.email && (c.config.email.includes('samesuf') || c.config.email.includes('samesuf786') || c.config.email.includes('samesuf629'))) {
-                      const { email, ...restConfig } = c.config;
-                      return { ...c, config: restConfig, enabled: false, status: 'ready' };
-                    }
-                    return c;
-                  })
-                : createDefaultConnectors(),
-          }));
+          const initialized = parsed.map((s: any) => {
+            const rawConns = Array.isArray(s.connectors) && s.connectors.length > 0
+              ? s.connectors
+              : createDefaultConnectors();
+
+            // Clean any legacy samesuf emails
+            const sanitizedConns = rawConns.map((c: any) => {
+              if (c.config?.email && (c.config.email.includes('samesuf') || c.config.email.includes('samesuf786') || c.config.email.includes('samesuf629'))) {
+                const { email, ...restConfig } = c.config;
+                return { ...c, config: restConfig, enabled: false, status: 'ready' };
+              }
+              return c;
+            });
+
+            // Ensure custom connectors are merged in
+            const mergedConns = [...sanitizedConns];
+            for (const cust of savedCustom) {
+              if (!mergedConns.some((c: any) => c.id === cust.id)) {
+                mergedConns.unshift(cust);
+              }
+            }
+
+            return {
+              ...s,
+              messages: Array.isArray(s.messages)
+                ? s.messages.filter((m: any) =>
+                    !m.isProactive &&
+                    !m.content?.includes('Quick update from the background') &&
+                    !m.content?.includes('Standing by. If you want me to stage') &&
+                    !m.content?.includes('Background check-in: Verified') &&
+                    !m.content?.includes('Audited active connectors') &&
+                    !m.content?.includes('just following up in the background') &&
+                    !m.content?.includes('Welcome back, Sameer!')
+                  )
+                : [],
+              connectors: mergedConns,
+            };
+          });
           setSessions(initialized);
           setActiveSessionId(initialized[0].id);
         }
@@ -289,11 +311,18 @@ export default function Home() {
   };
 
   const handleAddCustomConnector = (newConn: Connector) => {
+    try {
+      const existingStr = localStorage.getItem('claude_custom_connectors');
+      const existing: Connector[] = existingStr ? JSON.parse(existingStr) : [];
+      const updatedCustom = [newConn, ...existing.filter((c) => c.id !== newConn.id)];
+      localStorage.setItem('claude_custom_connectors', JSON.stringify(updatedCustom));
+    } catch (e) {}
+
     setSessions((prev) =>
       prev.map((s) => {
-        if (s.id !== activeSession.id) return s;
         const curConns = s.connectors || createDefaultConnectors();
-        return { ...s, connectors: [newConn, ...curConns] };
+        const filtered = curConns.filter((c) => c.id !== newConn.id);
+        return { ...s, connectors: [newConn, ...filtered] };
       })
     );
   };
@@ -398,6 +427,14 @@ export default function Home() {
   };
 
   const handleNewSession = () => {
+    let customConns: Connector[] = [];
+    try {
+      const savedCustom = localStorage.getItem('claude_custom_connectors');
+      if (savedCustom) customConns = JSON.parse(savedCustom);
+    } catch (e) {}
+    const defaultConns = createDefaultConnectors();
+    const mergedConns = [...customConns, ...defaultConns.filter((dc) => !customConns.some((cc) => cc.id === dc.id))];
+
     const newSession: Session = {
       id: `ses_${Date.now()}`,
       title: 'New Conversation',
@@ -406,7 +443,7 @@ export default function Home() {
       lastVisitedAt: Date.now(),
       messages: [],
       activeModel: activeModel,
-      connectors: createDefaultConnectors(),
+      connectors: mergedConns,
     };
     setSessions([newSession, ...sessions]);
     setActiveSessionId(newSession.id);

@@ -116,6 +116,12 @@ export default function SettingsModal({
   const [roomId, setRoomId] = useState(syncRoomId);
   const [subUrl, setSubUrl] = useState(supabaseUrl);
   const [subKey, setSubKey] = useState(supabaseKey);
+  const [composioKey, setComposioKey] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('composio_api_key') || '';
+    }
+    return '';
+  });
   const [saved, setSaved] = useState(false);
 
   // Official Preferences UI state (matching screenshot)
@@ -1414,6 +1420,42 @@ export default function SettingsModal({
                     onChange={(e) => setOrKey(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c]"
                   />
+                </div>
+
+                {/* Composio API Key */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-[#ece9e2] flex items-center gap-1.5">
+                      <span>Composio API Key</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#cc785c]/15 text-[#cc785c] font-mono">
+                        Multi-App OAuth
+                      </span>
+                    </label>
+                    <a
+                      href="https://app.composio.dev/settings"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-[#cc785c] hover:underline flex items-center gap-0.5"
+                    >
+                      <span>app.composio.dev</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <input
+                    type="password"
+                    placeholder="Paste your Composio API key..."
+                    value={composioKey}
+                    onChange={(e) => {
+                      setComposioKey(e.target.value);
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('composio_api_key', e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c]"
+                  />
+                  <p className="text-[11px] text-[#9c978b]">
+                    Powers authentic OAuth integrations for Gmail, Google Drive, Calendar, GitHub, Slack & Notion.
+                  </p>
                 </div>
 
                 {/* OmniRoute Local Engine */}

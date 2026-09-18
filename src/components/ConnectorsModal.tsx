@@ -495,83 +495,6 @@ export function createDefaultConnectors(): Connector[] {
       config: { slackChannel: '#general' },
     },
     {
-      id: 'conn-hubspot',
-      name: 'HubSpot',
-      description: 'CRM context for every answer, insight, and action',
-      icon: 'hubspot',
-      enabled: false,
-      status: 'ready',
-      category: 'Sales and marketing',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Contact CRM', 'Deal Pipelines', 'Sales Activity'],
-    },
-    {
-      id: 'conn-youtube',
-      name: 'YouTube Studio',
-      description: 'Upload videos, optimize viral SEO titles & tags, manage channel schedules, and track analytics',
-      icon: 'youtube',
-      enabled: true,
-      status: 'connected',
-      category: 'Media and entertainment',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Studio Uploads', 'Shorts Automation', 'SEO Tags & Metadata', '1-Click Studio'],
-      config: { channelName: 'My Official Channel' },
-    },
-    {
-      id: 'conn-instagram',
-      name: 'Instagram Creator',
-      description: 'Publish Reels, generate 30 high-reach hashtags, format carousel captions, and automate DMs',
-      icon: 'instagram',
-      enabled: true,
-      status: 'connected',
-      category: 'Social media',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Reels Publishing', 'Carousel Staging', 'Hashtag Generator', '1-Click Creator'],
-      config: { handle: '@sameer.official' },
-    },
-    {
-      id: 'conn-facebook',
-      name: 'Facebook Meta Business',
-      description: 'Cross-post to Pages & Groups, schedule community updates, track reach, and run Meta Ads',
-      icon: 'facebook',
-      enabled: true,
-      status: 'connected',
-      category: 'Social media',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Page Publishing', 'Group Sync', 'Meta Business Suite', 'Audience Reach'],
-      config: { platform: 'Meta Business Suite' },
-    },
-    {
-      id: 'conn-twitter',
-      name: 'X (formerly Twitter)',
-      description: 'Draft viral tweets, build multi-post threads, schedule releases, and track impressions',
-      icon: 'twitter',
-      enabled: false,
-      status: 'ready',
-      category: 'Social media',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['Tweet Drafting', 'Thread Composer', '1-Click Tweet Intent', 'Viral Hooks'],
-      config: { handle: '@sameer_ai' },
-    },
-    {
-      id: 'conn-linkedin',
-      name: 'LinkedIn',
-      description: 'Draft professional thought-leadership posts, company updates, and Pulse articles',
-      icon: 'linkedin',
-      enabled: false,
-      status: 'ready',
-      category: 'Social media',
-      section: 'top',
-      isVerified: true,
-      capabilities: ['B2B Thought Leadership', 'Article Drafting', 'Network Announcements', '1-Click Share'],
-      config: { handle: 'sameer-workspace' },
-    },
-    {
       id: 'conn-rovo',
       name: 'Atlassian Rovo',
       description: 'Access Jira & Confluence from Claude',
@@ -594,6 +517,71 @@ export function createDefaultConnectors(): Connector[] {
       section: 'top',
       isVerified: true,
       capabilities: ['Contact CRM', 'Deal Pipelines', 'Sales Activity'],
+    },
+    {
+      id: 'conn-youtube',
+      name: 'YouTube Studio',
+      description: 'Upload videos, optimize viral SEO titles & tags, manage channel schedules, and track analytics',
+      icon: 'youtube',
+      enabled: true,
+      status: 'connected',
+      category: 'Media and entertainment',
+      section: 'trending',
+      isVerified: true,
+      capabilities: ['Studio Uploads', 'Shorts Automation', 'SEO Tags & Metadata', '1-Click Studio'],
+      config: { channelName: 'My Official Channel' },
+    },
+    {
+      id: 'conn-instagram',
+      name: 'Instagram Creator',
+      description: 'Publish Reels, generate 30 high-reach hashtags, format carousel captions, and automate DMs',
+      icon: 'instagram',
+      enabled: true,
+      status: 'connected',
+      category: 'Social media',
+      section: 'trending',
+      isVerified: true,
+      capabilities: ['Reels Publishing', 'Carousel Staging', 'Hashtag Generator', '1-Click Creator'],
+      config: { handle: '@sameer.official' },
+    },
+    {
+      id: 'conn-facebook',
+      name: 'Facebook Meta Business',
+      description: 'Cross-post to Pages & Groups, schedule community updates, track reach, and run Meta Ads',
+      icon: 'facebook',
+      enabled: true,
+      status: 'connected',
+      category: 'Social media',
+      section: 'trending',
+      isVerified: true,
+      capabilities: ['Page Publishing', 'Group Sync', 'Meta Business Suite', 'Audience Reach'],
+      config: { platform: 'Meta Business Suite' },
+    },
+    {
+      id: 'conn-twitter',
+      name: 'X (formerly Twitter)',
+      description: 'Draft viral tweets, build multi-post threads, schedule releases, and track impressions',
+      icon: 'twitter',
+      enabled: false,
+      status: 'ready',
+      category: 'Social media',
+      section: 'trending',
+      isVerified: true,
+      capabilities: ['Tweet Drafting', 'Thread Composer', '1-Click Tweet Intent', 'Viral Hooks'],
+      config: { handle: '@sameer_ai' },
+    },
+    {
+      id: 'conn-linkedin',
+      name: 'LinkedIn',
+      description: 'Draft professional thought-leadership posts, company updates, and Pulse articles',
+      icon: 'linkedin',
+      enabled: false,
+      status: 'ready',
+      category: 'Social media',
+      section: 'trending',
+      isVerified: true,
+      capabilities: ['B2B Thought Leadership', 'Article Drafting', 'Network Announcements', '1-Click Share'],
+      config: { handle: 'sameer-workspace' },
     },
     {
       id: 'conn-asana',
@@ -929,45 +917,71 @@ export default function ConnectorsModal({
   });
   const [composioSaved, setComposioSaved] = useState(false);
   const [isConnectingComposio, setIsConnectingComposio] = useState<string | null>(null);
+  const [isSyncingComposio, setIsSyncingComposio] = useState(false);
+  const [composioSyncMessage, setComposioSyncMessage] = useState<string | null>(null);
   const [composioError, setComposioError] = useState<string | null>(null);
 
-  // Synchronize authentic connected accounts from Composio for this chat session
-  useEffect(() => {
-    if (!composioApiKey || !isOpen) return;
-    const fetchComposioAccounts = async () => {
-      try {
-        const res = await fetch(
-          `/api/composio?apiKey=${encodeURIComponent(composioApiKey)}&entityId=${encodeURIComponent(sessionId || 'default')}`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.connectedAccounts) && onUpdateConnectorConfig) {
-            for (const acc of data.connectedAccounts) {
-              const appUid = (acc.appUniqueId || acc.appName || '').toLowerCase();
-              const matchedConn = activeConnectors.find((c) => {
-                const cKey = c.id.replace('conn-', '').toLowerCase();
-                return appUid.includes(cKey) || cKey.includes(appUid);
+  // Synchronize authentic connected accounts from Composio
+  const fetchComposioAccounts = async () => {
+    if (!composioApiKey) return;
+    setIsSyncingComposio(true);
+    setComposioError(null);
+    try {
+      const res = await fetch(
+        `/api/composio?apiKey=${encodeURIComponent(composioApiKey)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.connectedAccounts) && onUpdateConnectorConfig) {
+          let updatedCount = 0;
+          for (const acc of data.connectedAccounts) {
+            const appUid = (acc.appUniqueId || acc.appName || '').toLowerCase();
+            const matchedConn = activeConnectors.find((c) => {
+              const cKey = c.id.replace('conn-', '').toLowerCase();
+              return (
+                appUid.includes(cKey) ||
+                cKey.includes(appUid) ||
+                (cKey === 'gmail' && (appUid.includes('gmail') || appUid.includes('google')))
+              );
+            });
+            if (matchedConn) {
+              const accEmail = acc.email || acc.accountIdentifier || 'Connected Account';
+              onUpdateConnectorConfig(matchedConn.id, {
+                ...matchedConn.config,
+                email: accEmail,
+                connectedAccountId: acc.id,
               });
-              if (matchedConn) {
-                const accEmail = acc.email || acc.accountIdentifier;
-                if (accEmail) {
-                  onUpdateConnectorConfig(matchedConn.id, {
-                    ...matchedConn.config,
-                    email: accEmail,
-                    connectedAccountId: acc.id,
-                  });
-                  if (!matchedConn.enabled) {
-                    onToggleConnector(matchedConn.id);
-                  }
-                }
+              if (!matchedConn.enabled) {
+                onToggleConnector(matchedConn.id);
               }
+              updatedCount++;
             }
           }
+          setComposioSyncMessage(
+            data.connectedAccounts.length > 0
+              ? `Synced ${data.connectedAccounts.length} account${data.connectedAccounts.length > 1 ? 's' : ''} from Composio!`
+              : 'No connected accounts found in Composio yet.'
+          );
+          setTimeout(() => setComposioSyncMessage(null), 4000);
         }
-      } catch (err) {}
-    };
+      }
+    } catch (err: any) {
+      setComposioError(err.message || 'Failed to sync with Composio');
+    } finally {
+      setIsSyncingComposio(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!composioApiKey || !isOpen) return;
     fetchComposioAccounts();
-  }, [composioApiKey, isOpen, sessionId]);
+
+    const handleFocus = () => {
+      fetchComposioAccounts();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [composioApiKey, isOpen]);
 
   const handleSaveComposioKey = (key: string) => {
     setComposioApiKey(key);
@@ -979,8 +993,44 @@ export default function ConnectorsModal({
   };
 
   const handleComposioConnect = async (connectorId: string) => {
+    let keyToUse = composioApiKey;
+    if (!keyToUse && typeof window !== 'undefined') {
+      keyToUse = localStorage.getItem('composio_api_key') || '';
+    }
+    if (!keyToUse) {
+      const entered = window.prompt('Enter your Composio API Key from app.composio.dev to authenticate:');
+      if (entered && entered.trim()) {
+        keyToUse = entered.trim();
+        handleSaveComposioKey(keyToUse);
+      } else {
+        return;
+      }
+    }
+
     setIsConnectingComposio(connectorId);
     setComposioError(null);
+
+    // Open popup immediately on user action to prevent browser popup blockers
+    let authWindow: Window | null = null;
+    try {
+      authWindow = window.open('about:blank', '_blank', 'width=650,height=750');
+      if (authWindow) {
+        authWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head><title>Composio OAuth Gateway</title></head>
+            <body style="background:#161512;color:#ece9e2;font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;">
+              <div style="text-align:center;padding:24px;background:#1e1d19;border:1px solid #38352d;border-radius:18px;max-width:380px;">
+                <div style="font-size:32px;margin-bottom:12px;">⚡</div>
+                <h3 style="margin:0 0 8px 0;font-size:16px;color:#f2eee6;">Connecting via Composio</h3>
+                <p style="margin:0;font-size:13px;color:#9c978b;line-height:1.5;">Preparing OAuth authorization window. Redirecting you to Composio...</p>
+              </div>
+            </body>
+          </html>
+        `);
+      }
+    } catch (e) {}
+
     try {
       const res = await fetch('/api/composio', {
         method: 'POST',
@@ -988,13 +1038,17 @@ export default function ConnectorsModal({
         body: JSON.stringify({
           action: 'connect',
           appName: connectorId,
-          apiKey: composioApiKey,
+          apiKey: keyToUse,
           entityId: sessionId || 'default',
         }),
       });
       const data = await res.json();
       if (data.redirectUrl) {
-        const authWindow = window.open(data.redirectUrl, '_blank', 'width=600,height=750');
+        if (authWindow && !authWindow.closed) {
+          authWindow.location.href = data.redirectUrl;
+        } else {
+          window.open(data.redirectUrl, '_blank');
+        }
         onToggleConnector(connectorId);
 
         // Poll for newly connected account and extract real email
@@ -1006,7 +1060,7 @@ export default function ConnectorsModal({
           }
           try {
             const checkRes = await fetch(
-              `/api/composio?apiKey=${encodeURIComponent(composioApiKey)}&entityId=${encodeURIComponent(sessionId || 'default')}`
+              `/api/composio?apiKey=${encodeURIComponent(keyToUse)}`
             );
             if (checkRes.ok) {
               const checkData = await checkRes.json();
@@ -1014,26 +1068,38 @@ export default function ConnectorsModal({
                 const appKey = connectorId.replace('conn-', '').toLowerCase();
                 const matched = checkData.connectedAccounts.find((a: any) => {
                   const name = (a.appUniqueId || a.appName || '').toLowerCase();
-                  return name.includes(appKey) || appKey.includes(name);
+                  return (
+                    name.includes(appKey) ||
+                    appKey.includes(name) ||
+                    (appKey === 'gmail' && (name.includes('gmail') || name.includes('google')))
+                  );
                 });
                 if (matched) {
-                  const resolvedEmail = matched.email || matched.accountIdentifier;
-                  if (resolvedEmail) {
-                    onUpdateConnectorConfig(connectorId, {
-                      email: resolvedEmail,
-                      connectedAccountId: matched.id,
-                    });
-                    clearInterval(pollTimer);
-                  }
+                  const resolvedEmail = matched.email || matched.accountIdentifier || 'Connected via Composio';
+                  onUpdateConnectorConfig(connectorId, {
+                    email: resolvedEmail,
+                    connectedAccountId: matched.id,
+                  });
+                  clearInterval(pollTimer);
                 }
               }
             }
           } catch (e) {}
         }, 2500);
-      } else if (data.error) {
-        setComposioError(data.error);
+      } else {
+        const fallbackUrl = 'https://app.composio.dev/apps';
+        if (authWindow && !authWindow.closed) {
+          authWindow.location.href = fallbackUrl;
+        }
+        if (data.error) {
+          setComposioError(data.error);
+        }
       }
     } catch (e: any) {
+      const fallbackUrl = 'https://app.composio.dev/apps';
+      if (authWindow && !authWindow.closed) {
+        authWindow.location.href = fallbackUrl;
+      }
       setComposioError(e.message || 'Failed to connect via Composio');
     } finally {
       setIsConnectingComposio(null);
@@ -1077,7 +1143,16 @@ export default function ConnectorsModal({
     );
   });
 
-  const customConnectors = displayedConnectors.filter((c) => c.section === 'custom');
+  const customConnectors = activeConnectors.filter((c) => {
+    if (!c.isCustom && c.section !== 'custom') return false;
+    if (subView === 'yours' && !c.enabled) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      c.name.toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q)
+    );
+  });
   const topConnectors = displayedConnectors.filter((c) => c.section === 'top' || (!c.section && c.category === 'Productivity'));
   const trendingConnectors = displayedConnectors.filter((c) => c.section === 'trending');
 
@@ -1104,45 +1179,40 @@ export default function ConnectorsModal({
     setEditingConnector(null);
   };
 
-  // Submit from "Add Custom Connector" form -> Move to Login/Auth step
+  // Submit from "Add Custom Connector" form -> Immediately add and activate connector
   const handleContinueToAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newConnName.trim() || !newConnUrl.trim()) return;
-    setAddStep('login');
+
+    const newConn: Connector = {
+      id: `conn-custom-${Date.now()}`,
+      name: newConnName.trim(),
+      description: newConnUrl.trim(),
+      icon: 'mcp',
+      enabled: true,
+      status: 'connected',
+      category: 'Developer Tools',
+      section: 'custom',
+      isCustom: true,
+      url: newConnUrl.trim(),
+      capabilities: ['Custom MCP Protocol', 'Live Remote Tools', 'OAuth Active'],
+    };
+
+    if (onAddCustomConnector) {
+      onAddCustomConnector(newConn);
+    } else {
+      onToggleConnector(newConn.id);
+    }
+
+    setIsAddModalOpen(false);
+    setNewConnName('');
+    setNewConnUrl('');
+    setAddStep('form');
   };
 
   // Finalize OAuth Login / Connection
   const handleCompleteLogin = () => {
-    setIsAuthenticating(true);
-    setTimeout(() => {
-      setIsAuthenticating(false);
-      setAuthSuccess(true);
-      setTimeout(() => {
-        const newConn: Connector = {
-          id: `conn-custom-${Date.now()}`,
-          name: newConnName.trim(),
-          description: newConnUrl.trim(),
-          icon: 'mcp',
-          enabled: true,
-          status: 'connected',
-          category: 'Developer Tools',
-          section: 'custom',
-          isCustom: true,
-          url: newConnUrl.trim(),
-          capabilities: ['Custom MCP Protocol', 'Live Remote Tools', 'OAuth Active'],
-        };
-        if (onAddCustomConnector) {
-          onAddCustomConnector(newConn);
-        } else {
-          onToggleConnector(newConn.id);
-        }
-        setIsAddModalOpen(false);
-        setAddStep('form');
-        setNewConnName('');
-        setNewConnUrl('');
-        setAuthSuccess(false);
-      }, 700);
-    }, 1000);
+    handleContinueToAdd({ preventDefault: () => {} } as any);
   };
 
   return (
@@ -1320,41 +1390,53 @@ export default function ConnectorsModal({
               )}
             </div>
 
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
-                className="px-3.5 py-2 bg-[#1c1b18] border border-[#2b2923] hover:border-[#38352d] text-xs font-medium text-[#dcd8ce] rounded-xl flex items-center space-x-1.5 transition-all"
-              >
-                <span>Filter: {selectedCategory === 'all' ? 'All' : selectedCategory}</span>
-                <span className="text-[#8a8579]">▾</span>
-              </button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
+                  className="px-3.5 py-2 bg-[#1c1b18] border border-[#2b2923] hover:border-[#38352d] text-xs font-medium text-[#dcd8ce] rounded-xl flex items-center space-x-1.5 transition-all"
+                >
+                  <span>Filter: {selectedCategory === 'all' ? 'All' : selectedCategory}</span>
+                  <span className="text-[#8a8579]">▾</span>
+                </button>
 
-              {isFilterMenuOpen && (
-                <div className="absolute right-0 mt-1 w-56 bg-[#1e1d19] border border-[#333028] rounded-xl shadow-2xl py-1 z-30 text-xs max-h-60 overflow-y-auto animate-in fade-in zoom-in-95">
-                  <button
-                    onClick={() => { setSelectedCategory('all'); setIsFilterMenuOpen(false); }}
-                    className={`w-full text-left px-3.5 py-2 hover:bg-[#282622] transition-colors flex items-center justify-between ${
-                      selectedCategory === 'all' ? 'text-[#cc785c] font-semibold' : 'text-[#dcd8ce]'
-                    }`}
-                  >
-                    <span>All Connectors</span>
-                    {selectedCategory === 'all' && <Check className="w-3.5 h-3.5" />}
-                  </button>
-                  {CATEGORIES_WITH_COUNTS.map((cat) => (
+                {isFilterMenuOpen && (
+                  <div className="absolute right-0 mt-1 w-56 bg-[#1e1d19] border border-[#333028] rounded-xl shadow-2xl py-1 z-30 text-xs max-h-60 overflow-y-auto animate-in fade-in zoom-in-95">
                     <button
-                      key={cat.name}
-                      onClick={() => { setSelectedCategory(cat.name); setIsFilterMenuOpen(false); }}
+                      onClick={() => { setSelectedCategory('all'); setIsFilterMenuOpen(false); }}
                       className={`w-full text-left px-3.5 py-2 hover:bg-[#282622] transition-colors flex items-center justify-between ${
-                        selectedCategory === cat.name ? 'text-[#cc785c] font-semibold' : 'text-[#dcd8ce]'
+                        selectedCategory === 'all' ? 'text-[#cc785c] font-semibold' : 'text-[#dcd8ce]'
                       }`}
                     >
-                      <span>{cat.name}</span>
-                      <span className="text-[10px] text-[#8a8579] font-mono">{cat.count}</span>
+                      <span>All Connectors</span>
+                      {selectedCategory === 'all' && <Check className="w-3.5 h-3.5" />}
                     </button>
-                  ))}
-                </div>
-              )}
+                    {CATEGORIES_WITH_COUNTS.map((cat) => (
+                      <button
+                        key={cat.name}
+                        onClick={() => { setSelectedCategory(cat.name); setIsFilterMenuOpen(false); }}
+                        className={`w-full text-left px-3.5 py-2 hover:bg-[#282622] transition-colors flex items-center justify-between ${
+                          selectedCategory === cat.name ? 'text-[#cc785c] font-semibold' : 'text-[#dcd8ce]'
+                        }`}
+                      >
+                        <span>{cat.name}</span>
+                        <span className="text-[10px] text-[#8a8579] font-mono">{cat.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={fetchComposioAccounts}
+                disabled={isSyncingComposio}
+                className="p-2 bg-[#1c1b18] border border-[#2b2923] hover:border-[#38352d] text-[#8a8579] hover:text-[#f2eee6] rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                title={composioSyncMessage || "Refresh connected accounts from Composio"}
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncingComposio ? 'animate-spin text-[#cc785c]' : ''}`} />
+              </button>
             </div>
           </div>
         )}
@@ -1460,55 +1542,7 @@ export default function ConnectorsModal({
                 </div>
               )}
 
-              {/* COMPOSIO REAL MULTI-APP OAUTH HUB */}
-              <div className="p-4 rounded-2xl bg-[#1a1916] border border-[#38352d] shadow-md space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-[#cc785c]/20 border border-[#cc785c]/40 flex items-center justify-center text-[#cc785c] font-bold text-xs">
-                      ⚡
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold text-[#f2eee6] flex items-center gap-1.5">
-                        <span>Composio Real Multi-App Hub</span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
-                          Official OAuth
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-[#8a8579]">
-                        Real live OAuth connection for YouTube, Instagram, Facebook, Drive, GitHub, Slack & Notion.
-                      </p>
-                    </div>
-                  </div>
-                  {composioSaved && (
-                    <span className="text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                      Saved!
-                    </span>
-                  )}
-                </div>
 
-                <div className="flex items-center gap-2">
-                  <input
-                    type="password"
-                    placeholder="Paste your Composio API Key (from app.composio.dev)..."
-                    value={composioApiKey}
-                    onChange={(e) => handleSaveComposioKey(e.target.value)}
-                    className="flex-1 bg-[#12110f] border border-[#2b2923] focus:border-[#cc785c] rounded-xl px-3 py-1.5 text-xs text-[#ece9e2] placeholder-[#666259] focus:outline-none font-mono"
-                  />
-                  <a
-                    href="https://app.composio.dev/settings"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 rounded-xl bg-[#2b2923] hover:bg-[#35332b] text-[#cc785c] hover:text-[#f4efe6] text-xs font-medium transition-all flex items-center gap-1 border border-[#3e3b31] shrink-0"
-                  >
-                    <span>Get Key</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-
-                {composioError && (
-                  <p className="text-rose-400 text-[11px]">{composioError}</p>
-                )}
-              </div>
 
               {/* 1. YOUR CUSTOM CONNECTORS (Image 1) */}
               {customConnectors.length > 0 && (
@@ -1548,7 +1582,7 @@ export default function ConnectorsModal({
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {(showAllTop ? topConnectors : topConnectors.slice(0, 8)).map((conn) => (
+                    {(showAllTop ? topConnectors : topConnectors.slice(0, 10)).map((conn) => (
                       <ConnectorCard
                         key={conn.id}
                         connector={conn}

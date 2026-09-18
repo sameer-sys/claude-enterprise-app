@@ -15,9 +15,9 @@ const OPENROUTER_MODELS: Record<string, string> = {
   'the-boss-build': 'google/gemma-4-26b-a4b-it:free',
 };
 
-const BUILTIN_OPENROUTER_KEY =
-  process.env.OPENROUTER_API_KEY ||
-  ['sk', 'or', 'v1', '6411fe52f62694921272c982ededbc6b8f83129cf4481c008cf54111c28e9fb4'].join('-');
+// SECURITY: no hardcoded fallback. A live OpenRouter API key was
+// previously hardcoded here (obfuscated via array-join) in this public repo.
+const BUILTIN_OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 const SYSTEM_PROMPTS = {
   'claude-3-7-sonnet':

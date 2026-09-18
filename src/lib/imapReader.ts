@@ -1,4 +1,4 @@
-﻿import { ImapFlow } from 'imapflow';
+import { ImapFlow } from 'imapflow';
 
 export interface InboxEmail {
   id: number;
@@ -10,14 +10,26 @@ export interface InboxEmail {
   snippet?: string;
 }
 
-const DEFAULT_USER = process.env.SMTP_USER || 'headoffice@apexspherexports.com';
-const DEFAULT_PASS = process.env.SMTP_PASS || 'jymg byjn olxe hezv';
+// SECURITY: credentials must come from environment variables only — no
+// hardcoded fallback (a leaked default here previously exposed a real
+// Gmail app password in this public repository).
+const ENV_USER = process.env.SMTP_USER;
+const ENV_PASS = process.env.SMTP_PASS;
 
 export async function fetchLatestEmails(
   maxCount = 5,
-  user = DEFAULT_USER,
-  pass = DEFAULT_PASS
+  user = ENV_USER,
+  pass = ENV_PASS
 ): Promise<{ success: boolean; total: number; emails: InboxEmail[]; error?: string }> {
+  if (!user || !pass) {
+    return {
+      success: false,
+      total: 0,
+      emails: [],
+      error: 'IMAP credentials are not configured. Set SMTP_USER and SMTP_PASS as environment variables.',
+    };
+  }
+
   const client = new ImapFlow({
     host: 'imap.gmail.com',
     port: 993,

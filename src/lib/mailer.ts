@@ -1,4 +1,4 @@
-﻿import nodemailer from 'nodemailer';
+import nodemailer from 'nodemailer';
 
 export interface EmailDispatchOptions {
   to: string | string[];
@@ -27,10 +27,18 @@ export interface BulkDispatchResult {
   results: { recipient: string; success: boolean; messageId?: string; error?: string }[];
 }
 
-const DEFAULT_USER = process.env.SMTP_USER || 'headoffice@apexspherexports.com';
-const DEFAULT_PASS = process.env.SMTP_PASS || 'jymg byjn olxe hezv';
+// SECURITY: credentials must come from environment variables only.
+// No hardcoded fallback — a leaked default here previously exposed a real
+// Gmail app password in this public repository.
+const ENV_USER = process.env.SMTP_USER;
+const ENV_PASS = process.env.SMTP_PASS;
 
-export function createSmtpTransporter(user = DEFAULT_USER, pass = DEFAULT_PASS) {
+export function createSmtpTransporter(user = ENV_USER, pass = ENV_PASS) {
+  if (!user || !pass) {
+    throw new Error(
+      'SMTP credentials are not configured. Set SMTP_USER and SMTP_PASS as environment variables (never hardcode them).'
+    );
+  }
   return nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
@@ -46,12 +54,16 @@ export function createSmtpTransporter(user = DEFAULT_USER, pass = DEFAULT_PASS) 
 }
 
 /**
- * Send a single email over real SMTP connection with zero user buttons.
+ * Send a single email over a real SMTP connection.
  */
 export async function sendRealEmail(options: EmailDispatchOptions): Promise<EmailDispatchResult> {
-  const user = options.fromEmail || DEFAULT_USER;
-  const pass = options.authPass || DEFAULT_PASS;
+  const user = options.fromEmail || ENV_USER;
+  const pass = options.authPass || ENV_PASS;
   const fromName = options.fromName || 'Sameer Shaik';
+
+  if (!user || !pass) {
+    return { success: false, error: 'SMTP credentials are not configured.' };
+  }
 
   const transporter = createSmtpTransporter(user, pass);
 
@@ -80,16 +92,30 @@ export async function sendRealEmail(options: EmailDispatchOptions): Promise<Emai
 }
 
 /**
- * Send bulk emails (e.g. 600+ recipients) with rate control and zero user buttons.
+ * Send bulk emails with rate control.
  */
 export async function sendBulkRealEmails(
   recipients: string[],
   subject: string,
   bodyTemplate: string,
-  fromEmail = DEFAULT_USER,
-  authPass = DEFAULT_PASS,
+  fromEmail = ENV_USER,
+  authPass = ENV_PASS,
   fromName = 'Sameer Shaik'
 ): Promise<BulkDispatchResult> {
+  if (!fromEmail || !authPass) {
+    return {
+      success: false,
+      total: recipients.length,
+      sentCount: 0,
+      failedCount: recipients.length,
+      results: recipients.map((r) => ({
+        recipient: r,
+        success: false,
+        error: 'SMTP credentials are not configured.',
+      })),
+    };
+  }
+
   const transporter = createSmtpTransporter(fromEmail, authPass);
   const results: { recipient: string; success: boolean; messageId?: string; error?: string }[] = [];
   let sentCount = 0;

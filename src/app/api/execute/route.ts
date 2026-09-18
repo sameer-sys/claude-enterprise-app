@@ -10,7 +10,22 @@ const execAsync = promisify(exec);
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+// SECURITY: this endpoint runs arbitrary shell commands / code. It was
+// previously reachable by anyone on the internet with no auth check at all.
+// It now requires a matching x-api-key header, checked against a secret
+// stored ONLY in the INTERNAL_API_SECRET environment variable.
+function isAuthorized(req: NextRequest): boolean {
+  const secret = process.env.INTERNAL_API_SECRET;
+  if (!secret) return false; // fail closed if not configured
+  const provided = req.headers.get('x-api-key');
+  return provided === secret;
+}
+
 export async function POST(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const startTime = Date.now();
   try {
     const body = await req.json();

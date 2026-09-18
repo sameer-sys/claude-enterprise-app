@@ -973,6 +973,37 @@ export default function ChatArea({
                     </div>
                   ) : (
                     <>
+                      {/* Collapsible Thinking / Extended Reasoning Section */}
+                      {msg.thinking && !isUser && (
+                        <div className="mb-3 rounded-xl border border-[#38352d] bg-[#22211c] overflow-hidden shadow-sm">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedThinking((prev) => ({
+                                ...prev,
+                                [msg.id]: !prev[msg.id],
+                              }))
+                            }
+                            className="w-full flex items-center justify-between px-3 py-2 text-xs text-[#a8a397] hover:text-[#f4efe6] hover:bg-[#2a2822] transition-colors"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <Brain className="w-3.5 h-3.5 text-[#cc785c]" />
+                              <span className="font-medium text-[#cc785c]">
+                                {isLastAssistant && isStreaming ? 'Thinking...' : 'Reasoning Process'}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-[#787369] font-mono">
+                              {expandedThinking[msg.id] ? 'Hide ▴' : 'Show ▾'}
+                            </span>
+                          </button>
+                          {expandedThinking[msg.id] && (
+                            <div className="px-3.5 py-2.5 border-t border-[#302e27] text-xs leading-relaxed text-[#b5b0a4] whitespace-pre-wrap font-mono bg-[#1a1915]/70 max-h-72 overflow-y-auto">
+                              {msg.thinking}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Main Markdown Body */}
                       <div className="markdown-body space-y-3 text-[14.5px] leading-relaxed text-[#ede8df]">
                         <ReactMarkdown

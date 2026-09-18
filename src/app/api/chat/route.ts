@@ -10,6 +10,7 @@ import {
 } from '@/lib/composio';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 const OPENROUTER_MODELS: Record<string, string> = {
   'claude-3-7-sonnet': 'anthropic/claude-3.7-sonnet',
@@ -1795,8 +1796,9 @@ Please verify your credentials or connected account in the Connectors modal.`;
               model: cand,
               messages: fullMessages,
               stream: true,
+              max_tokens: 4096,
             }),
-            signal: AbortSignal.timeout(25000),
+            signal: AbortSignal.timeout(45000),
           });
 
           if (!upstreamResponse.ok) {
@@ -1807,7 +1809,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
             const encoder = new TextEncoder();
             const decoder = new TextDecoder();
             let orBuffer = '';
-            let hasEmittedContent = false;
+            let accumulatedContent = '';
             let accumulatedReasoning = '';
 
             const transformStream = new TransformStream({
@@ -1821,9 +1823,9 @@ Please verify your credentials or connected account in the Connectors modal.`;
                   if (!trimmed || !trimmed.startsWith('data: ')) continue;
                   const dataStr = trimmed.replace('data: ', '');
                   if (dataStr === '[DONE]') {
-                    if (!hasEmittedContent && accumulatedReasoning) {
+                    if (accumulatedContent.trim().length < 60 && accumulatedReasoning.trim().length > 30) {
                       controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({ content: accumulatedReasoning })}\n\n`)
+                        encoder.encode(`data: ${JSON.stringify({ content: '\n\n' + accumulatedReasoning })}\n\n`)
                       );
                     }
                     controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -1845,7 +1847,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
                       );
                     }
                     if (delta) {
-                      hasEmittedContent = true;
+                      accumulatedContent += delta;
                       controller.enqueue(
                         encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`)
                       );
@@ -1854,9 +1856,9 @@ Please verify your credentials or connected account in the Connectors modal.`;
                 }
               },
               flush(controller) {
-                if (!hasEmittedContent && accumulatedReasoning) {
+                if (accumulatedContent.trim().length < 60 && accumulatedReasoning.trim().length > 30) {
                   controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ content: accumulatedReasoning })}\n\n`)
+                    encoder.encode(`data: ${JSON.stringify({ content: '\n\n' + accumulatedReasoning })}\n\n`)
                   );
                 }
                 controller.enqueue(encoder.encode('data: [DONE]\n\n'));

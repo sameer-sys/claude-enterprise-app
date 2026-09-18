@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendRealEmail, sendBulkRealEmails } from '@/lib/mailer';
 import { fetchLatestEmails } from '@/lib/imapReader';
+import {
+  listConnectedAccounts,
+  executeComposioAction,
+  fetchLiveYouTubePlaylists,
+  fetchLiveDriveFiles,
+  getComposioApiKey,
+} from '@/lib/composio';
 
 export const runtime = 'nodejs';
 
@@ -801,145 +808,16 @@ ${fbPost}
 - \`[✓] Zero Placeholders:\` All three payloads verified and ready for 1-click execution`;
   }
 
-  // 7. YOUTUBE SPECIFIC EXECUTION
-  if (lower.includes('youtube') || lower.includes('yt ') || lower.includes('video upload') || lower.includes('video title')) {
-    const ytConn = activeConnectors.find((c: any) => c.id === 'conn-youtube');
-    const channel = ytConn?.config?.channelName || 'Official Channel';
-    const ytTitle = `Mastering Autonomous AI Workflows & Connectors (Complete Guide)`;
-    const ytTags = `YouTube Automation, AI Agents, Claude 3.7, OpenWork, Tech Guide, Programming`;
-    const ytUrl = 'https://studio.youtube.com/channel/UC/videos/upload?d=pt';
+  // Fallback for social/media queries when model is offline: provide genuine status, never invent fake playlists
+  if (lower.includes('youtube') || lower.includes('playlist') || lower.includes('instagram') || lower.includes('facebook') || lower.includes('twitter') || lower.includes('linkedin')) {
+    return `### ⚡ Sameer AI Workspace Connector Status
 
-    return `### 🎥 YouTube Studio Connector · Autonomous Channel Upload & SEO
+To execute real live operations on YouTube, Gmail, Drive, or Social platforms:
+1. Ensure your account is authorized in the **Connectors** menu (top-right).
+2. For channel data (such as live YouTube playlists or Google Drive files), your active Composio connection will pull real-time data directly from your account.
+3. No fake or placeholder data will ever be generated.
 
-I have prepared your YouTube video upload payload for **${channel}**:
-
-| Parameter | Configuration |
-|---|---|
-| **Target Channel** | \`${channel}\` |
-| **Status** | 🟢 **Staged & Ready for Upload** |
-| **Title** | \`${ytTitle}\` |
-| **Category** | Science & Technology |
-
-#### Video Description & SEO Tags:
-\`\`\`text
-${ytTitle}
-
-In this video, we explore how autonomous agent connectors allow real-time execution across web and social platforms.
-
-Timestamps:
-0:00 - Introduction
-2:30 - Autonomous Execution Architecture
-6:00 - Live Deployment & Results
-
-Tags: ${ytTags}
-\`\`\`
-
-👉 **[🎥 Launch 1-Click Upload in YouTube Studio](${ytUrl})**`;
-  }
-
-  // 8. INSTAGRAM SPECIFIC EXECUTION
-  if (lower.includes('instagram') || lower.includes('insta') || lower.includes('reel') || lower.includes('ig caption')) {
-    const igConn = activeConnectors.find((c: any) => c.id === 'conn-instagram');
-    const handle = igConn?.config?.handle || '@sameer.official';
-    const igUrl = 'https://www.instagram.com';
-
-    return `### 📸 Instagram Creator Connector · Reel & Carousel Staging
-
-I have formatted and staged your Instagram payload for **${handle}**:
-
-- **Account:** \`${handle}\`
-- **Format:** High-Retention Reel / Carousel
-- **Status:** 🟢 **Staged & Ready to Post**
-
-#### Staged Caption & Hashtag Cloud:
-\`\`\`text
-The boundary between chatting with AI and AI executing real work is gone. ⚡
-
-Here is the exact framework to run autonomous multi-channel distribution without manual overhead.
-
-Save this for later and drop your thoughts in the comments! 👇
-
-#AI #Productivity #TechHacks #BuildInPublic #ContentCreation #Automation #MachineLearning #Claude #Developer
-\`\`\`
-
-👉 **[📸 Open & Post on Instagram](${igUrl})**`;
-  }
-
-  // 9. FACEBOOK SPECIFIC EXECUTION
-  if (lower.includes('facebook') || lower.includes('fb page') || lower.includes('meta business')) {
-    const fbConn = activeConnectors.find((c: any) => c.id === 'conn-facebook');
-    const page = fbConn?.config?.platform || 'Meta Business Suite';
-    const fbUrl = 'https://business.facebook.com/latest/composer';
-
-    return `### 🌐 Facebook Connector · Meta Business Suite Staging
-
-I have staged your Facebook community post for **${page}**:
-
-- **Target Page / Suite:** \`${page}\`
-- **Engagement Goal:** Community Discussion & Link Clicks
-- **Status:** 🟢 **Staged for Optimal Reach**
-
-#### Post Content:
-\`\`\`text
-🚀 We just deployed autonomous multi-channel content syndication. You can now execute and coordinate updates directly from one unified interface.
-
-Check it out and let us know your feedback!
-\`\`\`
-
-👉 **[🌐 Open in Meta Business Suite Composer](${fbUrl})**`;
-  }
-
-  // 10. X / TWITTER SPECIFIC EXECUTION
-  if (lower.includes('twitter') || lower.includes('tweet') || lower.includes('x post') || lower.includes('post on x')) {
-    const tweetConn = activeConnectors.find((c: any) => c.id === 'conn-twitter');
-    const handle = tweetConn?.config?.handle || '@sameer_ai';
-    const tweetText = `Just launched our autonomous AI doer engine with real multi-channel execution (Gmail, YouTube, IG, FB, GitHub).
-
-Zero manual friction. 100% automated.\n\nCheck it out live: https://claude-enterprise-app.vercel.app 🚀 #buildinpublic #AI`;
-    const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
-
-    return `### 🐦 X (Twitter) Connector · Autonomous Post Staging
-
-I have drafted and formatted your tweet for **${handle}** (218 / 280 characters):
-
-\`\`\`text
-${tweetText}
-\`\`\`
-
-- **Status:** 🟢 **Staged & Formatted for High Impressions**
-- **Characters:** 218 / 280
-- **Media:** Rich preview card attached
-
-👉 **[🐦 1-Click Post to X / Twitter](${tweetUrl})**`;
-  }
-
-  // 11. LINKEDIN SPECIFIC EXECUTION
-  if (lower.includes('linkedin')) {
-    const liConn = activeConnectors.find((c: any) => c.id === 'conn-linkedin');
-    const handle = liConn?.config?.handle || 'sameer-workspace';
-    const shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent('https://claude-enterprise-app.vercel.app')}`;
-
-    return `### 💼 LinkedIn Connector · Thought Leadership & Company Update
-
-I have drafted a high-impact B2B thought leadership post for **${handle}**:
-
-\`\`\`text
-The boundary between "chatting with AI" and "AI that actually does the work" has officially dissolved.
-
-When an AI system can autonomously:
-1. Stage video uploads with SEO metadata to YouTube
-2. Coordinate social syndication across Instagram & Facebook
-3. Draft and stage confirmed email dispatches via Gmail
-4. Synthesize custom execution kernels when no pre-existing tool exists
-
-...the leverage for engineering and product teams multiplies by 10x.
-
-Are you still treating AI as a search bar, or as an autonomous teammate?
-
-#ArtificialIntelligence #EnterpriseAI #Engineering #Innovation #FutureOfWork
-\`\`\`
-
-👉 **[💼 1-Click Share on LinkedIn](${shareUrl})**`;
+How would you like to proceed with your workflow?`;
   }
 
   // 12. WHATSAPP & TELEGRAM EXECUTION
@@ -1034,11 +912,14 @@ export async function POST(req: NextRequest) {
       modelId = 'claude-3-7-sonnet',
       geminiKey,
       openRouterKey,
+      composioApiKey: userComposioKey,
       omniRouteUrl,
       thinkingBudget = 16000,
       agentPrompt,
       connectors = [],
     } = await req.json();
+
+    const composioApiKey = userComposioKey || process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
 
     const isOmniRouteModel =
       modelId === 'the-boss-chat' ||
@@ -1048,6 +929,109 @@ export async function POST(req: NextRequest) {
     const userLastMsg = messages[messages.length - 1];
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
+
+    // ========================================================
+    // REAL-TIME YOUTUBE PLAYLIST & CHANNEL QUERY INTERCEPTOR
+    // ========================================================
+    const isYtPlaylistRequest =
+      (lowerText.includes('playlist') || lowerText.includes('playtlist')) &&
+      (lowerText.includes('youtube') || lowerText.includes('yt') || lowerText.includes('channel'));
+
+    if (isYtPlaylistRequest) {
+      let ytContent = '';
+
+      if (!composioApiKey) {
+        ytContent = `### ⚠️ Composio API Key Required
+
+To fetch your live YouTube playlists and channel tools, your **Composio API Key** is required:
+
+1. Copy your API Key from **[app.composio.dev/settings](https://app.composio.dev/settings)**.
+2. Open **Settings > API Keys** (or the Connectors modal) and paste your key.
+3. Once set, I will query your real YouTube channel directly with zero hallucinations!`;
+      } else {
+        try {
+          const accounts = await listConnectedAccounts(composioApiKey);
+          const ytAccount = accounts.find((a) =>
+            (a.appUniqueId || a.appName || '').toLowerCase().includes('youtube')
+          );
+
+          if (!ytAccount) {
+            ytContent = `### 🎥 YouTube Channel Not Connected
+
+I connected to Composio, but your **YouTube** account has not been authorized yet.
+
+#### How to connect in 1 click:
+1. Open the **Connectors** menu (top-right of chat).
+2. Find **YouTube Studio** and click **"Connect"**.
+3. Complete the Google / YouTube authorization in the popup window.
+4. Come back and ask me again — I will immediately pull your live channel data!`;
+          } else {
+            const playlistRes = await fetchLiveYouTubePlaylists(composioApiKey, ytAccount.id);
+
+            if (playlistRes.success && playlistRes.playlists && playlistRes.playlists.length > 0) {
+              const rows = playlistRes.playlists.map((p, idx) =>
+                `| ${idx + 1} | [${p.title}](${p.url}) | \`${p.itemCount} videos\` | \`${p.privacyStatus}\` | \`${p.id}\` |`
+              ).join('\n');
+
+              ytContent = `### 🎥 Live YouTube Playlists (Real Channel Data)
+
+**Connected Account:** \`${ytAccount.accountIdentifier || ytAccount.email || 'Verified YouTube Channel'}\`  
+**Total Playlists Found:** **${playlistRes.playlists.length}**
+
+| # | Playlist Title | Video Count | Privacy | Playlist ID |
+|---|---|---|---|---|
+${rows}
+
+✅ **100% Real Data:** Retrieved live from your YouTube channel via Composio real-time execution.`;
+            } else if (playlistRes.success && playlistRes.playlists && playlistRes.playlists.length === 0) {
+              ytContent = `### 🎥 YouTube Channel Verified
+
+**Connected Account:** \`${ytAccount.accountIdentifier || ytAccount.email || 'Verified YouTube Channel'}\`
+
+You currently have **0 playlists** on this channel.
+
+Would you like me to help you create a new playlist, organize tags, or prepare video descriptions?`;
+            } else {
+              ytContent = `### 🎥 YouTube Channel Connected
+
+**Connected Account:** \`${ytAccount.accountIdentifier || ytAccount.email || 'Verified YouTube Channel'}\`  
+**Status:** 🟢 Connected & Active on Composio
+
+${playlistRes.error ? `> Note: ${playlistRes.error}` : ''}
+
+Your channel is connected. You can ask me to fetch your videos, stage uploads, or check channel analytics!`;
+            }
+          }
+        } catch (err: any) {
+          ytContent = `### 🎥 YouTube Query Error
+          
+Error communicating with Composio: ${err.message || 'Check your Composio API key permissions.'}`;
+        }
+      }
+
+      const encoder = new TextEncoder();
+      const chunkSize = 28;
+      const stream = new ReadableStream({
+        start(controller) {
+          for (let pos = 0; pos < ytContent.length; pos += chunkSize) {
+            const piece = ytContent.slice(pos, pos + chunkSize);
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: piece })}\n\n`));
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Claude-Skill': 'Real-Time YouTube Execution',
+          'X-Claude-Router': 'composio-live-youtube',
+        },
+      });
+    }
 
     // ========================================================
     // ZERO-CLICK AUTONOMOUS DOER INTERCEPTOR (OPENWORK / HERMES LEVEL)
@@ -2071,11 +2055,12 @@ ${body}
       const candidateModels = Array.from(
         new Set([
           selectedTargetModel,
+          'nvidia/nemotron-3.5-lightning:free',
+          'deepseek/deepseek-v4-flash-0731:free',
           'nvidia/nemotron-3-ultra-550b-a55b:free',
-          'google/gemma-4-26b-a4b-it:free',
           'inclusionai/ling-3.0-flash-vl:free',
         ])
-      ).slice(0, 3);
+      ).slice(0, 4);
 
       const recentMessages = messages.slice(-8);
       const fullMessages = [

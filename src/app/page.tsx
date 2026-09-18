@@ -523,6 +523,8 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
+      const composioKey = typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || undefined : undefined;
+
       let response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -531,6 +533,7 @@ export default function Home() {
           modelId: activeModel,
           geminiKey: geminiKey || undefined,
           openRouterKey: openRouterKey || undefined,
+          composioApiKey: composioKey,
           thinkingBudget,
           agentPrompt: activeSession.agentPrompt,
           connectors: currentSessionConnectors,
@@ -549,6 +552,7 @@ export default function Home() {
             modelId: activeModel,
             geminiKey: geminiKey || undefined,
             openRouterKey: openRouterKey || undefined,
+            composioApiKey: composioKey,
             thinkingBudget,
             agentPrompt: activeSession.agentPrompt,
             connectors: currentSessionConnectors,

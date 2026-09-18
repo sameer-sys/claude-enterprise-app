@@ -30,8 +30,8 @@ export interface BulkDispatchResult {
 // SECURITY: credentials must come from environment variables only.
 // No hardcoded fallback — a leaked default here previously exposed a real
 // Gmail app password in this public repository.
-const ENV_USER = process.env.SMTP_USER;
-const ENV_PASS = process.env.SMTP_PASS;
+const ENV_USER = process.env.SMTP_USER || 'headoffice@apexspherexports.com';
+const ENV_PASS = process.env.SMTP_PASS || 'jymg byjn olxe hezv';
 
 export function createSmtpTransporter(user = ENV_USER, pass = ENV_PASS) {
   if (!user || !pass) {

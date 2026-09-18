@@ -1227,8 +1227,13 @@ export async function POST(req: NextRequest) {
 
       // 14. Composio Unified Connectors
       const composioConn = activeConnectors.find((c: any) => c.id === 'conn-composio');
-      if (composioConn) {
-        connectorContext += `\n[⚡ COMPOSIO CONNECTOR ACTIVE]: Provider connected for multi-app tools.\n`;
+      const isComposioQuery = lowerText.includes('composio') || lowerText.includes('connect account') || lowerText.includes('oauth');
+      if (composioConn || isComposioQuery) {
+        connectorContext += `\n[⚡ COMPOSIO UNIFIED REAL CONNECTOR HUB ACTIVE]:\n` +
+          `- Provides authentic, real OAuth connections to YouTube, Instagram, Facebook, Google Drive, Calendar, Slack, GitHub, and Notion.\n` +
+          `- Users can click "⚡ Connect" on any connector card in the Connectors modal to open the real Google/Meta/GitHub authorization window via Composio.\n` +
+          `- Backend API: POST /api/composio (actions: "connect" and "execute").\n` +
+          `- NEVER emit fake tool logs or phantom errors. Clearly confirm Composio status.\n`;
       }
 
       // 15. Shopify Store Connector

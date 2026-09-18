@@ -918,6 +918,52 @@ export default function ConnectorsModal({
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const [showCustomGoogleAccount, setShowCustomGoogleAccount] = useState(false);
   const [customGoogleEmail, setCustomGoogleEmail] = useState('');
+  // Composio Master OAuth Hub State
+  const [composioApiKey, setComposioApiKey] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('composio_api_key') || '';
+    }
+    return '';
+  });
+  const [composioSaved, setComposioSaved] = useState(false);
+  const [isConnectingComposio, setIsConnectingComposio] = useState<string | null>(null);
+  const [composioError, setComposioError] = useState<string | null>(null);
+
+  const handleSaveComposioKey = (key: string) => {
+    setComposioApiKey(key);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('composio_api_key', key);
+    }
+    setComposioSaved(true);
+    setTimeout(() => setComposioSaved(false), 2000);
+  };
+
+  const handleComposioConnect = async (connectorId: string) => {
+    setIsConnectingComposio(connectorId);
+    setComposioError(null);
+    try {
+      const res = await fetch('/api/composio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'connect',
+          appName: connectorId,
+          apiKey: composioApiKey,
+        }),
+      });
+      const data = await res.json();
+      if (data.redirectUrl) {
+        window.open(data.redirectUrl, '_blank', 'width=600,height=750');
+        onToggleConnector(connectorId);
+      } else if (data.error) {
+        setComposioError(data.error);
+      }
+    } catch (e: any) {
+      setComposioError(e.message || 'Failed to connect via Composio');
+    } finally {
+      setIsConnectingComposio(null);
+    }
+  };
 
   const handleSelectGoogleAccount = (email: string, name: string) => {
     if (!googleOAuthConnector) return;
@@ -1334,6 +1380,56 @@ export default function ConnectorsModal({
                 </div>
               )}
 
+              {/* COMPOSIO REAL MULTI-APP OAUTH HUB */}
+              <div className="p-4 rounded-2xl bg-[#1a1916] border border-[#38352d] shadow-md space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-[#cc785c]/20 border border-[#cc785c]/40 flex items-center justify-center text-[#cc785c] font-bold text-xs">
+                      ⚡
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-[#f2eee6] flex items-center gap-1.5">
+                        <span>Composio Real Multi-App Hub</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                          Official OAuth
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#8a8579]">
+                        Real live OAuth connection for YouTube, Instagram, Facebook, Drive, GitHub, Slack & Notion.
+                      </p>
+                    </div>
+                  </div>
+                  {composioSaved && (
+                    <span className="text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      Saved!
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    placeholder="Paste your Composio API Key (from app.composio.dev)..."
+                    value={composioApiKey}
+                    onChange={(e) => handleSaveComposioKey(e.target.value)}
+                    className="flex-1 bg-[#12110f] border border-[#2b2923] focus:border-[#cc785c] rounded-xl px-3 py-1.5 text-xs text-[#ece9e2] placeholder-[#666259] focus:outline-none font-mono"
+                  />
+                  <a
+                    href="https://app.composio.dev/settings"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-xl bg-[#2b2923] hover:bg-[#35332b] text-[#cc785c] hover:text-[#f4efe6] text-xs font-medium transition-all flex items-center gap-1 border border-[#3e3b31] shrink-0"
+                  >
+                    <span>Get Key</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                {composioError && (
+                  <p className="text-rose-400 text-[11px]">{composioError}</p>
+                )}
+              </div>
+
               {/* 1. YOUR CUSTOM CONNECTORS (Image 1) */}
               {customConnectors.length > 0 && (
                 <div className="space-y-3">
@@ -1348,6 +1444,7 @@ export default function ConnectorsModal({
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
                         onGoogleAuth={(c) => setGoogleOAuthConnector(c)}
+                        onComposioConnect={handleComposioConnect}
                       />
                     ))}
                   </div>
@@ -1384,6 +1481,7 @@ export default function ConnectorsModal({
                         }}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
                         onGoogleAuth={(c) => setGoogleOAuthConnector(c)}
+                        onComposioConnect={handleComposioConnect}
                       />
                     ))}
                   </div>
@@ -1414,6 +1512,7 @@ export default function ConnectorsModal({
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
                         onGoogleAuth={(c) => setGoogleOAuthConnector(c)}
+                        onComposioConnect={handleComposioConnect}
                       />
                     ))}
                   </div>
@@ -1920,11 +2019,13 @@ function ConnectorCard({
   onToggle,
   onOpenConfig,
   onGoogleAuth,
+  onComposioConnect,
 }: {
   connector: Connector;
   onToggle: () => void;
   onOpenConfig: (e: React.MouseEvent) => void;
   onGoogleAuth?: (c: Connector) => void;
+  onComposioConnect?: (connectorId: string) => void;
 }) {
   const isEnabled = connector.enabled;
   const isGoogle = connector.id === 'conn-gmail' || connector.id === 'conn-gdrive' || connector.id === 'conn-gcalendar';
@@ -2035,6 +2136,27 @@ function ConnectorCard({
             title="Configure settings for this chat"
           >
             <Settings className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {!isEnabled && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onComposioConnect) {
+                onComposioConnect(connector.id);
+              } else if (isGoogle && onGoogleAuth) {
+                onGoogleAuth(connector);
+              } else {
+                onToggle();
+              }
+            }}
+            className="px-2 py-1 rounded-lg bg-[#cc785c]/15 hover:bg-[#cc785c]/25 border border-[#cc785c]/35 text-[#cc785c] hover:text-[#f4efe6] text-[10px] font-semibold transition-all flex items-center gap-1 shadow-sm"
+            title="Authenticate with real account via Composio"
+          >
+            <Sparkles className="w-3 h-3 text-[#cc785c]" />
+            <span>Connect</span>
           </button>
         )}
 

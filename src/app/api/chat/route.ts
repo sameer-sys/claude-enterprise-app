@@ -1191,232 +1191,49 @@ Please verify your credentials or connected account in the Connectors modal.`;
           `- INSTRUCTIONS: Provide authoritative fresh facts with citations and the search link.\n`;
       }
 
-      // 4. Google Drive Connector
-      const driveConn = activeConnectors.find((c: any) => c.id === 'conn-gdrive');
-      if (driveConn || isDriveQuery) {
-        const folder = driveConn?.config?.driveFolder || 'Claude Workspace Shared';
-        connectorContext += `\n[⚡ GOOGLE DRIVE CONNECTOR ACTIVE]:\n` +
-          `- Connected Workspace Folder: "${folder}"\n` +
-          `- Action Links to provide:\n` +
-          `  - [📂 Open Google Drive](https://drive.google.com)\n` +
-          `  - [📝 Create Google Doc](https://docs.google.com/document/create)\n` +
-          `  - [📊 Create Google Sheet](https://docs.google.com/spreadsheets/create)\n` +
-          `- INSTRUCTIONS: Structure any requested document or spreadsheet cleanly and include these 1-click links.\n`;
-      }
+      // 4. REAL CONNECTED APPS (Composio) - uses the existing composio.ts
+      // helpers instead of fabricating text. Everything below used to be
+      // template strings pretending Drive, Slack, Notion, Figma,
+      // Filesystem, Calendar, Linear, Canva, Asana, HubSpot, Shopify,
+      // Salesforce, Microsoft 365 and the social platforms were connected
+      // and had done something - none of that was real.
+      try {
+        const composioKey = await getComposioApiKey();
 
-      // 5. Slack Connector
-      const slackConn = activeConnectors.find((c: any) => c.id === 'conn-slack');
-      if (slackConn || isSlackQuery) {
-        const channel = slackConn?.config?.slackChannel || '#general';
-        connectorContext += `\n[⚡ SLACK WORKSPACE CONNECTOR ACTIVE]:\n` +
-          `- Connected Channel: "${channel}"\n` +
-          `- Action Link to provide: [💬 Open Slack Workspace](https://app.slack.com/client)\n` +
-          `- INSTRUCTIONS: Format message with authentic Slack mrkdwn syntax (e.g. *bold*, _italics_, > quote) and include the 1-click link.\n`;
-      }
+        if (!composioKey) {
+          connectorContext += `\n[CONNECTORS]: Composio is not configured yet (COMPOSIO_API_KEY is not set). Tell the user plainly that no third-party app connectors are wired up yet - do not claim any app (Notion, Linear, HubSpot, Shopify, Drive, etc.) is connected or that any action on those apps succeeded.\n`;
+        } else {
+          const realAccounts = await listConnectedAccounts(composioKey);
+          const activeApps = realAccounts.filter((a) => a.status === 'ACTIVE').map((a) => a.appUniqueId);
 
-      // 6. Notion Connector
-      const notionConn = activeConnectors.find((c: any) => c.id === 'conn-notion');
-      if (notionConn || isNotionQuery) {
-        connectorContext += `\n[⚡ NOTION CONNECTOR ACTIVE]:\n` +
-          `- Connected Database: Engineering Roadmap & Specs\n` +
-          `- Action Link to provide: [📑 Open in Notion](https://notion.so)\n` +
-          `- INSTRUCTIONS: Format structured database properties (Status, Priority, Tags, Assignee) and table blocks with the 1-click link.\n`;
-      }
+          if (activeApps.length === 0) {
+            connectorContext += `\n[CONNECTORS]: Composio is configured, but no apps are actively connected yet for this user. Tell the user plainly they need to connect an app first before you can use it - do not claim any app is connected or that an action succeeded.\n`;
+          } else {
+            connectorContext += `\n[CONNECTORS]: Really connected right now: ${activeApps.join(', ')}.\n` +
+              `- INSTRUCTIONS: Only report an action as done if a real result is shown below. If the user asks about an app not in this list, say plainly it is not connected yet - do not invent a status, a link, or a result for it.\n`;
 
-      // 7. Figma Connector
-      const figmaConn = activeConnectors.find((c: any) => c.id === 'conn-figma');
-      if (figmaConn || isFigmaQuery) {
-        connectorContext += `\n[⚡ FIGMA DESIGN CONNECTOR ACTIVE]:\n` +
-          `- Design Tokens: Claude Enterprise Palette (#cc785c primary, #1c1b18 dark canvas)\n` +
-          `- Action Link to provide: [🎨 Open in Figma](https://figma.com)\n` +
-          `- INSTRUCTIONS: Extract color tokens, spacing, typography, and provide CSS/Tailwind classes alongside the 1-click link.\n`;
-      }
+            if (activeApps.includes('youtube') && (isSocialQuery || lowerText.includes('playlist'))) {
+              const ytAcct = realAccounts.find((a) => a.appUniqueId === 'youtube');
+              const ytRes = await fetchLiveYouTubePlaylists(composioKey, ytAcct?.id);
+              connectorContext += ytRes.success
+                ? `\n[⚡ YOUTUBE - REAL DATA]: ${JSON.stringify(ytRes.playlists).slice(0, 1200)}\n`
+                : `\n[⚡ YOUTUBE]: Connected, but the live fetch failed (${ytRes.error}). Report this plainly, do not invent playlist data.\n`;
+            }
 
-      // 8. Local Filesystem (MCP)
-      const fsConn = activeConnectors.find((c: any) => c.id === 'conn-filesystem');
-      if (fsConn || isFilesystemQuery) {
-        connectorContext += `\n[⚡ LOCAL FILESYSTEM (MCP) ACTIVE]:\n` +
-          `- Workspace Root: scratch/boss-ai-app\n` +
-          `- Structure: Next.js 14 App Router, TypeScript, Tailwind CSS, Lucide Icons, Supabase Sync.\n` +
-          `- INSTRUCTIONS: Present project file hierarchy and component structure clearly.\n`;
-      }
-
-      // 9. Google Calendar Connector
-      const calendarConn = activeConnectors.find((c: any) => c.id === 'conn-gcalendar');
-      const isCalendarQuery = lowerText.includes('calendar') || lowerText.includes('meeting') || lowerText.includes('schedule') || lowerText.includes('event');
-      if (calendarConn || isCalendarQuery) {
-        const calTitle = lastText.slice(0, 40) || 'Claude Workspace Meeting';
-        const calUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(calTitle)}`;
-        connectorContext += `\n[⚡ GOOGLE CALENDAR CONNECTOR ACTIVE]:\n` +
-          `- Action Link to provide: [📅 Open in Google Calendar](${calUrl})\n` +
-          `- INSTRUCTIONS: Format meetings with date, time, timezone, agenda, and provide the 1-click Google Calendar link.\n`;
-      }
-
-      // 10. Linear Issue Tracker Connector
-      const linearConn = activeConnectors.find((c: any) => c.id === 'conn-linear');
-      const isLinearQuery = lowerText.includes('linear') || lowerText.includes('ticket') || lowerText.includes('bug') || lowerText.includes('backlog');
-      if (linearConn || isLinearQuery) {
-        connectorContext += `\n[⚡ LINEAR CONNECTOR ACTIVE]:\n` +
-          `- Workspace: Sameer Engineering Squad\n` +
-          `- Action Link to provide: [⚡ Open Linear Workspace](https://linear.app)\n` +
-          `- INSTRUCTIONS: Render a structured Linear Issue Card (Identifier, Priority, Status, Assignee, Estimate) and provide the 1-click link.\n`;
-      }
-
-      // 11. Canva Connector
-      const canvaConn = activeConnectors.find((c: any) => c.id === 'conn-canva');
-      const isCanvaQuery = lowerText.includes('canva') || lowerText.includes('banner') || lowerText.includes('poster') || lowerText.includes('flyer');
-      if (canvaConn || isCanvaQuery) {
-        connectorContext += `\n[⚡ CANVA CONNECTOR ACTIVE]:\n` +
-          `- Action Link to provide: [🎨 Open in Canva](https://www.canva.com)\n` +
-          `- INSTRUCTIONS: Outline visual design specs, layout hierarchy, color palette, and provide the 1-click Canva link.\n`;
-      }
-
-      // 12. Asana Connector
-      const asanaConn = activeConnectors.find((c: any) => c.id === 'conn-asana');
-      const isAsanaQuery = lowerText.includes('asana') || lowerText.includes('task') || lowerText.includes('milestone');
-      if (asanaConn || isAsanaQuery) {
-        connectorContext += `\n[⚡ ASANA CONNECTOR ACTIVE]:\n` +
-          `- Action Link to provide: [🎯 Open in Asana](https://app.asana.com)\n` +
-          `- INSTRUCTIONS: Present task cards with due dates, sections, assignees, and provide the 1-click link.\n`;
-      }
-
-      // 13. HubSpot CRM Connector
-      const hubspotConn = activeConnectors.find((c: any) => c.id === 'conn-hubspot');
-      const isHubspotQuery = lowerText.includes('hubspot') || lowerText.includes('crm') || lowerText.includes('deal') || lowerText.includes('pipeline');
-      if (hubspotConn || isHubspotQuery) {
-        connectorContext += `\n[⚡ HUBSPOT CRM CONNECTOR ACTIVE]:\n` +
-          `- Action Link to provide: [💼 Open in HubSpot](https://app.hubspot.com)\n` +
-          `- INSTRUCTIONS: Present CRM deal lifecycle, contact status, and stage values with the 1-click link.\n`;
-      }
-
-      // 14. Composio Unified Connectors
-      const composioConn = activeConnectors.find((c: any) => c.id === 'conn-composio');
-      const isComposioQuery = lowerText.includes('composio') || lowerText.includes('connect account') || lowerText.includes('oauth');
-      if (composioConn || isComposioQuery) {
-        connectorContext += `\n[⚡ COMPOSIO UNIFIED REAL CONNECTOR HUB ACTIVE]:\n` +
-          `- Provides authentic, real OAuth connections to YouTube, Instagram, Facebook, Google Drive, Calendar, Slack, GitHub, and Notion.\n` +
-          `- Users can click "⚡ Connect" on any connector card in the Connectors modal to open the real Google/Meta/GitHub authorization window via Composio.\n` +
-          `- Backend API: POST /api/composio (actions: "connect" and "execute").\n` +
-          `- NEVER emit fake tool logs or phantom errors. Clearly confirm Composio status.\n`;
-      }
-
-      // 15. Shopify Store Connector
-      const shopifyConn = activeConnectors.find((c: any) => c.id === 'conn-shopify');
-      const isShopifyQuery = lowerText.includes('shopify') || lowerText.includes('store') || lowerText.includes('product') || lowerText.includes('order');
-      if (shopifyConn || isShopifyQuery) {
-        connectorContext += `\n[⚡ SHOPIFY CONNECTOR ACTIVE]:\n` +
-          `- Action Link to provide: [🛍️ Open Shopify Admin](https://admin.shopify.com)\n` +
-          `- INSTRUCTIONS: Format product SKUs, inventory, and order summaries with the 1-click link.\n`;
-      }
-
-      // 16. Salesforce Connector
-      const salesforceConn = activeConnectors.find((c: any) => c.id === 'conn-salesforce');
-      const isSalesforceQuery = lowerText.includes('salesforce') || lowerText.includes('lead') || lowerText.includes('opportunity');
-      if (salesforceConn || isSalesforceQuery) {
-        connectorContext += `\n[⚡ SALESFORCE CONNECTOR ACTIVE]:\n` +
-          `- Action Link to provide: [☁️ Open Salesforce](https://login.salesforce.com)\n` +
-          `- INSTRUCTIONS: Format Enterprise accounts, pipeline stages, and contact leads with the 1-click link.\n`;
-      }
-
-      // 17. Microsoft 365 Connector
-      const m365Conn = activeConnectors.find((c: any) => c.id === 'conn-m365');
-      const isM365Query = lowerText.includes('microsoft') || lowerText.includes('sharepoint') || lowerText.includes('onedrive') || lowerText.includes('teams');
-      if (m365Conn || isM365Query) {
-        connectorContext += `\n[⚡ MICROSOFT 365 CONNECTOR ACTIVE]:\n` +
-          `- Action Link to provide: [🏢 Open Microsoft 365](https://www.office.com)\n` +
-          `- INSTRUCTIONS: Format company SharePoint documents and OneDrive files with the 1-click link.\n`;
-      }
-
-      // 18. YouTube Studio Connector
-      const ytConn = activeConnectors.find((c: any) => c.id === 'conn-youtube');
-      const isYtQuery = lowerText.includes('youtube') || lowerText.includes('yt') || lowerText.includes('video upload') || lowerText.includes('video title');
-      if (ytConn || isYtQuery) {
-        const channel = ytConn?.config?.channelName || 'Official Channel';
-        const ytStudioUrl = 'https://studio.youtube.com/channel/UC/videos/upload?d=pt';
-        connectorContext += `\n[⚡ YOUTUBE STUDIO CONNECTOR ACTIVE]:\n` +
-          `- Target Channel: "${channel}"\n` +
-          `- Action Link to provide: [🎥 Open YouTube Studio Upload](${ytStudioUrl})\n` +
-          `- INSTRUCTIONS: Provide high-CTR Title, formatted Description with Timestamps, 15+ SEO Tags, and the 1-click Studio link.\n`;
-      }
-
-      // 19. Instagram Creator Connector
-      const igConn = activeConnectors.find((c: any) => c.id === 'conn-instagram');
-      const isIgQuery = lowerText.includes('instagram') || lowerText.includes('insta') || lowerText.includes('reel') || lowerText.includes('ig');
-      if (igConn || isIgQuery) {
-        const handle = igConn?.config?.handle || '@sameer.official';
-        connectorContext += `\n[⚡ INSTAGRAM CREATOR CONNECTOR ACTIVE]:\n` +
-          `- Connected Handle: "${handle}"\n` +
-          `- Action Link to provide: [📸 Open Instagram Web](https://www.instagram.com)\n` +
-          `- INSTRUCTIONS: Provide Reel / Carousel copy, line break spacing, 25 high-reach hashtags, and the 1-click link.\n`;
-      }
-
-      // 20. Facebook Meta Business Suite Connector
-      const fbConn = activeConnectors.find((c: any) => c.id === 'conn-facebook');
-      const isFbQuery = lowerText.includes('facebook') || lowerText.includes('fb') || lowerText.includes('meta business');
-      if (fbConn || isFbQuery) {
-        const page = fbConn?.config?.platform || 'Meta Business Suite';
-        connectorContext += `\n[⚡ FACEBOOK META BUSINESS CONNECTOR ACTIVE]:\n` +
-          `- Target Suite: "${page}"\n` +
-          `- Action Link to provide: [🌐 Open Meta Business Suite Composer](https://business.facebook.com/latest/composer)\n` +
-          `- INSTRUCTIONS: Format page post, CTA link, and provide the 1-click link.\n`;
-      }
-
-      // 21. X (Twitter) Connector
-      const twitterConn = activeConnectors.find((c: any) => c.id === 'conn-twitter');
-      const isTwitterQuery = lowerText.includes('twitter') || lowerText.includes('tweet') || lowerText.includes('x post');
-      if (twitterConn || isTwitterQuery) {
-        const handle = twitterConn?.config?.handle || '@sameer_ai';
-        const sampleTweet = 'Autonomous AI agent pipelines executing real work end-to-end. Zero friction.';
-        const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(sampleTweet)}`;
-        connectorContext += `\n[⚡ X / TWITTER CONNECTOR ACTIVE]:\n` +
-          `- Connected Handle: "${handle}"\n` +
-          `- Action Link to provide: [🐦 1-Click Tweet to X](${tweetUrl})\n` +
-          `- INSTRUCTIONS: Provide 280-char compliant post or thread, viral hook, and the 1-click Tweet intent link.\n`;
-      }
-
-      // 22. LinkedIn Connector
-      const linkedinConn = activeConnectors.find((c: any) => c.id === 'conn-linkedin');
-      const isLinkedinQuery = lowerText.includes('linkedin');
-      if (linkedinConn || isLinkedinQuery) {
-        const handle = linkedinConn?.config?.handle || 'sameer-workspace';
-        const liShareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent('https://claude-enterprise-app.vercel.app')}`;
-        connectorContext += `\n[⚡ LINKEDIN CONNECTOR ACTIVE]:\n` +
-          `- Connected Profile: "${handle}"\n` +
-          `- Action Link to provide: [💼 1-Click Share on LinkedIn](${liShareUrl})\n` +
-          `- INSTRUCTIONS: Format professional thought-leadership copy, actionable bullet points, and the 1-click link.\n`;
-      }
-
-      // 23. WhatsApp Business Connector
-      const waConn = activeConnectors.find((c: any) => c.id === 'conn-whatsapp');
-      const isWaQuery = lowerText.includes('whatsapp');
-      if (waConn || isWaQuery) {
-        connectorContext += `\n[⚡ WHATSAPP BUSINESS CONNECTOR ACTIVE]:\n` +
-          `- Action Link to provide: [💬 1-Click Send on WhatsApp](https://wa.me/?text=...)\n` +
-          `- INSTRUCTIONS: Format concise customer dispatch message with 1-click wa.me link.\n`;
-      }
-
-      // 24. Telegram Connector
-      const tgConn = activeConnectors.find((c: any) => c.id === 'conn-telegram');
-      const isTgQuery = lowerText.includes('telegram');
-      if (tgConn || isTgQuery) {
-        connectorContext += `\n[⚡ TELEGRAM CONNECTOR ACTIVE]:\n` +
-          `- Action Link to provide: [✈️ 1-Click Broadcast on Telegram](https://t.me/share/url?url=...)\n` +
-          `- INSTRUCTIONS: Format channel broadcast alert with markdown and 1-click t.me share link.\n`;
-      }
-
-      // 25. Reddit Community Connector
-      const redditConn = activeConnectors.find((c: any) => c.id === 'conn-reddit');
-      const isRedditQuery = lowerText.includes('reddit') || lowerText.includes('subreddit');
-      if (redditConn || isRedditQuery) {
-        const sub = redditConn?.config?.subreddit || 'r/artificial';
-        connectorContext += `\n[⚡ REDDIT CONNECTOR ACTIVE]:\n` +
-          `- Target Subreddit: "${sub}"\n` +
-          `- Action Link to provide: [👾 1-Click Submit to Reddit](https://www.reddit.com/submit)\n` +
-          `- INSTRUCTIONS: Format engaging community submission with Markdown and the 1-click submit link.\n`;
+            if (activeApps.includes('google_drive') && isDriveQuery) {
+              const driveAcct = realAccounts.find((a) => a.appUniqueId === 'google_drive');
+              const driveRes = await fetchLiveDriveFiles(composioKey, driveAcct?.id);
+              connectorContext += driveRes.success
+                ? `\n[⚡ GOOGLE DRIVE - REAL DATA]: ${JSON.stringify(driveRes.files).slice(0, 1200)}\n`
+                : `\n[⚡ GOOGLE DRIVE]: Connected, but the live fetch failed (${driveRes.error}). Report this plainly, do not invent file data.\n`;
+            }
+          }
+        }
+      } catch (err: any) {
+        connectorContext += `\n[CONNECTORS]: Real connector lookup failed (${err?.message || 'unknown error'}). Tell the user this plainly instead of pretending it worked.\n`;
       }
     }
 
-    // ========================================================
     // 9. LIVE WEB BYPASSER & URL SCRAPER (SUPERPOWER)
     // ========================================================
     const urlMatch = lastText.match(/(https?:\/\/[^\s]+)/i);

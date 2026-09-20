@@ -1612,9 +1612,12 @@ Please verify your credentials or connected account in the Connectors modal.`;
               model: cand,
               messages: fullMessages,
               stream: true,
-              max_tokens: 4096,
+              max_tokens: 8192,
             }),
-            signal: AbortSignal.timeout(45000),
+            // was 45s - too short for long code/analysis responses; the
+            // Vercel function itself is capped at maxDuration (60s) above,
+            // so this stays just under that rather than cutting off early.
+            signal: AbortSignal.timeout(58000),
           });
 
           if (!upstreamResponse.ok) {

@@ -38,6 +38,168 @@ const MAX_TOKENS_BY_MODEL: Record<string, number> = {
 };
 const DEFAULT_MAX_TOKENS = 8192;
 
+// Real agent tools - each one wraps an existing, genuinely working function.
+// No fabricated results: every tool returns real data or a real error string.
+const AGENT_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: 'Search the live web for current facts, news, or anything not in your training data.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'The search query' } },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_fetch',
+      description: 'Fetch and extract the readable text content of a specific URL the user gave you.',
+      parameters: {
+        type: 'object',
+        properties: { url: { type: 'string', description: 'The URL to fetch' } },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'github_lookup',
+      description: 'Get real repository stats and recent commits for a GitHub repo.',
+      parameters: {
+        type: 'object',
+        properties: { repo: { type: 'string', description: 'owner/repo, e.g. sameer-sys/claude-enterprise-app' } },
+        required: ['repo'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_email',
+      description: 'Send a real email via the connected Gmail/SMTP account. Only call this when the user has clearly asked you to send an email, with a real recipient.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Recipient email address' },
+          subject: { type: 'string' },
+          body: { type: 'string' },
+        },
+        required: ['to', 'subject', 'body'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_inbox',
+      description: 'Read the most recent real emails from the connected inbox.',
+      parameters: {
+        type: 'object',
+        properties: { count: { type: 'number', description: 'How many recent emails to fetch (default 3, max 10)' } },
+      },
+    },
+  },
+];
+
+async function runAgentTool(name: string, args: any): Promise<string> {
+  try {
+    if (name === 'web_search') {
+      const queryClean = String(args?.query || '').slice(0, 150);
+      if (!queryClean) return 'No query provided.';
+      let out = '';
+      try {
+        const ddgRes = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(queryClean)}&format=json&no_html=1&skip_disambig=1`, { signal: AbortSignal.timeout(6000) });
+        if (ddgRes.ok) {
+          const d = await ddgRes.json();
+          if (d.AbstractText) out += `DuckDuckGo: ${d.AbstractText} (Source: ${d.AbstractURL || 'Web'})\n`;
+        }
+      } catch (e) {}
+      try {
+        const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(queryClean)}`, { headers: { 'User-Agent': 'Claude-Enterprise-App' }, signal: AbortSignal.timeout(6000) });
+        if (wikiRes.ok) {
+          const d = await wikiRes.json();
+          if (d.extract) out += `Wikipedia: ${d.extract} (Source: ${d.content_urls?.desktop?.page || 'Wikipedia'})\n`;
+        }
+      } catch (e) {}
+      return out || 'No results found for this query - report this honestly rather than guessing an answer.';
+    }
+
+    if (name === 'web_fetch') {
+      const targetUrl = String(args?.url || '').replace(/[.,;:)]+$/, '');
+      if (!targetUrl) return 'No URL provided.';
+      const res = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return `Fetch failed with status ${res.status}.`;
+      const rawHtml = await res.text();
+      const cleanText = rawHtml
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
+        .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, ' ')
+        .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, ' ')
+        .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 4000);
+      return cleanText.length > 40 ? cleanText : 'Fetched the page but found little readable text (it may be JS-rendered).';
+    }
+
+    if (name === 'github_lookup') {
+      const repo = String(args?.repo || '').trim();
+      if (!repo) return 'No repo provided.';
+      const ghRes = await fetch(`https://api.github.com/repos/${repo}`, { headers: { 'User-Agent': 'Claude-Enterprise-App' }, signal: AbortSignal.timeout(8000) });
+      if (!ghRes.ok) return `GitHub lookup failed: repo not found or not accessible (status ${ghRes.status}).`;
+      const ghData = await ghRes.json();
+      let out = `Stars: ${ghData.stargazers_count}, Forks: ${ghData.forks_count}, Open Issues: ${ghData.open_issues_count}, Default Branch: ${ghData.default_branch}, Pushed At: ${ghData.pushed_at}`;
+      try {
+        const commitsRes = await fetch(`https://api.github.com/repos/${repo}/commits?per_page=3`, { headers: { 'User-Agent': 'Claude-Enterprise-App' }, signal: AbortSignal.timeout(8000) });
+        if (commitsRes.ok) {
+          const commitsData = await commitsRes.json();
+          const recentCommits = commitsData
+            .map((c: any) => `- "${c.commit?.message?.split('\n')[0]}" by ${c.commit?.author?.name || 'unknown'} (${c.commit?.author?.date?.slice(0, 10)})`)
+            .join('\n');
+          if (recentCommits) out += `\nRecent commits:\n${recentCommits}`;
+        }
+      } catch (e) {}
+      return out;
+    }
+
+    if (name === 'send_email') {
+      const to = String(args?.to || '');
+      const subject = String(args?.subject || '');
+      const body = String(args?.body || '');
+      if (!to || !subject || !body) return 'Missing to/subject/body - cannot send.';
+      const sendRes = await sendRealEmail({ to, subject, text: body });
+      return sendRes.success
+        ? `Email sent successfully to ${to}. Message ID: ${sendRes.messageId}.`
+        : `Email FAILED to send: ${sendRes.error}`;
+    }
+
+    if (name === 'read_inbox') {
+      const count = Math.min(Number(args?.count) || 3, 10);
+      const inboxRes = await fetchLatestEmails(count);
+      if (!inboxRes.success) return `Could not read inbox: ${inboxRes.error}`;
+      if (!inboxRes.emails.length) return 'Inbox is empty or SMTP/IMAP is not configured.';
+      return inboxRes.emails.map((e: any) => `From: ${e.fromName} <${e.from}>, Subject: "${e.subject}", Date: ${e.date}`).join('\n');
+    }
+
+    return `Unknown tool: ${name}`;
+  } catch (e: any) {
+    return `Tool "${name}" failed: ${e?.message || 'unknown error'}`;
+  }
+}
+
+
 const BUILTIN_OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 const SYSTEM_PROMPTS = {
@@ -815,6 +977,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const requestStartTime = Date.now();
     const {
       messages,
       modelId = 'claude-3-7-sonnet',
@@ -1057,154 +1220,10 @@ Please verify your credentials or connected account in the Connectors modal.`;
         connectorContext += `- ${conn.name} (${conn.category}): Active and ready.\n`;
       }
 
-      // 1. Google Mail (Gmail) Connector
-      const gmailConn = activeConnectors.find((c: any) => c.id === 'conn-gmail');
-      if (gmailConn || isGmailQuery) {
-        const userEmail = gmailConn?.config?.email || '';
-        
-        // Extract recipient from message or previous conversation messages
-        let toEmail = '';
-        const toMatch = lastText.match(/to\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._-]+)/i);
-        if (toMatch && toMatch[1]) {
-          toEmail = toMatch[1].includes('@') ? toMatch[1] : `${toMatch[1]}@gmail.com`;
-        } else {
-          // Look backwards through messages for an email
-          for (let i = messages.length - 1; i >= 0; i--) {
-            const mText = messages[i]?.content || '';
-            const m = mText.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-            if (m && m[1] && !m[1].includes('example') && (userEmail ? !m[1].includes(userEmail) : true)) {
-              toEmail = m[1];
-              break;
-            }
-          }
-        }
-
-        let subject = "Hi, it's working!";
-        let body = "Hi,\n\nEverything is working smoothly and confirmed!\n\nBest regards,\nSameer Shaik";
-
-        if (lowerText.includes('working')) {
-          subject = "Hi, it's working!";
-          body = "Hi,\n\nI am writing to confirm that everything is connected and working smoothly now.\n\nBest regards,\nSameer Shaik";
-        } else if (lowerText.includes('update') || lowerText.includes('status')) {
-          subject = "Project Status & Progress Update";
-          body = "Hi,\n\nHere is the latest progress update on our workspace and deliverables.\n\nBest regards,\nSameer Shaik";
-        }
-
-        // REAL IMAP INBOX FETCH EXECUTION
-        let liveInboxInfo = '';
-        if (lowerText.includes('inbox') || lowerText.includes('latest') || lowerText.includes('read') || lowerText.includes('check') || lowerText.includes('unread')) {
-          try {
-            const inboxRes = await fetchLatestEmails(3);
-            if (inboxRes.success && inboxRes.emails.length > 0) {
-              liveInboxInfo = `\n- LIVE FETCHED INBOX MESSAGES (${inboxRes.total} total emails in mailbox):\n` +
-                inboxRes.emails.map((e, idx) => `  ${idx + 1}. From: ${e.fromName} <${e.from}>\n     Subject: "${e.subject}"\n     Date: ${e.date}`).join('\n');
-            }
-          } catch (e) {}
-        }
-
-        // REAL SMTP DISPATCH EXECUTION (Zero buttons needed)
-        let liveSentInfo = '';
-        if (userEmail && toEmail && (lowerText.includes('send') || lowerText.includes('dispatch') || lowerText.includes('shoot') || lowerText.includes('blast'))) {
-          try {
-            const sendRes = await sendRealEmail({
-              to: toEmail,
-              subject,
-              text: body,
-              fromName: 'Sameer Shaik',
-              fromEmail: userEmail,
-            });
-            if (sendRes.success) {
-              liveSentInfo = `\n- REAL SMTP DISPATCH CONFIRMED: Message transmitted to ${toEmail}. Message-ID: ${sendRes.messageId}. Server response: 250 2.0.0 OK (Accepted for delivery). Zero buttons required.\n`;
-            }
-          } catch (e) {}
-        }
-
-        connectorContext += `\n[⚡ GOOGLE MAIL (GMAIL) CONNECTOR ZERO-CLICK REAL EXECUTION]:\n` +
-          `- Authenticated Mailbox: Sameer Shaik (${userEmail || 'Composio OAuth Pending'})\n` +
-          (liveInboxInfo ? `${liveInboxInfo}\n` : '') +
-          (liveSentInfo ? `${liveSentInfo}\n` : '') +
-          (toEmail ? `- Target Recipient (To): ${toEmail}\n` : '- Target Recipient: Standby (Awaiting user recipient input)\n') +
-          `- Engineered Subject: ${subject}\n` +
-          `- MANDATORY ZERO-CLICK DIRECTIVE: DO NOT PROVIDE ANY 'mailto:' OR 'Launch in Gmail' LINKS. The user demands 100% autonomous execution without clicking. If an email dispatch was requested, confirm that the message was DISPATCHED DIRECTLY via SMTP (port 465 SSL) with 0 clicks required. Present recipient, subject, and delivery status cleanly.\n`;
-      }
-
-      // 2. GitHub Connector
-      const githubConn = activeConnectors.find((c: any) => c.id === 'conn-github');
-      if (githubConn || isGithubQuery) {
-        const repoMatch = lastText.match(/([a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+)/);
-        const repo = repoMatch ? repoMatch[1] : (githubConn?.config?.repo || 'sameer-sys/claude-enterprise-app');
-
-        let liveStats = `Repo: ${repo}, Branch: main, Next.js 14 App Router`;
-        let recentCommits = '';
-
-        try {
-          const ghRes = await fetch(`https://api.github.com/repos/${repo}`, {
-            headers: { 'User-Agent': 'Claude-Enterprise-App' },
-            signal: AbortSignal.timeout(2000),
-          });
-          if (ghRes.ok) {
-            const ghData = await ghRes.json();
-            liveStats = `Stars: ${ghData.stargazers_count}, Forks: ${ghData.forks_count}, Open Issues: ${ghData.open_issues_count}, Default Branch: ${ghData.default_branch}, Pushed At: ${ghData.pushed_at}`;
-          }
-
-          const commitsRes = await fetch(`https://api.github.com/repos/${repo}/commits?per_page=3`, {
-            headers: { 'User-Agent': 'Claude-Enterprise-App' },
-            signal: AbortSignal.timeout(2000),
-          });
-          if (commitsRes.ok) {
-            const commitsData = await commitsRes.json();
-            recentCommits = commitsData
-              .map((c: any) => `- "${c.commit?.message?.split('\n')[0]}" by ${c.commit?.author?.name || 'Sameer'} (${c.commit?.author?.date?.slice(0, 10)})`)
-              .join('\n');
-          }
-        } catch (e) {}
-
-        connectorContext += `\n[⚡ GITHUB CONNECTOR EXECUTED FOR: ${repo}]:\n` +
-          `- Real-time Stats: ${liveStats}\n` +
-          (recentCommits ? `- Recent Live Commits:\n${recentCommits}\n` : '') +
-          `- Action Links to provide:\n` +
-          `  - [🐙 View on GitHub](https://github.com/${repo})\n` +
-          `  - [🌿 View Commits](https://github.com/${repo}/commits)\n` +
-          `  - [⚡ View Issues](https://github.com/${repo}/issues)\n` +
-          `- INSTRUCTIONS: Present repository status, commits, and these exact 1-click links.\n`;
-      }
-
-      // 3. Live Web Search Connector
-      const searchConn = activeConnectors.find((c: any) => c.id === 'conn-websearch');
-      if (searchConn || isSearchQuery) {
-        let liveSearchText = '';
-        const queryClean = lastText.replace(/search( for)?|latest|find|news about|who is|what is/gi, '').trim().slice(0, 100) || lastText.slice(0, 80);
-
-        try {
-          const ddgRes = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(queryClean)}&format=json&no_html=1&skip_disambig=1`, {
-            signal: AbortSignal.timeout(2000),
-          });
-          if (ddgRes.ok) {
-            const ddgData = await ddgRes.json();
-            if (ddgData.AbstractText) {
-              liveSearchText += `\n- DuckDuckGo Instant Answer: ${ddgData.AbstractText} (Source: ${ddgData.AbstractURL || 'Web'})\n`;
-            }
-          }
-
-          const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(queryClean)}`, {
-            headers: { 'User-Agent': 'Claude-Enterprise-App' },
-            signal: AbortSignal.timeout(2000),
-          });
-          if (wikiRes.ok) {
-            const wikiData = await wikiRes.json();
-            if (wikiData.extract) {
-              liveSearchText += `\n- Wikipedia Live Summary: ${wikiData.extract} (Source: ${wikiData.content_urls?.desktop?.page || 'Wikipedia'})\n`;
-            }
-          }
-        } catch (e) {}
-
-        const ddgSearchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(queryClean)}`;
-        connectorContext += `\n[⚡ LIVE WEB SEARCH CONNECTOR EXECUTED]:\n` +
-          `- Query: "${queryClean}"\n` +
-          (liveSearchText ? `- Live Verified Data: ${liveSearchText}\n` : '- Live Search enabled with real-time web citations.\n') +
-          `- Action Link to provide: [🔍 Search on DuckDuckGo](${ddgSearchUrl})\n` +
-          `- INSTRUCTIONS: Provide authoritative fresh facts with citations and the search link.\n`;
-      }
+      // Gmail / GitHub / Web Search are now handled by the agent tool loop
+      // below (send_email, read_inbox, github_lookup, web_search tools) instead
+      // of regex-triggered blocks - avoids duplicate actions and lets the model
+      // decide when a tool is actually needed.
 
       // 4. REAL CONNECTED APPS (Composio) - uses the existing composio.ts
       // helpers instead of fabricating text. Everything below used to be
@@ -1249,54 +1268,9 @@ Please verify your credentials or connected account in the Connectors modal.`;
       }
     }
 
-    // 9. LIVE WEB BYPASSER & URL SCRAPER (SUPERPOWER)
-    // ========================================================
-    const urlMatch = lastText.match(/(https?:\/\/[^\s]+)/i);
-    if (urlMatch && urlMatch[1]) {
-      const targetUrl = urlMatch[1].replace(/[.,;:)]+$/, '');
-      const bypassController = new AbortController();
-      const timer = setTimeout(() => {
-        try { bypassController.abort(); } catch (e) {}
-      }, 3000);
+    // URL fetching is now the web_fetch agent tool below, instead of a
+    // regex-triggered block here.
 
-      try {
-        const bypassRes = await fetch(targetUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          },
-          signal: bypassController.signal,
-        });
-        clearTimeout(timer);
-
-        if (bypassRes.ok) {
-          const rawHtml = await bypassRes.text();
-          const cleanText = rawHtml
-            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
-            .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
-            .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, ' ')
-            .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, ' ')
-            .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, ' ')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 3500);
-
-          if (cleanText.length > 40) {
-            connectorContext += `\n[⚡ LIVE WEB BYPASSER & URL SCRAPER EXECUTED]:\n` +
-              `- Target URL: ${targetUrl}\n` +
-              `- Bypass Status: 200 OK (CORS, client paywalls, and scripts bypassed)\n` +
-              `- Extracted Clean Content Snippet:\n"""\n${cleanText}\n"""\n` +
-              `- MANDATORY INSTRUCTIONS: Provide an authoritative and detailed response based directly on the extracted content from this bypassed URL. Mention that it was extracted live via the Web Bypasser.\n`;
-          }
-        }
-      } catch (e: any) {
-        clearTimeout(timer);
-        connectorContext += `\n[⚡ LIVE WEB BYPASSER ACTIVE]: Target URL "${targetUrl}". Bypasser engaged.\n`;
-      }
-    }
-
-    // Production-grade assistant directive (Direct, truthful, complete code, zero fake cards)
     const developerDirective = `\nInstructions:
 1. Provide complete, comprehensive, and high-quality responses. Write full production-grade code with zero placeholders, dummy comments, or omissions.
 2. When answering technical or coding questions, provide ready-to-use implementations, architecture design, and step-by-step guidance.
@@ -1612,6 +1586,73 @@ Please verify your credentials or connected account in the Connectors modal.`;
           };
         }),
       ];
+
+      // MULTI-STEP AGENT LOOP: call -> execute tools -> feed results back ->
+      // repeat, until the model gives a final answer with no more tool
+      // calls, or we hit the turn/time limits. Time-budgeted so this never
+      // eats into the final answer's share of the 60s Vercel function cap.
+      if (activeOrKey) {
+        const agentDeadline = requestStartTime + 40000; // leave time for the final streamed answer
+        const maxAgentTurns = 4;
+
+        for (let turn = 0; turn < maxAgentTurns; turn++) {
+          if (Date.now() > agentDeadline) break;
+
+          try {
+            const agentResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${activeOrKey}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://claude-enterprise-app.vercel.app',
+                'X-Title': 'Claude Enterprise Cloud',
+              },
+              body: JSON.stringify({
+                model: 'anthropic/claude-3.7-sonnet',
+                messages: fullMessages,
+                tools: AGENT_TOOLS,
+                tool_choice: 'auto',
+                max_tokens: 2048,
+              }),
+              signal: AbortSignal.timeout(Math.max(3000, agentDeadline - Date.now())),
+            });
+
+            if (!agentResp.ok) break;
+
+            const agentData = await agentResp.json();
+            const agentMsg = agentData?.choices?.[0]?.message;
+            const toolCalls = agentMsg?.tool_calls;
+
+            if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+              // Model didn't ask for a tool this turn - nothing more to do,
+              // let the normal streaming call below produce the real answer.
+              break;
+            }
+
+            fullMessages.push(agentMsg);
+
+            for (const call of toolCalls) {
+              const toolName = call.function?.name;
+              let toolArgs: Record<string, any> = {};
+              try {
+                toolArgs = JSON.parse(call.function?.arguments || '{}');
+              } catch (e) {}
+
+              const result = await runAgentTool(toolName, toolArgs);
+
+              fullMessages.push({
+                role: 'tool',
+                tool_call_id: call.id,
+                content: result,
+              });
+            }
+            // loop continues: model sees the real tool result(s) and decides
+            // whether it needs another tool call or is ready to answer.
+          } catch (e) {
+            break;
+          }
+        }
+      }
 
       for (const cand of candidateModels) {
         try {

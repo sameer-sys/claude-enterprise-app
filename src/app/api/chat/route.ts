@@ -1353,7 +1353,10 @@ Please verify your credentials or connected account in the Connectors modal.`;
     const activeGeminiKey = typeof rawGemini === 'string' && rawGemini.trim().length > 5
       ? rawGemini.trim().replace(/^["']|["']$/g, '')
       : undefined;
-    if (activeGeminiKey) {
+    // FIX: this used to run for every request regardless of the selected
+    // model, silently overriding Claude/other picks with Gemini (no tools).
+    // Now only fires when the user actually picked a Gemini model.
+    if (activeGeminiKey && modelId.startsWith('gemini')) {
       try {
         const contents = messages.map((m: any) => {
           const parts: any[] = [];
@@ -1508,13 +1511,16 @@ Please verify your credentials or connected account in the Connectors modal.`;
       omniRouteUrl || process.env.OMNIROUTE_URL || 'http://127.0.0.1:20128/v1/chat/completions';
     const isLocalhost = targetOmniUrl.includes('127.0.0.1') || targetOmniUrl.includes('localhost');
 
-    if (!isCloudEnv || !isLocalhost) {
+    // FIX: this used to run for every request regardless of the selected
+    // model. Now gated the same way Stage 0 is - only for the omniroute
+    // models, so picking Claude/other models doesn't get silently rerouted.
+    if (isOmniRouteModel && (!isCloudEnv || !isLocalhost)) {
       try {
         const omniResp = await fetch(targetOmniUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: 'Bearer sk-omniroute-active',
+            Authorization: `Bearer ${process.env.OMNIROUTE_URL_TOKEN || ''}`,
           },
           body: JSON.stringify({
             model: 'auto/claude-sonnet',

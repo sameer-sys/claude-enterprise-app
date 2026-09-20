@@ -23,6 +23,21 @@ const OPENROUTER_MODELS: Record<string, string> = {
   'the-boss-build': 'google/gemma-4-26b-a4b-it:free',
 };
 
+// Real per-model output ceilings, not a guess. Verified: claude-3.7-sonnet's
+// documented max is 128k but that can require provider-specific extended-
+// output handling we haven't confirmed through OpenRouter, so it's set to a
+// safely higher value instead of the untested max. claude-3.5-sonnet/haiku
+// (8192) and claude-3-opus (4096) are Anthropic's real, fixed ceilings -
+// opus genuinely cannot go higher. The free/other models' exact ceilings
+// aren't verified, so they stay at a safe 8192 rather than a guessed number.
+const MAX_TOKENS_BY_MODEL: Record<string, number> = {
+  'anthropic/claude-3.7-sonnet': 16384,
+  'anthropic/claude-3.5-sonnet': 8192,
+  'anthropic/claude-3.5-haiku': 8192,
+  'anthropic/claude-3-opus': 4096,
+};
+const DEFAULT_MAX_TOKENS = 8192;
+
 const BUILTIN_OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 const SYSTEM_PROMPTS = {
@@ -1612,7 +1627,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
               model: cand,
               messages: fullMessages,
               stream: true,
-              max_tokens: 8192,
+              max_tokens: MAX_TOKENS_BY_MODEL[cand] || DEFAULT_MAX_TOKENS,
             }),
             // was 45s - too short for long code/analysis responses; the
             // Vercel function itself is capped at maxDuration (60s) above,

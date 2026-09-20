@@ -1305,7 +1305,8 @@ Please verify your credentials or connected account in the Connectors modal.`;
         };
 
         const targetModel = OMNIROUTE_TARGET_MODELS[modelId] || 'auto/best-reasoning';
-        const omniKey = process.env.OMNIROUTE_API_KEY || 'sk-a982e8cabcf568c6-8a2c23-71657989';
+        // SECURITY: no hardcoded fallback - a live key was previously hardcoded here.
+        const omniKey = process.env.OMNIROUTE_API_KEY || '';
 
         try {
           const omniResp = await fetch(targetOmniUrl, {

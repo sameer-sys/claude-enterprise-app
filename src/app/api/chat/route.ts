@@ -1326,8 +1326,11 @@ Please verify your credentials or connected account in the Connectors modal.`;
                 })),
               ],
               stream: true,
+              max_tokens: 16384,
             }),
-            signal: AbortSignal.timeout(1200),
+            // was 1200ms - cut off a real streaming answer almost immediately;
+            // now enough time to actually finish a normal response.
+            signal: AbortSignal.timeout(45000),
           });
 
           if (omniResp.ok) {
@@ -1435,6 +1438,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
               body: JSON.stringify({
                 system_instruction: { parts: [{ text: systemPrompt }] },
                 contents,
+                generationConfig: { maxOutputTokens: 16384 },
               }),
               signal: AbortSignal.timeout(10000),
             });
@@ -1527,8 +1531,11 @@ Please verify your credentials or connected account in the Connectors modal.`;
               })),
             ],
             stream: true,
+            max_tokens: 16384,
           }),
-          signal: AbortSignal.timeout(1200),
+          // was 1200ms - cut off a real streaming answer almost immediately;
+          // now enough time to actually finish a normal response.
+          signal: AbortSignal.timeout(45000),
         });
 
         if (omniResp.ok) {

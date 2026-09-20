@@ -19,8 +19,9 @@ const OPENROUTER_MODELS: Record<string, string> = {
   'claude-3-opus': 'anthropic/claude-3-opus',
   'minimax-01': 'minimax/minimax-01',
   'deepseek-r1': 'deepseek/deepseek-r1:free',
-  'the-boss-chat': 'nvidia/nemotron-3-ultra-550b-a55b:free',
-  'the-boss-build': 'google/gemma-4-26b-a4b-it:free',
+  // "Boss" now really is the flagship model, not a mislabeled free one.
+  'the-boss-chat': 'anthropic/claude-3.7-sonnet',
+  'the-boss-build': 'anthropic/claude-3.7-sonnet',
 };
 
 // Real per-model output ceilings, not a guess. Verified: claude-3.7-sonnet's

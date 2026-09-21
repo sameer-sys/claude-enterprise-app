@@ -218,30 +218,69 @@ export default function SettingsModal({
     setIsTesting(true);
     setTestResult(null);
     try {
-      if (editingConnector?.id === 'conn-github') {
+      const connectorId = editingConnector?.id || '';
+      const toolkitAliases: Record<string, string> = {
+        'conn-gdrive': 'google_drive',
+        'conn-gcalendar': 'google_calendar',
+        'conn-m365': 'microsoft365',
+      };
+      const toolkit = toolkitAliases[connectorId] || connectorId.replace(/^conn-/i, '').toLowerCase();
+      const key =
+        composioKey.trim() ||
+        (typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || '' : '');
+
+      if (connectorId === 'conn-omniroute') {
+        const target = customServerUrl.trim() || 'http://127.0.0.1:20128/v1';
+        try {
+          const probe = await fetch(target, { method: 'GET', cache: 'no-store' });
+          setTestResult(`OmniRoute probe returned HTTP ${probe.status} from ${target}. The endpoint is reachable.`);
+        } catch (err: any) {
+          setTestResult(`OmniRoute could not be reached at ${target}: ${err?.message || 'connection failed'}.`);
+        }
+      } else if (key && !editingConnector?.isCustom) {
+        const userId = typeof window !== 'undefined'
+          ? localStorage.getItem('sameer_composio_user_id') || ''
+          : '';
+        const query = new URLSearchParams({ apiKey: key, entityId: userId || 'default' });
+        const res = await fetch(`/api/composio?${query.toString()}`, { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !Array.isArray(data?.connectedAccounts)) {
+          setTestResult(data?.error || 'Composio account lookup failed.');
+        } else {
+          const accounts = data.connectedAccounts.filter((a: any) =>
+            String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit &&
+            a?.status === 'ACTIVE'
+          );
+          const selectedId = String(editingConnector?.config?.connectedAccountId || '').trim();
+          if (selectedId) {
+            const selected = accounts.find((a: any) => String(a.id) === selectedId);
+            setTestResult(
+              selected
+                ? `Live connection verified for ${selected.email || selected.accountIdentifier || toolkit}.`
+                : `The selected ${toolkit} account is not ACTIVE for this workspace user.`
+            );
+          } else {
+            setTestResult(
+              accounts.length
+                ? `Live Composio connection verified: ${accounts.length} active ${toolkit} account${accounts.length === 1 ? '' : 's'}.`
+                : `No ACTIVE ${toolkit} account is connected. Connect the app via Composio first.`
+            );
+          }
+        }
+      } else if (connectorId === 'conn-github') {
         const target = customRepo || 'sameer-sys/claude-enterprise-app';
-        const res = await fetch(`https://api.github.com/repos/${target}`);
+        const res = await fetch(`https://api.github.com/repos/${target}`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
-          setTestResult(`Connected! Repository "${data.full_name}" is active (${data.stargazers_count} stars, branch ${data.default_branch}).`);
+          setTestResult(`Public GitHub repository is reachable: ${data.full_name} (default branch ${data.default_branch}).`);
         } else {
-          setTestResult(`Repository "${target}" returned HTTP ${res.status}. If private, configure PAT token.`);
+          setTestResult(`GitHub repository lookup returned HTTP ${res.status}.`);
         }
-      } else if (editingConnector?.id === 'conn-gmail') {
-        const mail = customEmail;
-        if (mail) {
-          setTestResult(`Connected to Gmail (${mail}) via Composio! Ready for inbox search, thread summaries, and zero-click dispatch.`);
-        } else {
-          setTestResult(`No mailbox configured. Please connect your Google account via Composio OAuth.`);
-        }
-      } else if (editingConnector?.id === 'conn-omniroute') {
-        setTestResult(`OmniRoute local router reachable with 2,269 models.`);
       } else {
-        await new Promise((r) => setTimeout(r, 500));
-        setTestResult(`Connector verified and ready for live context injection.`);
+        setTestResult('No live connector test is available for this connector yet.');
       }
     } catch (e: any) {
-      setTestResult(`Connector verified (local fallback ready).`);
+      setTestResult(e?.message || 'Connector test failed.');
     } finally {
       setIsTesting(false);
     }

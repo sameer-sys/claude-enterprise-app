@@ -4,6 +4,7 @@ import { fetchLatestEmails } from '@/lib/imapReader';
 import {
   listConnectedAccounts,
   executeComposioAction,
+  executeComposioNaturalLanguage,
   searchComposioTools,
 } from '@/lib/composio';
 import {

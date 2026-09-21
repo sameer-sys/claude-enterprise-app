@@ -21,6 +21,7 @@ export interface ConnectorRegistryEntry {
   provider: 'direct' | 'mcp' | 'zapier' | 'composio' | 'custom-api';
   actionLabel?: string;
   authUrl?: string;
+  supportsOAuth?: boolean;
 }
 
 export const DIRECT_CONNECTOR_REGISTRY: Record<string, ConnectorRegistryEntry> = {
@@ -29,6 +30,7 @@ export const DIRECT_CONNECTOR_REGISTRY: Record<string, ConnectorRegistryEntry> =
     url: 'https://mail.google.com/',
     connectionType: 'direct',
     provider: 'direct',
+    supportsOAuth: true,
     actionLabel: 'Open Gmail',
   },
   'conn-gdrive': {
@@ -36,6 +38,7 @@ export const DIRECT_CONNECTOR_REGISTRY: Record<string, ConnectorRegistryEntry> =
     url: 'https://drive.google.com/',
     connectionType: 'direct',
     provider: 'direct',
+    supportsOAuth: true,
     actionLabel: 'Open Drive',
   },
   'conn-gcalendar': {
@@ -43,6 +46,7 @@ export const DIRECT_CONNECTOR_REGISTRY: Record<string, ConnectorRegistryEntry> =
     url: 'https://calendar.google.com/',
     connectionType: 'direct',
     provider: 'direct',
+    supportsOAuth: true,
     actionLabel: 'Open Calendar',
   },
   'conn-github': {
@@ -50,6 +54,7 @@ export const DIRECT_CONNECTOR_REGISTRY: Record<string, ConnectorRegistryEntry> =
     url: 'https://github.com/',
     connectionType: 'direct',
     provider: 'direct',
+    supportsOAuth: true,
     actionLabel: 'Open GitHub',
   },
   'conn-youtube': {
@@ -57,6 +62,7 @@ export const DIRECT_CONNECTOR_REGISTRY: Record<string, ConnectorRegistryEntry> =
     url: 'https://studio.youtube.com/',
     connectionType: 'direct',
     provider: 'direct',
+    supportsOAuth: true,
     actionLabel: 'Open YouTube Studio',
   },
   'conn-instagram': {
@@ -99,6 +105,7 @@ export const DIRECT_CONNECTOR_REGISTRY: Record<string, ConnectorRegistryEntry> =
     url: 'https://app.slack.com/',
     connectionType: 'direct',
     provider: 'direct',
+    supportsOAuth: true,
     actionLabel: 'Open Slack',
   },
   'conn-notion': {
@@ -106,6 +113,7 @@ export const DIRECT_CONNECTOR_REGISTRY: Record<string, ConnectorRegistryEntry> =
     url: 'https://www.notion.so/',
     connectionType: 'direct',
     provider: 'direct',
+    supportsOAuth: true,
     actionLabel: 'Open Notion',
   },
   'conn-figma': {
@@ -127,6 +135,7 @@ export const DIRECT_CONNECTOR_REGISTRY: Record<string, ConnectorRegistryEntry> =
     url: 'https://www.office.com/',
     connectionType: 'direct',
     provider: 'direct',
+    supportsOAuth: true,
     actionLabel: 'Open Microsoft 365',
   },
   'conn-rovo': {

@@ -10,6 +10,11 @@ export interface ComposioConnectedAccount {
   accountIdentifier?: string;
 }
 
+export const COMPOSIO_SUPPORTED_TOOLKITS = [
+  'github','gmail','google_drive','google_calendar','youtube','slack','notion',
+  'microsoft365','instagram','facebook','linkedin','linear','asana','canva','hubspot'
+] as const;
+
 export const COMPOSIO_APP_MAP: Record<string, string> = {
   'conn-gmail': 'gmail',
   'conn-gdrive': 'google_drive',
@@ -179,12 +184,15 @@ function enabledComposioToolkits(
   );
 
   if (hasComposioHub) {
-    return Array.from(new Set(
-      accounts
+    // Match Composio Connect: discover supported app tools before an account
+    // exists, then let connection management request OAuth when execution needs it.
+    return Array.from(new Set([
+      ...COMPOSIO_SUPPORTED_TOOLKITS,
+      ...accounts
         .filter((account) => String(account?.status || '').toUpperCase() === 'ACTIVE')
-        .map((account) => String(account?.appUniqueId || account?.appName || '').toLowerCase())
-        .filter(Boolean)
-    ));
+        .map((account) => normalizeComposioToolkitSlug(String(account?.appUniqueId || account?.appName || '')))
+        .filter(Boolean),
+    ]));
   }
 
   const builtInComposioIds = new Set([
@@ -324,8 +332,8 @@ export async function executeComposioToolRouter(
 }
 
 export async function executeComposioNaturalLanguage(
-  apiKey: string, userId: string, requestText: string, connectors: any[] = [], accounts: ComposioConnectedAccount[] = [], model: string = 'claude-3-7-sonnet'
-): Promise<{ success: boolean; toolSlug?: string; arguments?: Record<string, any>; data?: any; error?: string; sessionId?: string }> {
+  apiKey: string, userId: string, requestText: string, connectors: any[] = [], accounts: ComposioConnectedAccount[] = [], model: string = 'claude-3-7-sonnet', callbackUrl?: string
+): Promise<{ success: boolean; toolSlug?: string; arguments?: Record<string, any>; data?: any; error?: string; sessionId?: string; connectUrl?: string }> {
   const session = await createComposioToolRouterSession(apiKey, userId, connectors, accounts);
   if (!session.success || !session.sessionId) return { success: false, error: session.error || 'Unable to create Composio session.' };
   const search = await searchComposioToolRouter(apiKey, session.sessionId, requestText, model);
@@ -338,7 +346,16 @@ export async function executeComposioNaturalLanguage(
   const status = Array.isArray(search.data?.toolkit_connection_statuses)
     ? search.data.toolkit_connection_statuses.find((s: any) => String(s?.toolkit || '').toLowerCase() === toolkit)
     : null;
-  if (status?.has_active_connection === false) return { success: false, sessionId: session.sessionId, toolSlug, error: status.status_message || `No active connection is available for ${toolkit}.` };
+  if (status?.has_active_connection === false) {
+    const link = await createComposioConnectionLink(apiKey, userId, toolkit, callbackUrl);
+    return {
+      success: false,
+      sessionId: session.sessionId,
+      toolSlug,
+      error: status.status_message || ('No active connection is available for ' + toolkit + '.'),
+      ...(link.redirectUrl ? { connectUrl: link.redirectUrl } : {}),
+    };
+  }
   const generated = await generateComposioToolInput(apiKey, toolSlug, requestText, model);
   if (!generated.success || !generated.arguments) return { success: false, sessionId: session.sessionId, toolSlug, error: generated.error || `Could not generate arguments for ${toolSlug}.` };
   const connector = connectors.find((c: any) => c?.enabled !== false && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit);
@@ -447,6 +464,44 @@ export async function listConnectedAccounts(
   }
 }
 
+export async function createComposioConnectionLink(
+  apiKey: string,
+  userId: string,
+  toolkit: string,
+  callbackUrl?: string,
+  alias?: string
+): Promise<{ success: boolean; redirectUrl?: string; sessionId?: string; error?: string }> {
+  const normalizedToolkit = normalizeComposioToolkitSlug(toolkit);
+  const session = await createComposioToolRouterSession(apiKey, userId, [
+    { id: 'conn-composio', enabled: true },
+  ], []);
+  if (!session.success || !session.sessionId) {
+    return { success: false, error: session.error || 'Unable to create Composio session.' };
+  }
+  try {
+    const res = await fetch(
+      COMPOSIO_V31_BASE + '/tool_router/session/' + encodeURIComponent(session.sessionId) + '/link',
+      {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolkit: normalizedToolkit,
+          ...(alias ? { alias } : {}),
+          ...(callbackUrl ? { callback_url: callbackUrl } : {}),
+        }),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(12000),
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.redirect_url) {
+      return { success: false, sessionId: session.sessionId, error: data?.error?.message || data?.message || ('Composio connection link failed (' + res.status + ').') };
+    }
+    return { success: true, sessionId: session.sessionId, redirectUrl: String(data.redirect_url) };
+  } catch (err: any) {
+    return { success: false, sessionId: session.sessionId, error: err?.message || 'Composio connection link failed.' };
+  }
+}
 export async function initiateAppConnection(
   apiKey: string,
   appName: string,

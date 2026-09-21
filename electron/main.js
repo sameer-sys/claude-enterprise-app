@@ -131,6 +131,64 @@ ipcMain.handle("show-notification", (event, { title, body }) => {
   }
 });
 
+// Native code execution for desktop Code Runner.
+ipcMain.handle("execute-code", async (event, { code, language = "python" }) => {
+  if (typeof code !== "string" || !code.trim()) {
+    return { success: false, stdout: "", stderr: "No code supplied.", exitCode: 1, executionTimeMs: 0 };
+  }
+  const startTime = Date.now();
+  const safeLanguage = String(language || "python").toLowerCase();
+  const randId = Math.random().toString(36).slice(2, 10);
+  const tempDir = app.getPath("temp");
+  let tempFilePath = null;
+  let cmd = "";
+
+  try {
+    if (safeLanguage === "python" || safeLanguage === "py") {
+      tempFilePath = path.join(tempDir, "sameer_runner_" + randId + ".py");
+      fs.writeFileSync(tempFilePath, code, "utf8");
+      cmd = `python "${tempFilePath}"`;
+    } else if (safeLanguage === "javascript" || safeLanguage === "js" || safeLanguage === "node") {
+      tempFilePath = path.join(tempDir, "sameer_runner_" + randId + ".js");
+      fs.writeFileSync(tempFilePath, code, "utf8");
+      cmd = `node "${tempFilePath}"`;
+    } else if (safeLanguage === "powershell" || safeLanguage === "ps1") {
+      tempFilePath = path.join(tempDir, "sameer_runner_" + randId + ".ps1");
+      fs.writeFileSync(tempFilePath, code, "utf8");
+      cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${tempFilePath}"`;
+    } else if (safeLanguage === "cmd" || safeLanguage === "bash" || safeLanguage === "sh") {
+      cmd = code;
+    } else {
+      return { success: false, stdout: "", stderr: "Unsupported language for native execution: " + safeLanguage, exitCode: 1, executionTimeMs: Date.now() - startTime };
+    }
+
+    const result = await new Promise((resolve) => {
+      const { exec } = require("child_process");
+      exec(cmd, {
+        cwd: process.env.USER_WORKSPACE || app.getPath("documents"),
+        timeout: 45000,
+        maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true,
+        env: { ...process.env, PYTHONUNBUFFERED: "1" }
+      }, (error, stdout, stderr) => {
+        resolve({
+          success: !error,
+          stdout: stdout || "",
+          stderr: stderr || (error?.message || ""),
+          exitCode: error?.code || 0,
+          executionTimeMs: Date.now() - startTime,
+          error: error?.message
+        });
+      });
+    });
+    return result;
+  } finally {
+    if (tempFilePath) {
+      try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    }
+  }
+});
+
 // App menu
 function buildMenu() {
   const template = [

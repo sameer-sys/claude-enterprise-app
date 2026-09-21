@@ -1275,6 +1275,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
     const developerDirective = `\nInstructions:
 1. Provide complete, comprehensive, and high-quality responses. Write full production-grade code with zero placeholders, dummy comments, or omissions.
 2. When answering technical or coding questions, provide ready-to-use implementations, architecture design, and step-by-step guidance.
+2b. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation, list, or prose answer in a code block just because it is long or structured - write it as normal markdown (headings, **bold**, bullet lists) so it wraps and formats correctly instead of showing as a scrollable code box.
 3. Be direct, helpful, and completely honest. Never fabricate fake API confirmations, fake dispatch cards, or pretend external actions occurred if they didn't.
 4. Answer the user thoroughly with complete clarity and depth.\n`;
 

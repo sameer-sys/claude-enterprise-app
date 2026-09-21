@@ -368,8 +368,8 @@ export function createDefaultConnectors(): Connector[] {
       name: 'composio',
       description: 'connect.composio.dev',
       icon: 'composio',
-      enabled: true,
-      status: 'connected',
+      enabled: false,
+      status: 'ready',
       category: 'Developer Tools',
       section: 'custom',
       isCustom: true,
@@ -982,17 +982,28 @@ export default function ConnectorsModal({
             );
             const selectedId = String(conn.config?.connectedAccountId || '').trim();
 
-            if (selectedId && matching.some((acc: any) => String(acc.id) === selectedId)) {
+            if (selectedId) {
               const selected = matching.find((acc: any) => String(acc.id) === selectedId);
-              const display = selected?.email || selected?.accountIdentifier || conn.config?.email;
-              if (display && display !== conn.config?.email) {
-                onUpdateConnectorConfig(conn.id, { ...conn.config, email: display, connectedAccountId: selectedId });
-                updatedCount++;
+              if (selected) {
+                const display = selected.email || selected.accountIdentifier || conn.config?.email;
+                if (display && display !== conn.config?.email) {
+                  onUpdateConnectorConfig(conn.id, { ...conn.config, email: display, connectedAccountId: selectedId });
+                  updatedCount++;
+                }
+                continue;
               }
+
+              onUpdateConnectorConfig(conn.id, {
+                ...conn.config,
+                connectedAccountId: undefined,
+                email: undefined,
+              });
+              if (conn.enabled) onToggleConnector(conn.id);
+              updatedCount++;
               continue;
             }
 
-            if (!selectedId && matching.length === 1) {
+            if (matching.length === 1) {
               const only = matching[0];
               onUpdateConnectorConfig(conn.id, {
                 ...conn.config,
@@ -1056,6 +1067,15 @@ export default function ConnectorsModal({
     setIsConnectingComposio(connectorId);
     setComposioError(null);
 
+    if (forceNewAccount && onUpdateConnectorConfig) {
+      const current = activeConnectors.find((c) => c.id === connectorId);
+      onUpdateConnectorConfig(connectorId, {
+        ...(current?.config || {}),
+        connectedAccountId: undefined,
+        email: undefined,
+      });
+    }
+
     // Reuse accounts already authorized for this app user without forcing OAuth
     // again. This is what makes accounts reusable across chats.
     if (!forceNewAccount) {
@@ -1082,7 +1102,7 @@ export default function ConnectorsModal({
               email: account.email || account.accountIdentifier || undefined,
             });
             if (!activeConnectors.find((c) => c.id === connectorId)?.enabled) onToggleConnector(connectorId);
-            setComposioSyncMessage('Existing account selected for this chat.');
+            setComposioSyncMessage('Existing active account selected for this chat. Use “Connect another account” for a fresh sign-in.');
             setTimeout(() => setComposioSyncMessage(null), 2500);
             setIsConnectingComposio(null);
             return;

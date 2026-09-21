@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFile: () => ipcRenderer.invoke('open-file'),
   saveFile: (filePath, content) => ipcRenderer.invoke('save-file', { filePath, content }),
   newFile: () => ipcRenderer.invoke('new-file'),
+  executeCode: (code, language) => ipcRenderer.invoke('execute-code', { code, language }),
 
   // App info
   getVersion: () => ipcRenderer.invoke('get-version'),

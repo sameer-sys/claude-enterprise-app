@@ -897,6 +897,8 @@ export default function ConnectorsModal({
 
   // Config editor for active connector
   const [editingConnector, setEditingConnector] = useState<Connector | null>(null);
+  const [accountPickerConnector, setAccountPickerConnector] = useState<Connector | null>(null);
+  const [accountPickerAccounts, setAccountPickerAccounts] = useState<any[]>([]);
   const [configEmail, setConfigEmail] = useState('');
   const [configRepo, setConfigRepo] = useState('');
   const [configChannel, setConfigChannel] = useState('');
@@ -1036,7 +1038,7 @@ export default function ConnectorsModal({
     setTimeout(() => setComposioSaved(false), 2000);
   };
 
-  const handleComposioConnect = async (connectorId: string) => {
+  const handleComposioConnect = async (connectorId: string, forceNewAccount = false) => {
     let keyToUse = composioApiKey;
     if (!keyToUse && typeof window !== 'undefined') {
       keyToUse = localStorage.getItem('composio_api_key') || '';
@@ -1053,6 +1055,49 @@ export default function ConnectorsModal({
 
     setIsConnectingComposio(connectorId);
     setComposioError(null);
+
+    // Reuse accounts already authorized for this app user without forcing OAuth
+    // again. This is what makes accounts reusable across chats.
+    if (!forceNewAccount) {
+      try {
+        const userId = ensureComposioUserId();
+        const accountRes = await fetch(
+          `/api/composio?apiKey=${encodeURIComponent(keyToUse)}&entityId=${encodeURIComponent(userId)}`
+        );
+        if (accountRes.ok) {
+          const accountData = await accountRes.json();
+          const toolkit = toolkitForConnector(connectorId);
+          const existingAccounts = Array.isArray(accountData?.connectedAccounts)
+            ? accountData.connectedAccounts.filter((a: any) =>
+                String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit && a?.status === 'ACTIVE'
+              )
+            : [];
+          setComposioAccounts(existingAccounts.length ? accountData.connectedAccounts : []);
+          composioAccountsRef.current = Array.isArray(accountData?.connectedAccounts) ? accountData.connectedAccounts : [];
+
+          if (existingAccounts.length === 1) {
+            const account = existingAccounts[0];
+            onUpdateConnectorConfig?.(connectorId, {
+              connectedAccountId: account.id,
+              email: account.email || account.accountIdentifier || undefined,
+            });
+            if (!activeConnectors.find((c) => c.id === connectorId)?.enabled) onToggleConnector(connectorId);
+            setComposioSyncMessage('Existing account selected for this chat.');
+            setTimeout(() => setComposioSyncMessage(null), 2500);
+            setIsConnectingComposio(null);
+            return;
+          }
+          if (existingAccounts.length > 1) {
+            const connector = activeConnectors.find((c) => c.id === connectorId) ||
+              ({ id: connectorId, name: connectorId.replace('conn-', ''), config: {} } as Connector);
+            setAccountPickerConnector(connector);
+            setAccountPickerAccounts(existingAccounts);
+            setIsConnectingComposio(null);
+            return;
+          }
+        }
+      } catch {}
+    }
 
     // Open popup immediately on user action to prevent browser popup blockers
     let authWindow: Window | null = null;
@@ -1882,6 +1927,44 @@ export default function ConnectorsModal({
           </div>
         )}
 
+        {/* POPUP: ACCOUNT PICKER FOR THIS CHAT */}
+        {accountPickerConnector && (
+          <div className="absolute inset-0 z-30 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-[#1e1d19] border border-[#333129] rounded-2xl p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-[#f2eee6]">Choose the account for this chat</h4>
+                  <p className="text-xs text-[#8a8579] mt-1">{accountPickerConnector.name} has multiple authorized accounts.</p>
+                </div>
+                <button type="button" onClick={() => setAccountPickerConnector(null)} className="p-1 rounded-lg text-[#8a8579] hover:text-white"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {accountPickerAccounts.map((acc: any) => (
+                  <button
+                    key={acc.id}
+                    type="button"
+                    onClick={() => {
+                      onUpdateConnectorConfig?.(accountPickerConnector.id, {
+                        connectedAccountId: acc.id,
+                        email: acc.email || acc.accountIdentifier || undefined,
+                      });
+                      if (!activeConnectors.find((c) => c.id === accountPickerConnector.id)?.enabled) onToggleConnector(accountPickerConnector.id);
+                      setAccountPickerConnector(null);
+                      setComposioSyncMessage('Account selected for this chat.');
+                      setTimeout(() => setComposioSyncMessage(null), 2500);
+                    }}
+                    className="w-full text-left px-3.5 py-3 rounded-xl bg-[#141310] border border-[#2b2923] hover:border-[#cc785c] hover:bg-[#1c1b18] transition-colors"
+                  >
+                    <div className="text-xs font-medium text-[#f2eee6]">{acc.email || acc.accountIdentifier || 'Connected account'}</div>
+                    <div className="text-[10px] text-[#6d685e] font-mono mt-1">{acc.id}</div>
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => { const id = accountPickerConnector.id; setAccountPickerConnector(null); handleComposioConnect(id, true); }} className="w-full px-3 py-2 rounded-xl bg-[#282622] hover:bg-[#33302a] text-xs text-[#dcd8ce]">Connect a new account</button>
+            </div>
+          </div>
+        )}
+
         {/* POPUP: CONFIG EDITOR FOR ACTIVE CONNECTOR */}
         {editingConnector && (
           <div className="absolute inset-0 z-20 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1927,7 +2010,7 @@ export default function ConnectorsModal({
                     <p className="text-[10px] text-[#8a8579]">This selection belongs to this chat only. The same connected account can be reused by other chats.</p>
                     <button
                       type="button"
-                      onClick={() => handleComposioConnect(editingConnector.id)}
+                      onClick={() => handleComposioConnect(editingConnector.id, true)
                       className="text-[10px] text-[#cc785c] hover:text-[#f2eee6] font-medium"
                     >
                       + Connect another account

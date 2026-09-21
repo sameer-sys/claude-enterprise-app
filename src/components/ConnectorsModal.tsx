@@ -920,16 +920,27 @@ export default function ConnectorsModal({
 
   const handleConnectConnector = (connectorId: string) => {
     const connector = activeConnectors.find((c) => c.id === connectorId);
-    if (!connector || connectingId) return;
+    if (!connector || connectingId || typeof window === 'undefined') return;
+
     setConnectingId(connectorId);
-    try {
-      const authUrl = `/api/connectors/oauth/start?connector=${encodeURIComponent(connectorId)}`;
-      if (typeof window !== 'undefined') {
-        window.open(authUrl, '_blank', 'noopener,noreferrer');
-      }
-    } finally {
-      window.setTimeout(() => setConnectingId(null), 1200);
+    const authUrl = `/api/connectors/oauth/start?connector=${encodeURIComponent(connectorId)}`;
+    const popup = window.open(
+      authUrl,
+      'sameer_connector_oauth',
+      'popup,width=620,height=760,resizable=yes,scrollbars=yes'
+    );
+
+    if (!popup) {
+      window.location.assign(authUrl);
+      return;
     }
+
+    const timer = window.setInterval(() => {
+      if (popup.closed) {
+        window.clearInterval(timer);
+        window.setTimeout(() => setConnectingId(null), 350);
+      }
+    }, 500);
   };
 
   if (!isOpen) return null;

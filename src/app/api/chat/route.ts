@@ -7,6 +7,11 @@ import {
   fetchLiveYouTubePlaylists,
   fetchLiveDriveFiles,
   getComposioApiKey,
+  createComposioToolRouterSession,
+  searchComposioToolRouter,
+  generateComposioToolInput,
+  executeComposioToolRouter,
+  executeComposioNaturalLanguage,
 } from '@/lib/composio';
 
 export const runtime = 'nodejs';
@@ -136,10 +141,39 @@ const AGENT_TOOLS = [
   },
 ];
 
+function detectExplicitConnectorRequest(text: string): boolean {
+  const lower = String(text || '').toLowerCase();
+  const platform = /(github|repo|repository|gmail|email|mail|google drive|gdrive|drive|calendar|youtube|yt|instagram|facebook|twitter|linkedin|tiktok|slack|notion|linear|asana|canva|hubspot|salesforce|shopify|reddit|discord|telegram|whatsapp)/i;
+  const action = /(list|count|show|get|check|read|find|search|look up|lookup|fetch|view|inspect|open|create|send|draft|reply|delete|remove|update|edit|change|post|publish|upload|download|schedule|book|move|archive|star|unstar|like|comment|follow|unfollow|sync|add|rename|close|merge)/i;
+  return platform.test(lower) && action.test(lower);
+}
+
+function streamTextResponse(content: string, extraHeaders: Record<string, string> = {}) {
+  const encoder = new TextEncoder();
+  const chunkSize = 28;
+  const safe = String(content || '');
+  const stream = new ReadableStream({
+    start(controller) {
+      for (let pos = 0; pos < safe.length; pos += chunkSize) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: safe.slice(pos, pos + chunkSize) })}\n\n`));
+      }
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      ...extraHeaders,
+    },
+  });
+}
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[] } = {}
+  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[]; userId?: string; toolRouterSessionId?: string } = {}
 ): Promise<string> {
   try {
     if (name === 'web_search') {
@@ -228,85 +262,54 @@ async function runAgentTool(
     }
 
     if (name === 'connector_search') {
-      if (!connectorContext.apiKey) return 'Composio is not configured. Add the Composio API key in connector settings first.';
-      const { searchComposioTools } = await import('@/lib/composio');
-      const toolkitSlugs = Array.from(new Set((connectorContext.connectors || [])
-        .filter((c: any) => c?.enabled !== false)
-        .map((c: any) => {
-          const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
-          return ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
-        })
-        .filter(Boolean)));
-      const found = await searchComposioTools(connectorContext.apiKey, String(args?.query || ''), toolkitSlugs);
-      if (!found.length) return 'No real connector action matched that request. Try describing the action more specifically.';
-      return JSON.stringify(found.slice(0, 12).map((t: any) => ({
-        tool_slug: t.slug,
-        toolkit: t.toolkit,
-        name: t.name,
-        description: t.description,
-        input_schema: t.inputSchema,
-      })));
+      if (!connectorContext.apiKey) return JSON.stringify({ success: false, error: 'Composio is not configured.' });
+      const userId = String(connectorContext.userId || 'default');
+      let sessionId = connectorContext.toolRouterSessionId;
+      if (!sessionId) {
+        const session = await createComposioToolRouterSession(
+          connectorContext.apiKey, userId, connectorContext.connectors || [], connectorContext.accounts || []
+        );
+        if (!session.success || !session.sessionId) return JSON.stringify({ success: false, error: session.error || 'Could not create Composio session.' });
+        sessionId = session.sessionId;
+      }
+      const found = await searchComposioToolRouter(
+        connectorContext.apiKey, sessionId, String(args?.query || ''), 'claude-3-7-sonnet'
+      );
+      if (!found.success) return JSON.stringify({ success: false, session_id: sessionId, error: found.error || 'Connector search failed.' });
+      return JSON.stringify({ success: true, session_id: sessionId, data: found.data });
     }
 
     if (name === 'connector_execute') {
-      if (!connectorContext.apiKey) return 'Composio is not configured.';
+      if (!connectorContext.apiKey) return JSON.stringify({ success: false, error: 'Composio is not configured.' });
       const slug = String(args?.tool_slug || '').trim();
-      if (!slug) return 'tool_slug is required.';
-      let accounts = connectorContext.accounts || [];
-      const toolkit = slug.split('_')[0].toLowerCase();
-      const aliases: Record<string,string> = {
-        google: 'google_drive',
-        googledrive: 'google_drive',
-        gcalendar: 'google_calendar',
-        m365: 'microsoft365',
-      };
-      const normalizedToolkit = aliases[toolkit] || toolkit;
-
-      // Never rely only on the connector card's local enabled flag. Resolve the
-      // real Composio connected account for the toolkit immediately before
-      // execution. This is what makes a connected GitHub account usable by
-      // natural-language actions instead of merely showing "Connected" in UI.
-      if (!accounts.some((a: any) =>
-        String(a?.appUniqueId || '').toLowerCase() === normalizedToolkit &&
-        a?.status === 'ACTIVE'
-      )) {
-        try {
-          const { listConnectedAccounts } = await import('@/lib/composio');
-          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, undefined, normalizedToolkit);
-          accounts = [...accounts, ...liveAccounts];
-        } catch {}
+      if (!slug) return JSON.stringify({ success: false, error: 'tool_slug is required.' });
+      const userId = String(connectorContext.userId || 'default');
+      let sessionId = connectorContext.toolRouterSessionId;
+      if (!sessionId) {
+        const session = await createComposioToolRouterSession(
+          connectorContext.apiKey, userId, connectorContext.connectors || [], connectorContext.accounts || []
+        );
+        if (!session.success || !session.sessionId) return JSON.stringify({ success: false, error: session.error || 'Could not create Composio session.' });
+        sessionId = session.sessionId;
       }
-
-      const connector = (connectorContext.connectors || []).find((c: any) => {
-        const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
-        const mapped = ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
-        return mapped === normalizedToolkit || String(c?.config?.connectedAccountId || '') === String(args?.connected_account_id || '');
-      });
-
-      const accountId =
-        args?.connected_account_id ||
-        connector?.config?.connectedAccountId ||
-        accounts.find((a: any) => {
-          const uid = String(a?.appUniqueId || '').toLowerCase();
-          return uid === normalizedToolkit && a?.status === 'ACTIVE';
-        })?.id;
-
-      if (!accountId) {
-        return JSON.stringify({
-          success: false,
-          error: `No active Composio connected account was found for ${normalizedToolkit}. The connector UI may be enabled, but the OAuth account is not available to the server yet.`,
-        });
-      }
-
-      const result = await executeComposioAction(
-        connectorContext.apiKey,
-        slug,
-        args?.arguments || {},
-        accountId,
-        'default'
+      const connector = (connectorContext.connectors || []).find((c: any) =>
+        c?.enabled !== false && String(c?.config?.connectedAccountId || '').trim() &&
+        slug.toLowerCase().startsWith(String(c.id || '').replace(/^conn-/, '').toLowerCase().split('_')[0])
       );
-      if (!result.success) return JSON.stringify({ success: false, error: result.error || 'Connector action failed' });
-      return JSON.stringify({ success: true, tool_slug: slug, data: result.data });
+      const explicitAccount = String(args?.connected_account_id || '').trim();
+      const accountId = explicitAccount || String(connector?.config?.connectedAccountId || '').trim() || undefined;
+      const result = await executeComposioToolRouter(
+        connectorContext.apiKey, sessionId, slug, args?.arguments || {}, accountId
+      );
+      if (result.success) return JSON.stringify({ success: true, tool_slug: slug, session_id: sessionId, data: result.data });
+
+      // Fallback to the direct v3.1 executor if the session endpoint rejects the request.
+      const direct = await executeComposioAction(
+        connectorContext.apiKey, slug, args?.arguments || {}, accountId, userId
+      );
+      return direct.success
+        ? JSON.stringify({ success: true, tool_slug: slug, data: direct.data })
+        : JSON.stringify({ success: false, error: result.error || direct.error || 'Connector action failed.' });
     }
 
     return `Unknown tool: ${name}`;

@@ -34,3 +34,5 @@ jobs:
 
       - name: Deploy prebuilt production artifact
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN" --yes
+
+      # Force a fresh production deployment after environment variable changes.

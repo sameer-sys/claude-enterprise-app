@@ -118,13 +118,5 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  response.cookies.set('sameer_composio_user_id', '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 0,
-  });
-
   return response;
 }

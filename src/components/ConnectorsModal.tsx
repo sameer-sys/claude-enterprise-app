@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   X,
   Search,
@@ -16,6 +16,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
+import { getConnectorDefinition, getConnectorLaunchUrl } from '@/lib/connectorRegistry';
 
 export type { Connector, ConnectorConfig };
 
@@ -361,21 +362,8 @@ export function BrandIcon({ name }: { name: string }) {
 // ============================================================================
 
 export function createDefaultConnectors(): Connector[] {
-  return [
+  const connectors: Connector[] = [
     // Your Custom Connectors (Image 1)
-    {
-      id: 'conn-composio',
-      name: 'composio',
-      description: 'connect.composio.dev',
-      icon: 'composio',
-      enabled: false,
-      status: 'ready',
-      category: 'Developer Tools',
-      section: 'custom',
-      isCustom: true,
-      url: 'connect.composio.dev',
-      capabilities: ['Unified Tool Execution', 'Auth Relays', 'Multi-app Actions'],
-    },
     {
       id: 'conn-github',
       name: 'GitHub',
@@ -826,6 +814,21 @@ export function createDefaultConnectors(): Connector[] {
       config: { subreddit: 'r/artificial' },
     },
   ];
+
+  return connectors.map((connector) => {
+    const definition = getConnectorDefinition(connector.id);
+    if (!definition) return connector;
+    return {
+      ...connector,
+      url: definition.url,
+      provider: definition.provider,
+      config: {
+        ...connector.config,
+        connectionType: definition.connectionType,
+        ...(definition.authUrl ? { authUrl: definition.authUrl } : {}),
+      },
+    };
+  });
 }
 
 export const DEFAULT_CONNECTORS: Connector[] = createDefaultConnectors();
@@ -889,11 +892,11 @@ export default function ConnectorsModal({
 
   // Exact "Add Custom Connector" Modal (Screenshot 4)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [addStep, setAddStep] = useState<'form' | 'login'>('form');
   const [newConnName, setNewConnName] = useState('');
+  const [newConnType, setNewConnType] = useState<'direct' | 'mcp' | 'webhook' | 'zapier' | 'composio' | 'custom-api'>('direct');
   const [newConnUrl, setNewConnUrl] = useState('');
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [authSuccess, setAuthSuccess] = useState(false);
+  const [newConnAuthUrl, setNewConnAuthUrl] = useState('');
+  const [newConnDescription, setNewConnDescription] = useState('');
 
   // Config editor for active connector
   const [editingConnector, setEditingConnector] = useState<Connector | null>(null);
@@ -906,339 +909,17 @@ export default function ConnectorsModal({
   const [configSubreddit, setConfigSubreddit] = useState('');
   const [configAccountId, setConfigAccountId] = useState('');
 
-  // Google OAuth Modal state (matches Screenshot 1: media_1789661196153.png)
-  const [googleOAuthConnector, setGoogleOAuthConnector] = useState<Connector | null>(null);
-  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
-  const [showCustomGoogleAccount, setShowCustomGoogleAccount] = useState(false);
-  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
-  // Composio Master OAuth Hub State
-  const ensureComposioUserId = () => {
-    if (typeof window === 'undefined') return 'default';
-    const key = 'sameer_composio_user_id';
-    const existing = localStorage.getItem(key);
-    if (existing && existing.trim()) return existing.trim();
-    let generated = '';
+  const handleOpenConnector = (connectorId: string) => {
+    const connector = activeConnectors.find((c) => c.id === connectorId);
+    if (!connector) return;
+    const target = getConnectorLaunchUrl(connector);
+    if (!target) {
+      setEditingConnector(connector);
+      return;
+    }
     try {
-      generated = typeof crypto?.randomUUID === 'function'
-        ? 'sameer_' + crypto.randomUUID()
-        : 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    } catch {
-      generated = 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    }
-    localStorage.setItem(key, generated);
-    return generated;
-  };
-
-  const composioAccountsRef = React.useRef<any[]>([]);
-  const [composioApiKey, setComposioApiKey] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('composio_api_key') || '';
-    }
-    return '';
-  });
-  const [composioSaved, setComposioSaved] = useState(false);
-  const [composioAccounts, setComposioAccounts] = useState<any[]>([]);
-  const [isConnectingComposio, setIsConnectingComposio] = useState<string | null>(null);
-  const [isSyncingComposio, setIsSyncingComposio] = useState(false);
-  const [composioSyncMessage, setComposioSyncMessage] = useState<string | null>(null);
-  const [composioError, setComposioError] = useState<string | null>(null);
-
-  const toolkitForConnector = (connectorId: string) => {
-    const raw = String(connectorId || '').replace(/^conn-/i, '').toLowerCase();
-    const aliases: Record<string, string> = {
-      gdrive: 'google_drive',
-      gcalendar: 'google_calendar',
-      m365: 'microsoft365',
-      google_drive: 'google_drive',
-      google_calendar: 'google_calendar',
-    };
-    return aliases[raw] || raw;
-  };
-  // Synchronize authentic connected accounts from Composio
-  const fetchComposioAccounts = async () => {
-    if (!composioApiKey) return;
-    setIsSyncingComposio(true);
-    setComposioError(null);
-    try {
-      const userId = ensureComposioUserId();
-      const res = await fetch(
-        `/api/composio?apiKey=${encodeURIComponent(composioApiKey)}&entityId=${encodeURIComponent(userId)}`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.connectedAccounts) && onUpdateConnectorConfig) {
-          setComposioAccounts(data.connectedAccounts);
-          composioAccountsRef.current = data.connectedAccounts;
-          let updatedCount = 0;
-
-          // Preserve an explicitly selected account for each chat. Auto-select only
-          // when exactly one active account exists for that platform.
-          for (const conn of activeConnectors) {
-            if (conn.isCustom) continue;
-            const toolkit = toolkitForConnector(conn.id);
-            const matching = data.connectedAccounts.filter((acc: any) =>
-              String(acc?.appUniqueId || acc?.appName || '').toLowerCase() === toolkit &&
-              acc?.status === 'ACTIVE'
-            );
-            const selectedId = String(conn.config?.connectedAccountId || '').trim();
-
-            if (selectedId) {
-              const selected = matching.find((acc: any) => String(acc.id) === selectedId);
-              if (selected) {
-                const display = selected.email || selected.accountIdentifier || conn.config?.email;
-                if (display && display !== conn.config?.email) {
-                  onUpdateConnectorConfig(conn.id, { ...conn.config, email: display, connectedAccountId: selectedId });
-                  updatedCount++;
-                }
-                continue;
-              }
-
-              onUpdateConnectorConfig(conn.id, {
-                ...conn.config,
-                connectedAccountId: undefined,
-                email: undefined,
-              });
-              if (conn.enabled) onToggleConnector(conn.id);
-              updatedCount++;
-              continue;
-            }
-
-            if (matching.length === 1) {
-              const only = matching[0];
-              onUpdateConnectorConfig(conn.id, {
-                ...conn.config,
-                email: only.email || only.accountIdentifier || undefined,
-                connectedAccountId: only.id,
-              });
-              if (!conn.enabled) onToggleConnector(conn.id);
-              updatedCount++;
-            }
-          }
-          setComposioSyncMessage(
-            data.connectedAccounts.length > 0
-              ? `Synced ${data.connectedAccounts.length} account${data.connectedAccounts.length > 1 ? 's' : ''} from Composio!`
-              : 'No connected accounts found in Composio yet.'
-          );
-          setTimeout(() => setComposioSyncMessage(null), 4000);
-        }
-      }
-    } catch (err: any) {
-      setComposioError(err.message || 'Failed to sync with Composio');
-    } finally {
-      setIsSyncingComposio(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!composioApiKey || !isOpen) return;
-    fetchComposioAccounts();
-
-    const handleFocus = () => {
-      fetchComposioAccounts();
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [composioApiKey, isOpen]);
-
-  const handleSaveComposioKey = (key: string) => {
-    setComposioApiKey(key);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('composio_api_key', key);
-    }
-    setComposioSaved(true);
-    setTimeout(() => setComposioSaved(false), 2000);
-  };
-
-  const handleComposioConnect = async (connectorId: string, forceNewAccount = false) => {
-    let keyToUse = composioApiKey;
-    if (!keyToUse && typeof window !== 'undefined') {
-      keyToUse = localStorage.getItem('composio_api_key') || '';
-    }
-    if (!keyToUse) {
-      const entered = window.prompt('Enter your Composio API Key from app.composio.dev to authenticate:');
-      if (entered && entered.trim()) {
-        keyToUse = entered.trim();
-        handleSaveComposioKey(keyToUse);
-      } else {
-        return;
-      }
-    }
-
-    setIsConnectingComposio(connectorId);
-    setComposioError(null);
-
-    if (forceNewAccount && onUpdateConnectorConfig) {
-      const current = activeConnectors.find((c) => c.id === connectorId);
-      onUpdateConnectorConfig(connectorId, {
-        ...(current?.config || {}),
-        connectedAccountId: undefined,
-        email: undefined,
-      });
-    }
-
-    // Reuse accounts already authorized for this app user without forcing OAuth
-    // again. This is what makes accounts reusable across chats.
-    if (!forceNewAccount) {
-      try {
-        const userId = ensureComposioUserId();
-        const accountRes = await fetch(
-          `/api/composio?apiKey=${encodeURIComponent(keyToUse)}&entityId=${encodeURIComponent(userId)}`
-        );
-        if (accountRes.ok) {
-          const accountData = await accountRes.json();
-          const toolkit = toolkitForConnector(connectorId);
-          const existingAccounts = Array.isArray(accountData?.connectedAccounts)
-            ? accountData.connectedAccounts.filter((a: any) =>
-                normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit && a?.status === 'ACTIVE'
-              )
-            : [];
-          setComposioAccounts(existingAccounts.length ? accountData.connectedAccounts : []);
-          composioAccountsRef.current = Array.isArray(accountData?.connectedAccounts) ? accountData.connectedAccounts : [];
-
-          if (existingAccounts.length === 1) {
-            const account = existingAccounts[0];
-            onUpdateConnectorConfig?.(connectorId, {
-              connectedAccountId: account.id,
-              email: account.email || account.accountIdentifier || undefined,
-            });
-            if (!activeConnectors.find((c) => c.id === connectorId)?.enabled) onToggleConnector(connectorId);
-            setComposioSyncMessage('Existing active account selected for this chat. Use “Connect another account” for a fresh sign-in.');
-            setTimeout(() => setComposioSyncMessage(null), 2500);
-            setIsConnectingComposio(null);
-            return;
-          }
-          if (existingAccounts.length > 1) {
-            const connector = activeConnectors.find((c) => c.id === connectorId) ||
-              ({ id: connectorId, name: connectorId.replace('conn-', ''), config: {} } as Connector);
-            setAccountPickerConnector(connector);
-            setAccountPickerAccounts(existingAccounts);
-            setIsConnectingComposio(null);
-            return;
-          }
-        }
-      } catch {}
-    }
-
-    // Open popup immediately on user action to prevent browser popup blockers
-    let authWindow: Window | null = null;
-    try {
-      authWindow = window.open('about:blank', '_blank', 'width=650,height=750');
-      if (authWindow) {
-        authWindow.document.write(`
-          <!DOCTYPE html>
-          <html>
-            <head><title>Composio OAuth Gateway</title></head>
-            <body style="background:#161512;color:#ece9e2;font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;">
-              <div style="text-align:center;padding:24px;background:#1e1d19;border:1px solid #38352d;border-radius:18px;max-width:380px;">
-                <div style="font-size:32px;margin-bottom:12px;">⚡</div>
-                <h3 style="margin:0 0 8px 0;font-size:16px;color:#f2eee6;">Connecting via Composio</h3>
-                <p style="margin:0;font-size:13px;color:#9c978b;line-height:1.5;">Preparing OAuth authorization window. Redirecting you to Composio...</p>
-              </div>
-            </body>
-          </html>
-        `);
-      }
-    } catch (e) {}
-
-    const userId = ensureComposioUserId();
-    const beforeIds = new Set(
-      composioAccountsRef.current
-        .filter((a: any) => toolkitForConnector(connectorId) === String(a?.appUniqueId || a?.appName || '').toLowerCase())
-        .map((a: any) => String(a.id))
-    );
-
-    try {
-      const res = await fetch('/api/composio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'connect',
-          appName: connectorId,
-          apiKey: keyToUse,
-          entityId: userId,
-        }),
-      });
-      const data = await res.json();
-      if (data.redirectUrl) {
-        if (authWindow && !authWindow.closed) {
-          authWindow.location.href = data.redirectUrl;
-        } else {
-          window.open(data.redirectUrl, '_blank');
-        }
-        // Poll until Composio confirms the newly authorized account. Do not enable
-        // the chat connector before a real account exists.
-
-        // Poll for newly connected account and extract real email
-        let pollCount = 0;
-        const pollTimer = setInterval(async () => {
-          pollCount++;
-          if (pollCount > 30 || authWindow?.closed) {
-            clearInterval(pollTimer);
-          }
-          try {
-            const checkRes = await fetch(
-              `/api/composio?apiKey=${encodeURIComponent(keyToUse)}&entityId=${encodeURIComponent(userId)}`
-            );
-            if (checkRes.ok) {
-              const checkData = await checkRes.json();
-              if (Array.isArray(checkData.connectedAccounts) && onUpdateConnectorConfig) {
-                const toolkit = toolkitForConnector(connectorId);
-                const candidates = checkData.connectedAccounts.filter((a: any) =>
-                  normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit &&
-                  a?.status === 'ACTIVE'
-                );
-                const matched = candidates.find((a: any) => !beforeIds.has(String(a.id))) ||
-                  candidates.slice().sort((a: any, b: any) =>
-                    new Date(b.updatedAt || b.updated_at || 0).getTime() - new Date(a.updatedAt || a.updated_at || 0).getTime()
-                  )[0];
-                if (matched) {
-                  const resolvedEmail = matched.email || matched.accountIdentifier || 'Connected via Composio';
-                  if (onUpdateConnectorConfig) {
-                    onUpdateConnectorConfig(connectorId, {
-                      email: resolvedEmail,
-                      connectedAccountId: matched.id,
-                    });
-                  }
-                  if (!activeConnectors.find((c) => c.id === connectorId)?.enabled) {
-                    onToggleConnector(connectorId);
-                  }
-                  setComposioAccounts(checkData.connectedAccounts);
-                  composioAccountsRef.current = checkData.connectedAccounts;
-                  clearInterval(pollTimer);
-                }
-              }
-            }
-          } catch (e) {}
-        }, 2500);
-      } else {
-        const fallbackUrl = 'https://app.composio.dev/apps';
-        if (authWindow && !authWindow.closed) {
-          authWindow.location.href = fallbackUrl;
-        }
-        if (data.error) {
-          setComposioError(data.error);
-        }
-      }
-    } catch (e: any) {
-      const fallbackUrl = 'https://app.composio.dev/apps';
-      if (authWindow && !authWindow.closed) {
-        authWindow.location.href = fallbackUrl;
-      }
-      setComposioError(e.message || 'Failed to connect via Composio');
-    } finally {
-      setIsConnectingComposio(null);
-    }
-  };
-
-  const handleSelectGoogleAccount = (_email: string, _name: string) => {
-    if (!googleOAuthConnector) return;
-    // Typing an email is not authentication. Always use the real Composio OAuth
-    // flow so the connector cannot be marked connected with a fake identity.
-    const connectorId = googleOAuthConnector.id;
-    setGoogleOAuthConnector(null);
-    setShowCustomGoogleAccount(false);
-    setCustomGoogleEmail('');
-    handleComposioConnect(connectorId);
+      if (typeof window !== 'undefined') window.open(target, '_blank', 'noopener,noreferrer');
+    } catch {}
   };
 
   if (!isOpen) return null;
@@ -1295,40 +976,63 @@ export default function ConnectorsModal({
     setEditingConnector(null);
   };
 
-  // Submit from "Add Custom Connector" form -> Immediately add and activate connector
   const handleContinueToAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newConnName.trim() || !newConnUrl.trim()) return;
+    const name = newConnName.trim();
+    const url = newConnUrl.trim();
+    const authUrl = newConnAuthUrl.trim();
+    const description = newConnDescription.trim();
+    if (!name || !url) return;
+
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return;
+    } catch {
+      return;
+    }
 
     const newConn: Connector = {
       id: `conn-custom-${Date.now()}`,
-      name: newConnName.trim(),
-      description: newConnUrl.trim(),
+      name,
+      description: description || url,
       icon: 'mcp',
       enabled: false,
       status: 'ready',
-      category: 'Developer Tools',
+      category: newConnType === 'mcp' ? 'Developer Tools' : 'Other',
       section: 'custom',
       isCustom: true,
-      url: newConnUrl.trim(),
-      capabilities: ['Custom MCP Protocol', 'Live Remote Tools', 'OAuth Active'],
+      url,
+      provider:
+        newConnType === 'mcp' ? 'mcp' :
+        newConnType === 'zapier' ? 'zapier' :
+        newConnType === 'composio' ? 'composio' :
+        newConnType === 'custom-api' ? 'custom-api' :
+        'direct',
+      capabilities:
+        newConnType === 'mcp'
+          ? ['Remote MCP Tools', 'Tool Discovery', 'Provider Agnostic']
+          : ['Direct App Link', 'Provider Agnostic', 'Per-Chat Configuration'],
+      config: {
+        connectionType: newConnType,
+        ...(authUrl ? { authUrl } : {}),
+        ...(newConnType === 'mcp' ? { mcpUrl: url } : {}),
+        ...(newConnType === 'webhook' ? { webhookUrl: url } : {}),
+        ...(newConnType === 'zapier' ? { endpoint: url } : {}),
+        ...(newConnType === 'composio' ? { endpoint: url } : {}),
+        ...(newConnType === 'custom-api' ? { endpoint: url } : {}),
+        providerName: name,
+        notes: description || undefined,
+      },
     };
 
-    if (onAddCustomConnector) {
-      onAddCustomConnector(newConn);
-    } else {
-      onToggleConnector(newConn.id);
-    }
-
+    onAddCustomConnector?.(newConn);
+    if (!onAddCustomConnector) onToggleConnector(newConn.id);
     setIsAddModalOpen(false);
     setNewConnName('');
+    setNewConnType('direct');
     setNewConnUrl('');
-    setAddStep('form');
-  };
-
-  // Finalize OAuth Login / Connection
-  const handleCompleteLogin = () => {
-    handleContinueToAdd({ preventDefault: () => {} } as any);
+    setNewConnAuthUrl('');
+    setNewConnDescription('');
   };
 
   return (
@@ -1464,7 +1168,6 @@ export default function ConnectorsModal({
               <button
                 type="button"
                 onClick={() => {
-                  setAddStep('form');
                   setIsAddModalOpen(true);
                 }}
                 className="px-4 py-1.5 rounded-xl bg-[#282622] hover:bg-[#33302a] border border-[#38352d] text-xs font-medium text-[#f2eee6] transition-all shadow-sm active:scale-95 flex items-center space-x-1"

@@ -1355,7 +1355,7 @@ export default function ConnectorsModal({
                       Active for current chat: <span className="text-[#cc785c]">{sessionTitle || 'New Chat'}</span>
                     </div>
                     <p className="text-[11px] text-[#8a8579]">
-                      Connectors enabled below are isolated to this specific chat. Switch chats to use different accounts!
+                      Connector enablement is isolated to this specific chat. The authorized provider account is shared by this browser until you re-authorize it.
                     </p>
                   </div>
                   {onResetConnectors && (

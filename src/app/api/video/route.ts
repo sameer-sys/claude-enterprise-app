@@ -43,48 +43,45 @@ export async function POST(req: NextRequest) {
           message: 'Trending Reel downloaded in high resolution (1080p)',
         });
       } catch (dlErr: any) {
-        // Return simulated high-res video handle if yt-dlp is not locally installed
-        return NextResponse.json({
-          success: true,
-          videoId,
-          videoUrl,
-          message: 'Reel stream identified and ready for face-swap pipeline',
-          note: 'yt-dlp command staged. Connect your cloud Fal.ai or Replicate key for zero-GPU cloud rendering.',
-        });
+        return NextResponse.json(
+          {
+            success: false,
+            error: dlErr?.message || 'yt-dlp is not installed or the source could not be downloaded.',
+            hint: 'Install yt-dlp on the execution host and ensure the supplied URL is permitted and accessible.',
+          },
+          { status: 502 }
+        );
       }
     }
 
     if (action === 'face_swap') {
-      const outputVideoId = `swapped_${Date.now()}`;
-
-      // If user provides Fal.ai or Replicate API key, invoke cloud face swap
-      const replicateKey = process.env.REPLICATE_API_TOKEN;
-      const falKey = process.env.FAL_KEY;
-
-      return NextResponse.json({
-        success: true,
-        jobId: `job_${outputVideoId}`,
-        status: 'queued_and_processing',
-        outputVideo: `/generated_videos/${outputVideoId}.mp4`,
-        message: 'Face Swap pipeline initiated. Model expressions, head angle, and lighting being synthesized.',
-        hasCloudKey: Boolean(replicateKey || falKey),
-        previewUrl: faceImageUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop&q=80',
-      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Face-swap execution is not configured on this deployment.',
+          hint: 'Configure a real video-processing provider and model endpoint before using this operation.',
+          received: {
+            videoUrl: Boolean(videoUrl),
+            faceImageUrl: Boolean(faceImageUrl),
+            platform,
+          },
+        },
+        { status: 501 }
+      );
     }
 
     if (action === 'syndicate') {
-      // Direct staging to YouTube Shorts, Instagram Reels, Facebook Reels
-      return NextResponse.json({
-        success: true,
-        status: 'published',
-        platforms: ['YouTube Shorts', 'Instagram Reels', 'Facebook Reels'],
-        dispatchedAt: new Date().toISOString(),
-        seo: {
-          title: title || 'Unbelievable Moment! 🔥 #shorts #reels #viral #trending',
-          tags: ['#shorts', '#reels', '#viral', '#trending', '#ai', '#aifilms'],
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Publishing is not available through this endpoint until a real platform connector is configured.',
+          hint: 'Enable the target platform connector and use its authenticated upload/publish action.',
+          platform,
+          title: title || null,
+          description: description || null,
         },
-        message: 'Reel successfully scheduled and staged across all connected channels.',
-      });
+        { status: 501 }
+      );
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

@@ -822,7 +822,6 @@ export async function POST(req: NextRequest) {
       modelId = 'claude-3-7-sonnet',
       geminiKey,
       openRouterKey,
-      composioApiKey: userComposioKey,
       omniRouteUrl,
       thinkingBudget = 16000,
       agentPrompt,
@@ -830,7 +829,7 @@ export async function POST(req: NextRequest) {
     } = await req.json();
 
     const composioApiKey = process.env.COMPOSIO_API_KEY || '';
-    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim();
+    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'sameer-web-user';
 
     const isOmniRouteModel =
       modelId === 'the-boss-chat' ||

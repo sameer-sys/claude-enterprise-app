@@ -294,7 +294,22 @@ export default function Home() {
     const next = !isProactiveMode;
     setIsProactiveMode(next);
     localStorage.setItem('claude_proactive_mode', String(next));
+    try {
+      const electronAPI = typeof window !== 'undefined' ? (window as any).electronAPI : null;
+      if (next) electronAPI?.startAutomation?.();
+      else electronAPI?.stopAutomation?.();
+    } catch {}
   };
+
+  useEffect(() => {
+    try {
+      const electronAPI = typeof window !== 'undefined' ? (window as any).electronAPI : null;
+      if (electronAPI) {
+        if (isProactiveMode) electronAPI.startAutomation?.();
+        else electronAPI.stopAutomation?.();
+      }
+    } catch {}
+  }, [isProactiveMode]);
 
   const handleSaveGeminiKey = (key: string) => {
     setGeminiKey(key);

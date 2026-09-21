@@ -22,6 +22,7 @@ import {
 import { ManagedSubAgent, ExecutiveSquad, ModelId } from '@/types/chat';
 
 interface ManagerSquadViewProps {
+  isOpen?: boolean;
   onClose?: () => void;
   onSendPromptToSubAgent?: (agentAlias: string, prompt: string) => void;
   onDeployToSession?: (directive: string) => void;
@@ -34,15 +35,13 @@ const DEFAULT_SUB_AGENTS: ManagedSubAgent[] = [
     alias: 'PM1',
     email: 'pm1.analyst@workspace.internal',
     role: 'Task Breakdown & Spec Analyst',
-    status: 'working',
-    currentTask: 'Decomposing site specifications into 30-minute developer tasks',
-    lastProgress: 'Extracted tech stack, identified 4 core milestones with acceptance criteria.',
+    status: 'idle',
+    currentTask: 'Ready for a directive',
+    lastProgress: 'No live task is running yet.',
     modelId: 'claude-3-7-sonnet',
     assignedBy: 'Executive Manager',
     outputLog: [
-      '[PM1: 02:10] Connected to task breakdown engine',
-      '[PM1: 02:12] Parsed spec: 4 milestones defined for frontend and API',
-      '[PM1: 02:15] Tasklist created with realistic scoping and zero-bloat standards',
+      '[PM1] Squad member initialized.',
     ],
   },
   {
@@ -51,13 +50,12 @@ const DEFAULT_SUB_AGENTS: ManagedSubAgent[] = [
     alias: 'PM2',
     role: 'Client Operations & Communications',
     status: 'idle',
-    currentTask: 'Awaiting directive from Executive Manager',
-    lastProgress: 'Aligned client requirements and verified milestone timeline.',
+    currentTask: 'Ready for a directive',
+    lastProgress: 'No live task is running yet.',
     modelId: 'the-boss-chat',
     assignedBy: 'Executive Manager',
     outputLog: [
-      '[PM2: 01:45] Stakeholder channels synced',
-      '[PM2: 02:00] Standing by for sprint directives',
+      '[PM2] Squad member initialized.',
     ],
   },
   {
@@ -65,19 +63,19 @@ const DEFAULT_SUB_AGENTS: ManagedSubAgent[] = [
     name: 'Project Manager 3',
     alias: 'PM3',
     role: 'Delivery, QA & Release Steward',
-    status: 'inspecting',
-    currentTask: 'Running automated test suites and production build verification',
-    lastProgress: 'Next.js build verified: 0 errors, 5 static routes optimized.',
+    status: 'idle',
+    currentTask: 'Ready for a directive',
+    lastProgress: 'No live task is running yet.',
     modelId: 'the-boss-build',
     assignedBy: 'Executive Manager',
     outputLog: [
-      '[PM3: 02:05] Initialized test harness',
-      '[PM3: 02:18] Verified production build status: 200 OK',
+      '[PM3] Squad member initialized.',
     ],
   },
 ];
 
 export default function ManagerSquadView({
+  isOpen = true,
   onClose,
   onSendPromptToSubAgent,
   onDeployToSession,
@@ -89,8 +87,8 @@ export default function ManagerSquadView({
   const [directPrompt, setDirectPrompt] = useState('');
   const [inspectionFeed, setInspectionFeed] = useState<string[]>([
     '👑 [Sameer (Manager)] Executive Manager initialized autonomous squad supervision.',
-    '📋 [PM1] Active on task breakdown (connected to workspace engine).',
-    '🔍 [PM3] Continuous QA verification active: all build checks passing.',
+    '📋 [PM1] Ready for live task directives.',
+    '🔍 [PM3] Ready for live QA directives.',
   ]);
 
   // Autonomous inspection cycle
@@ -142,76 +140,8 @@ export default function ManagerSquadView({
       }))
     );
 
-    // Realistic sequential progress updates across parallel agents
-    setTimeout(() => {
-      const t1 = new Date().toLocaleTimeString();
-      setSubAgents((prev) =>
-        prev.map((ag) =>
-          ag.id === 'pm1'
-            ? {
-                ...ag,
-                status: 'completed',
-                lastProgress: `Decomposition complete: 4 milestones defined with zero-bloat criteria.`,
-                outputLog: [
-                  `[PM1: ${t1}] 📋 Decomposed scope into 4 actionable sprint units. Acceptance criteria validated.`,
-                  ...(ag.outputLog || []),
-                ],
-              }
-            : ag
-        )
-      );
-      setInspectionFeed((prev) => [
-        `✅ [PM1: ${t1}] Task decomposition completed. Handing over milestone gates.`,
-        ...prev,
-      ]);
-    }, 1200);
-
-    setTimeout(() => {
-      const t2 = new Date().toLocaleTimeString();
-      setSubAgents((prev) =>
-        prev.map((ag) =>
-          ag.id === 'pm2'
-            ? {
-                ...ag,
-                status: 'completed',
-                lastProgress: `Delivery schedule locked. Stakeholder channels notified.`,
-                outputLog: [
-                  `[PM2: ${t2}] ⏱️ Stakeholder roadmap synchronized with workspace channels.`,
-                  ...(ag.outputLog || []),
-                ],
-              }
-            : ag
-        )
-      );
-      setInspectionFeed((prev) => [
-        `✅ [PM2: ${t2}] Operations & client communications verified. Timeline on schedule.`,
-        ...prev,
-      ]);
-    }, 2400);
-
-    setTimeout(() => {
-      const t3 = new Date().toLocaleTimeString();
-      setSubAgents((prev) =>
-        prev.map((ag) =>
-          ag.id === 'pm3'
-            ? {
-                ...ag,
-                status: 'completed',
-                lastProgress: `Production build & QA passed: 0 errors, 100% verified.`,
-                outputLog: [
-                  `[PM3: ${t3}] 🧪 Test suite complete: All 5 acceptance checks passed. Production build green.`,
-                  ...(ag.outputLog || []),
-                ],
-              }
-            : ag
-        )
-      );
-      setInspectionFeed((prev) => [
-        `👑 [Sameer (Manager): ${t3}] SQUAD MISSION VERIFIED: All 3 PMs completed directives with zero errors!`,
-        ...prev,
-      ]);
-    }, 3800);
-
+    // No simulated completion. The squad only records that a directive
+    // was dispatched; actual completion comes from the live workspace engine.
     setDirectiveInput('');
   };
 
@@ -231,7 +161,7 @@ export default function ManagerSquadView({
 
     const updatedLog = [
       `[${selectedSubAgent.alias}: ${timestamp}] Directive: "${prompt}"`,
-      `[${selectedSubAgent.alias}: ${timestamp}] Output: Deliverable drafted and verified against acceptance criteria.`,
+      `[${selectedSubAgent.alias}: ${timestamp}] Command forwarded to the live workspace chat engine.`,
       ...(selectedSubAgent.outputLog || []),
     ];
 
@@ -250,7 +180,7 @@ export default function ManagerSquadView({
 
     setInspectionFeed((prev) => [
       `👑 [Sameer (Manager)] Sent direct command to ${selectedSubAgent.alias}: "${prompt}"`,
-      `✅ [${selectedSubAgent.alias}] Executed deliverable update.`,
+      `📨 [${selectedSubAgent.alias}] Command forwarded to the live workspace chat engine.`,
       ...prev,
     ]);
 
@@ -260,6 +190,8 @@ export default function ManagerSquadView({
 
     setDirectPrompt('');
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">

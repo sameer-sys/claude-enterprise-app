@@ -54,10 +54,16 @@ export async function GET(req: NextRequest) {
     };
 
     const label = getProviderAccountLabel(stored);
+    const displayLabel = label
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
     const safeMessage = JSON.stringify({
       type: 'sameer-connector-connected',
       connector: connectorId,
-      account: label,
+      account: displayLabel,
     });
     const safeOrigin = JSON.stringify(url.origin);
     const safeHome = JSON.stringify(new URL('/', url.origin).toString());
@@ -65,7 +71,7 @@ export async function GET(req: NextRequest) {
       '<!doctype html><html><head><meta charset="utf-8"><title>Connector connected</title></head>' +
       '<body style="font-family:system-ui,sans-serif;background:#181714;color:#f2eee6;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">' +
       '<div style="text-align:center"><h2>Connector connected</h2><p>' +
-      (label ? 'Account: ' + label : 'Authentication completed successfully.') +
+      (displayLabel ? 'Account: ' + displayLabel : 'Authentication completed successfully.') +
       '</p><p>This window can close automatically.</p></div>' +
       '<script>' +
       '(function(){var message=' + safeMessage + ';var origin=' + safeOrigin + ';try{if(window.opener){window.opener.postMessage(message,origin);}}catch(_){}' +

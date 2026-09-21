@@ -174,7 +174,9 @@ export async function createComposioToolRouterSession(
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         user_id: String(userId || 'default'),
-        toolkits: { enabled: toolkits },
+        // Composio's create-session request uses "enable" for the toolkit
+        // allowlist (the response normalizes this to "enabled").
+        toolkits: { enable: toolkits },
         ...(Object.keys(connectedAccounts).length ? { connected_accounts: connectedAccounts } : {}),
         multi_account: { enable: true, max_accounts_per_toolkit: 0, require_explicit_selection: true },
         search: { enable: true },

@@ -12,6 +12,8 @@ import {
   generateComposioToolInput,
   executeComposioToolRouter,
   executeComposioNaturalLanguage,
+  toolkitFromComposioToolSlug,
+  normalizeComposioToolkitSlug,
 } from '@/lib/composio';
 
 export const runtime = 'nodejs';
@@ -292,9 +294,9 @@ async function runAgentTool(
         if (!session.success || !session.sessionId) return JSON.stringify({ success: false, error: session.error || 'Could not create Composio session.' });
         sessionId = session.sessionId;
       }
+      const toolkit = toolkitFromComposioToolSlug(slug);
       const connector = (connectorContext.connectors || []).find((c: any) =>
-        c?.enabled !== false && String(c?.config?.connectedAccountId || '').trim() &&
-        slug.toLowerCase().startsWith(String(c.id || '').replace(/^conn-/, '').toLowerCase().split('_')[0])
+        c?.enabled !== false && !c?.isCustom && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit
       );
       const explicitAccount = String(args?.connected_account_id || '').trim();
       const accountId = explicitAccount || String(connector?.config?.connectedAccountId || '').trim() || undefined;
@@ -1463,7 +1465,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
 
     // Rebuild the system prompt after the deterministic connector preflight so
     // the actual result is visible to every downstream model provider.
-    const finalSystemPrompt = `${systemPrompt}${connectorSystemDirective}`;
+    const finalSystemPrompt = `${baseSystemPrompt}${developerDirective}${connectorContext}${connectorSystemDirective}`;
 
     // ========================================================
     // OMNIROUTER STAGE 0: Direct OmniRoute Model Dispatch (Local)
@@ -1782,9 +1784,16 @@ Please verify your credentials or connected account in the Connectors modal.`;
         let connectorAccounts: any[] = [];
         if (composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.enabled !== false)) {
           try {
-            connectorAccounts = await listConnectedAccounts(composioApiKey);
+            connectorAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
           } catch {}
         }
+        const agentConnectorContext = {
+          apiKey: composioApiKey,
+          connectors,
+          accounts: connectorAccounts,
+          userId: composioUserId,
+          toolRouterSessionId: undefined as string | undefined,
+        };
 
         for (let turn = 0; turn < maxAgentTurns; turn++) {
           if (Date.now() > agentDeadline) break;
@@ -1836,12 +1845,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
                 toolArgs = JSON.parse(call.function?.arguments || '{}');
               } catch (e) {}
 
-              const result = await runAgentTool(toolName, toolArgs, {
-                apiKey: composioApiKey,
-                connectors,
-                accounts: connectorAccounts,
-                userId: composioUserId,
-              });
+              const result = await runAgentTool(toolName, toolArgs, agentConnectorContext);
 
               fullMessages.push({
                 role: 'tool',
@@ -1967,13 +1971,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [
-            { role: 'system', content: finalSystemPrompt },
-            ...messages.slice(-6).map((m: any) => ({
-              role: m.role === 'user' ? 'user' : 'assistant',
-              content: m.content || '',
-            })),
-          ],
+          messages: fullMessages,
           model: 'openai',
         }),
         signal: AbortSignal.timeout(20000),

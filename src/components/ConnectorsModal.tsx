@@ -1165,25 +1165,15 @@ export default function ConnectorsModal({
     }
   };
 
-  const handleSelectGoogleAccount = (email: string, name: string) => {
+  const handleSelectGoogleAccount = (_email: string, _name: string) => {
     if (!googleOAuthConnector) return;
-    setIsGoogleSigningIn(true);
-    setTimeout(() => {
-      setIsGoogleSigningIn(false);
-      if (onUpdateConnectorConfig) {
-        onUpdateConnectorConfig(googleOAuthConnector.id, {
-          ...googleOAuthConnector.config,
-          email: email.trim(),
-          accountName: name.trim(),
-        });
-      }
-      if (!googleOAuthConnector.enabled) {
-        onToggleConnector(googleOAuthConnector.id);
-      }
-      setGoogleOAuthConnector(null);
-      setShowCustomGoogleAccount(false);
-      setCustomGoogleEmail('');
-    }, 450);
+    // Typing an email is not authentication. Always use the real Composio OAuth
+    // flow so the connector cannot be marked connected with a fake identity.
+    const connectorId = googleOAuthConnector.id;
+    setGoogleOAuthConnector(null);
+    setShowCustomGoogleAccount(false);
+    setCustomGoogleEmail('');
+    handleComposioConnect(connectorId);
   };
 
   if (!isOpen) return null;
@@ -1935,6 +1925,13 @@ export default function ConnectorsModal({
                       ))}
                     </select>
                     <p className="text-[10px] text-[#8a8579]">This selection belongs to this chat only. The same connected account can be reused by other chats.</p>
+                    <button
+                      type="button"
+                      onClick={() => handleComposioConnect(editingConnector.id)}
+                      className="text-[10px] text-[#cc785c] hover:text-[#f2eee6] font-medium"
+                    >
+                      + Connect another account
+                    </button>
                   </div>
                 );
               })()}

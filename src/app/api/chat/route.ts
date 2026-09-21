@@ -900,7 +900,7 @@ export class AutonomousProjectManager extends EventEmitter {
 2. **Your Command:** What is the exact first module or specification you want me to write code for right now?`;
   }
 
-  // 1.9 REAL INBOX READER EXECUTION
+  // 1.9 INBOX FALLBACK (truthful)
   if (
     lower.includes('inbox') ||
     lower.includes('latest email') ||
@@ -912,36 +912,9 @@ export class AutonomousProjectManager extends EventEmitter {
     lower.includes('unread') ||
     lower.includes('recent email')
   ) {
-    const gmailConn = activeConnectors.find((c: any) => c.id === 'conn-gmail');
-    const senderEmail = gmailConn?.config?.email;
-
-    return `### 📥 Google Workspace Inbox · Live Mailbox Inspection
-
-- **Mailbox:** Sameer Shaik (\`${senderEmail || 'Composio Connected Mailbox'}\`)
-- **Server:** \`imap.gmail.com:993\` (SSL Encrypted Connection)
-- **Total Emails in Mailbox:** **378 Messages**
-- **Status:** 🟢 **Connected & Verified**
-
-#### 📬 Latest Received Messages:
-
-1. **Pawar International Response (via IndiaMART)**
-   - **From:** Munzir via IndiaMART \`<buyershelp+reply@indiamart.com>\`
-   - **Subject:** *"SHAIK, you have received a response from Pawar International, Mumbai"*
-   - **Category:** Direct Buyer Inquiry / Trade Lead
-   - **Status:** Unread in INBOX
-
-2. **IndiaMART Trade Inquiries**
-   - **From:** IndiaMART Business Leads \`<leads@indiamart.com>\`
-   - **Subject:** *"New Verified Buyer Requirement: Agriculture & Food Products"*
-   - **Category:** Business Proposal
-
-3. **Cloud Infrastructure Operations**
-   - **From:** Cloud Operations \`<operations@cloud-services.net>\`
-   - **Subject:** *"Infrastructure & System Verification Notice"*
-   - **Category:** Operational Notice
-
----
-*Live IMAP connection active on port 993 with 0 errors. Would you like me to read the full body of any specific email, draft a reply, or export these leads?*`;
+    return '### Gmail connector not available\n\n' +
+      'I could not read a live inbox in this fallback path. Authorize **Gmail** from the Connectors panel using the provider\'s own OAuth flow, then retry.\n\n' +
+      'No mailbox contents, message counts, or connected status are reported unless the Gmail API returns them.';
   }
 
   // 2. GMAIL / EMAIL END-TO-END AUTHENTIC EXECUTION
@@ -963,14 +936,10 @@ export class AutonomousProjectManager extends EventEmitter {
     const senderEmail = gmailConn?.config?.email;
 
     if (!senderEmail) {
-      return `### ⚠️ Composio Authentication Required: No Email Account Connected
-
-There is currently **no email account connected with Composio** for this chat session.
-
-To send emails autonomously:
-1. Open the **Connectors** menu (top-right of chat).
-2. Click **"⚡ Connect"** on **Gmail** to authorize your account via **Composio Real OAuth**.
-3. Once authorized, only your real connected email will be used to dispatch messages with zero clicks!`;
+      return '### Gmail connector not connected\n\n' +
+        'There is no directly authorized Gmail account available to this chat yet.\n\n' +
+        'Open **Connectors → Gmail → Connect** and finish the provider\'s Google OAuth flow. The workspace will only use the account after the provider confirms authorization.';
+    }
     }
 
     let recipient = '';
@@ -991,7 +960,7 @@ To send emails autonomously:
 
 Please specify the recipient's email address (e.g. \`send email to client@example.com saying ...\`).
 
-- **Sender Mailbox:** \`${senderEmail}\` (Composio Verified)
+- **Sender Mailbox:** \`${senderEmail}\`
 - **Status:** Standing by for recipient.`;
     }
 
@@ -1035,7 +1004,7 @@ Cannot transmit email autonomously because SMTP credentials are not configured i
 
 To enable background email dispatch:
 1. Provide your SMTP credentials in your environment variables (\`SMTP_USER\` and \`SMTP_PASS\`), or
-2. Connect your account via the **Connectors** panel (Composio Gmail).
+2. Authorize Gmail in the **Connectors** panel using the provider's direct OAuth flow.
 
 **Recipient:** \`${recipient}\`
 **Subject:** \`${subject}\``;
@@ -1063,7 +1032,7 @@ I attempted to transmit the email to \`${recipient}\`, but delivery could not be
 - **Recipient:** \`${recipient}\`
 - **Error Handshake:** \`${serverResp}\`
 
-Please check your SMTP credentials or connect your Gmail account in the **Connectors** modal.`;
+Please check your SMTP credentials or authorize Gmail in the **Connectors** modal.`;
     }
 
     return `### ✅ Email Dispatched via SMTP (Port 465 SSL)
@@ -1132,31 +1101,18 @@ Here is your structured meeting agenda and details:
 > ℹ️ *To automatically push tickets to Linear or Asana, enable the Linear/Asana connector in the Connectors modal.*`;
   }
 
-  // 5. GITHUB REPOSITORY
+  // 5. GITHUB FALLBACK (truthful)
   if (lower.includes('github') || lower.includes('repo') || lower.includes('commit') || lower.includes('pull request')) {
-    const repo = 'sameer-sys/claude-enterprise-app';
-    return `### 🐙 Connected GitHub Repository
-
-- **Repository:** [\`${repo}\`](https://github.com/${repo})
-- **Active Branch:** \`main\`
-- **Status:** Verified and synced
-
-#### Useful Links:
-- [🐙 View Source Code on GitHub](https://github.com/${repo})
-- [🌿 View Recent Commits](https://github.com/${repo}/commits/main)
-- [⚡ View Pull Requests](https://github.com/${repo}/pulls)`;
+    return '### GitHub connector\n\n' +
+      'Live GitHub actions are available only after the GitHub connector is authorized directly with GitHub.\n\n' +
+      'Open **Connectors → GitHub → Connect**, finish OAuth, enable the connector for this chat, and retry the request. No repository state is reported as verified until the GitHub API returns it.';
   }
 
   // Fallback for social/media queries when model is offline: provide genuine status, never invent fake playlists
   if (lower.includes('youtube') || lower.includes('playlist') || lower.includes('instagram') || lower.includes('facebook') || lower.includes('twitter') || lower.includes('linkedin')) {
-    return `### ⚡ Sameer AI Workspace Connector Status
-
-To execute real live operations on YouTube, Gmail, Drive, or Social platforms:
-1. Ensure your account is authorized in the **Connectors** menu (top-right).
-2. For channel data (such as live YouTube playlists or Google Drive files), your active Composio connection will pull real-time data directly from your account.
-3. No fake or placeholder data will ever be generated.
-
-How would you like to proceed with your workflow?`;
+    return '### Connector authorization required\n\n' +
+      'This fallback cannot perform a live social/media action. Authorize the requested service from **Connectors** using its provider or configured runtime adapter, enable it for this chat, and retry.\n\n' +
+      'No external action is reported as completed unless the provider/runtime returns a real success result.';
   }
 
   // 14. COMPREHENSIVE INTELLIGENT EXECUTIVE RESPONSE ENGINE

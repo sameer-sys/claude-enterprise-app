@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, KeyRound, Loader2, LogOut, Plus, RefreshCw, Settings, ShieldCheck, X, Zap } from 'lucide-react';
+import { Check, Loader2, LogOut, Plus, RefreshCw, ShieldCheck, X, Zap } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
 
 export interface ConnectorsModalProps {
@@ -74,15 +74,12 @@ function serviceLabel(slug: string): string {
 }
 
 export default function ConnectorsModal(props: ConnectorsModalProps) {
-  const { isOpen, onClose, activeConnectors, onUpdateConnectorConfig } = props;
+  const { isOpen, onClose, onUpdateConnectorConfig } = props;
   const [accounts, setAccounts] = useState<ComposioAccount[]>([]);
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [showServices, setShowServices] = useState(true);
-  const [apiKey, setApiKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
-  const [savedKey, setSavedKey] = useState(false);
 
   const activeAccounts = useMemo(function () {
     return accounts.filter(function (a) { return String(a.status).toUpperCase() === 'ACTIVE'; });
@@ -93,9 +90,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     setError('');
     try {
       const userId = getUserId();
-      const key = typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || '' : '';
       const q = new URLSearchParams({ entityId: userId });
-      if (key) q.set('apiKey', key);
       const res = await fetch('/api/composio?' + q.toString(), { cache: 'no-store' });
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok) throw new Error(data.error || 'Could not read Composio status.');
@@ -119,33 +114,23 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
   useEffect(function () {
     if (!isOpen) return;
-    setApiKey(typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || '' : '');
     refresh();
     const onFocus = function () { refresh(true); };
     window.addEventListener('focus', onFocus);
     return function () { window.removeEventListener('focus', onFocus); };
   }, [isOpen]);
 
-  const saveKey = function () {
-    if (typeof window !== 'undefined') localStorage.setItem('composio_api_key', apiKey.trim());
-    setSavedKey(true);
-    setTimeout(function () { setSavedKey(false); }, 1800);
-    refresh();
-  };
-
   const connectService = async function (service: string) {
     setConnecting(service);
     setError('');
     try {
       const userId = getUserId();
-      const key = typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || '' : '';
       const res = await fetch('/api/composio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'connect',
           appName: service,
-          apiKey: key || undefined,
           entityId: userId,
           callbackUrl: window.location.origin + '/api/composio/callback',
         }),
@@ -170,8 +155,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         }
         try {
           const q = new URLSearchParams({ entityId: userId });
-          const currentKey = localStorage.getItem('composio_api_key') || '';
-          if (currentKey) q.set('apiKey', currentKey);
           const statusRes = await fetch('/api/composio?' + q.toString(), { cache: 'no-store' });
           const statusData = await statusRes.json().catch(function () { return {}; });
           const live = Array.isArray(statusData.connectedAccounts) ? statusData.connectedAccounts : [];
@@ -195,11 +178,10 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   const disconnectService = async function (accountId: string) {
     setError('');
     try {
-      const key = typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || '' : '';
       const res = await fetch('/api/composio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'disconnect', connectedAccountId: accountId, apiKey: key || undefined }),
+        body: JSON.stringify({ action: 'disconnect', connectedAccountId: accountId }),
       });
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok || data.success === false) throw new Error(data.error || 'Disconnect failed.');
@@ -273,17 +255,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
             <p className="text-xs leading-5 text-[#89837a]">Click an app above and Composio opens its hosted authentication flow. You sign in with Google, GitHub, or the provider itself. The chat only treats an account as connected after Composio reports it ACTIVE.</p>
           </div>
 
-          <details className="rounded-2xl border border-[#302e27] bg-[#1b1916]">
-            <summary className="cursor-pointer list-none px-5 py-4 flex items-center gap-2 text-sm font-medium"><Settings className="w-4 h-4" /> Project configuration</summary>
-            <div className="px-5 pb-5 pt-1">
-              <div className="text-xs text-[#89837a] mb-3">For Vercel, set COMPOSIO_API_KEY as a server environment variable. This local key is only a fallback.</div>
-              <div className="flex gap-2">
-                <input value={apiKey} onChange={function (e) { setApiKey(e.target.value); }} type={showKey ? 'text' : 'password'} placeholder="Composio API key" className="flex-1 rounded-xl bg-[#12110f] border border-[#38352d] px-3 py-2.5 text-xs outline-none" />
-                <button onClick={function () { setShowKey(!showKey); }} className="p-2 rounded-xl border border-[#38352d]"><KeyRound className="w-4 h-4" /></button>
-                <button onClick={saveKey} className="px-3 rounded-xl bg-[#cc785c] text-black text-xs font-semibold">{savedKey ? 'Saved' : 'Save'}</button>
-              </div>
-            </div>
-          </details>
 
           <div className="text-[11px] text-[#6f6a61] text-center">The local Enabled state is not proof of authorization. Chat access comes from the same Composio user ID and ACTIVE accounts shown above.</div>
         </div>

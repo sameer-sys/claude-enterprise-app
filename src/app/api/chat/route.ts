@@ -1802,6 +1802,8 @@ Please verify your credentials or connected account in the Connectors modal.`;
         ])
       ).slice(0, 4);
 
+      // Keep the complete message context available to both the connector
+      // agent loop and the later provider fallback.
       const recentMessages = messages.slice(-8);
       const fullMessages = [
         { role: 'system', content: finalSystemPrompt },

@@ -1750,7 +1750,7 @@ export default function SettingsModal({
                 {editingConnector && editingConnector.config?.connectionType === 'direct' && (
                   <div className="p-3 rounded-xl bg-[#1a1915] border border-[#2d2b24] space-y-2">
                     <div className="text-[11px] text-[#8a8579]">
-                      Sign in directly with the provider. The built-in connector does not use Composio.
+                      Sign in directly with the provider. Built-in direct connectors do not use Composio.
                     </div>
                     <div className="flex items-center gap-2">
                       <button

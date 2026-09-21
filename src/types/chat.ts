@@ -48,6 +48,13 @@ export interface ConnectorConfig {
   platform?: string;
   subreddit?: string;
   webhookUrl?: string;
+  /** Provider-neutral connector settings. */
+  connectionType?: 'direct' | 'mcp' | 'webhook' | 'zapier' | 'composio' | 'custom-api';
+  authUrl?: string;
+  mcpUrl?: string;
+  providerName?: string;
+  endpoint?: string;
+  notes?: string;
   accountName?: string;
   connectedAccountId?: string;
   [key: string]: any;
@@ -61,7 +68,7 @@ export interface Connector {
   enabled: boolean;
   status: 'connected' | 'ready' | 'idle';
   category: string;
-  provider?: 'anthropic' | 'mcp' | 'community';
+  provider?: 'anthropic' | 'mcp' | 'community' | 'direct' | 'zapier' | 'composio' | 'custom-api';
   capabilities?: string[];
   config?: ConnectorConfig;
   isVerified?: boolean;

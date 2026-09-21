@@ -1695,6 +1695,7 @@ export default function ConnectorsModal({
 // CONNECTOR CARD COMPONENT (Exact visual match to official Claude cards)
 // ============================================================================
 
+
 function ConnectorCard({
   connector,
   onToggle,
@@ -1708,163 +1709,76 @@ function ConnectorCard({
   onGoogleAuth?: (c: Connector) => void;
   onComposioConnect?: (connectorId: string) => void;
 }) {
-  const isEnabled = connector.enabled;
-  const isGoogle = connector.id === 'conn-gmail' || connector.id === 'conn-gdrive' || connector.id === 'conn-gcalendar';
+  const connectedApps = Number(connector.config?.composioAccountCount || 0);
 
-  const handleClick = () => {
-    if (isGoogle && !isEnabled && onGoogleAuth) {
-      onGoogleAuth(connector);
-    } else {
-      onToggle();
-    }
-  };
-
-  return (
-    <div
-      onClick={handleClick}
-      className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between group ${
-        isEnabled
-          ? 'bg-[#1e1c19] border-[#38352d] hover:border-[#4a463d]'
-          : 'bg-[#171614] border-[#26241f] hover:border-[#333129] hover:bg-[#1a1916]'
-      }`}
-    >
-      {/* Left: Icon + Info */}
-      <div className="flex items-center space-x-3 min-w-0 pr-2">
-        <div className="w-10 h-10 rounded-xl bg-[#12110f] border border-[#26241f] flex items-center justify-center shrink-0 shadow-sm group-hover:scale-105 transition-transform">
-          <BrandIcon name={connector.icon} />
-        </div>
-
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="flex items-center space-x-1.5 flex-wrap">
-            <span className="text-xs font-semibold text-[#f2eee6] truncate">
-              {connector.name}
-            </span>
-
-            {connector.isVerified && (
-              <svg className="w-3.5 h-3.5 text-[#8a8579] shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-            )}
-
-            {connector.isTrending && (
-              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20">
-                Trending
-              </span>
-            )}
-
-            {connector.isBeta && (
-              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#2b2923] text-[#a39e91]">
-                Beta
-              </span>
-            )}
-
-            {connector.isCustom && (
-              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#282622] text-[#8a8579]">
-                Custom
-              </span>
-            )}
+  if (connector.id === 'conn-composio') {
+    return (
+      <div className="p-4 rounded-2xl border border-[#38352d] bg-[#1e1c19] hover:border-[#4a463d] transition-all">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="w-11 h-11 rounded-xl bg-[#12110f] border border-[#26241f] flex items-center justify-center shrink-0">
+              <BrandIcon name="composio" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-[#f2eee6]">Composio</span>
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#cc785c]/15 text-[#cc785c] border border-[#cc785c]/25">
+                  Single connector
+                </span>
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+              </div>
+              <p className="text-[11px] text-[#8a8579] mt-1">
+                {connectedApps
+                  ? connectedApps + ' active app account' + (connectedApps === 1 ? '' : 's') + ' available to chat'
+                  : 'No app accounts connected yet'}
+              </p>
+            </div>
           </div>
 
-          <p className="text-[11px] text-[#8a8579] truncate leading-tight">
-            {connector.description}
-          </p>
-
-          {isEnabled && connector.config?.email && (
-            <p className="text-[10px] text-emerald-400 font-mono flex items-center gap-1 truncate">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
-              <span>Mailbox: {connector.config.email}</span>
-            </p>
-          )}
-          {isEnabled && connector.config?.repo && (
-            <p className="text-[10px] text-[#cc785c] truncate">
-              Repo: {connector.config.repo}
-            </p>
-          )}
-          {isEnabled && connector.config?.channelName && (
-            <p className="text-[10px] text-[#cc785c] truncate">
-              Channel: {connector.config.channelName}
-            </p>
-          )}
-          {isEnabled && connector.config?.handle && (
-            <p className="text-[10px] text-[#cc785c] truncate">
-              Handle: {connector.config.handle}
-            </p>
-          )}
-          {isEnabled && connector.config?.subreddit && (
-            <p className="text-[10px] text-[#cc785c] truncate">
-              Subreddit: {connector.config.subreddit}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Right: Toggle Button & Config Gear */}
-      <div className="flex items-center space-x-1.5 shrink-0">
-        {isEnabled && (
-          connector.id === 'conn-gmail' ||
-          connector.id === 'conn-github' ||
-          connector.id === 'conn-youtube' ||
-          connector.id === 'conn-instagram' ||
-          connector.id === 'conn-twitter' ||
-          connector.id === 'conn-tiktok' ||
-          connector.id === 'conn-linkedin' ||
-          connector.id === 'conn-reddit'
-        ) && (
-          <button
-            type="button"
-            onClick={onOpenConfig}
-            className="p-1.5 rounded-lg text-[#8a8579] hover:text-[#f2eee6] hover:bg-[#282622] transition-colors"
-            title="Configure settings for this chat"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        )}
-
-        {!isEnabled && (
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              if (onComposioConnect) {
-                onComposioConnect(connector.id);
-              } else if (isGoogle && onGoogleAuth) {
-                onGoogleAuth(connector);
-              } else {
-                onToggle();
-              }
+              onComposioConnect?.(connector.id);
             }}
-            className="px-2 py-1 rounded-lg bg-[#cc785c]/15 hover:bg-[#cc785c]/25 border border-[#cc785c]/35 text-[#cc785c] hover:text-[#f4efe6] text-[10px] font-semibold transition-all flex items-center gap-1 shadow-sm"
-            title="Authenticate with real account via Composio"
+            className="px-3.5 py-2 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-colors shrink-0"
           >
-            <Sparkles className="w-3 h-3 text-[#cc785c]" />
-            <span>Connect</span>
+            {connectedApps ? 'Manage' : 'Connect'}
           </button>
-        )}
+        </div>
 
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isGoogle && !isEnabled && onGoogleAuth) {
-              onGoogleAuth(connector);
-            } else {
-              onToggle();
-            }
-          }}
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-            isEnabled
-              ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25'
-              : 'bg-[#26241f] border border-[#333028] text-[#dcd8ce] hover:text-white hover:bg-[#33302a]'
-          }`}
-          title={isEnabled ? 'Enabled for this chat (Click to turn off)' : 'Enable for this chat'}
-        >
-          {isEnabled ? (
-            <Check className="w-4 h-4" />
-          ) : (
-            <Plus className="w-4 h-4" />
-          )}
-        </button>
+        <div className="mt-3 p-3 rounded-xl bg-[#171614] border border-[#2b2923] text-[11px] text-[#9c978b] leading-relaxed">
+          <span className="text-[#dcd8ce] font-semibold">One connector, many apps:</span>{' '}
+          Composio handles the app authorizations and exposes the resulting live tools to this workspace. The chat uses the same Composio user ID when it searches and executes those tools.
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={onToggle}
+      className="p-3.5 rounded-2xl border border-[#26241f] bg-[#171614] cursor-pointer select-none flex items-center justify-between"
+    >
+      <div className="flex items-center space-x-3 min-w-0">
+        <div className="w-10 h-10 rounded-xl bg-[#12110f] border border-[#26241f] flex items-center justify-center shrink-0">
+          <BrandIcon name={connector.icon} />
+        </div>
+        <div className="min-w-0">
+          <span className="text-xs font-semibold text-[#f2eee6]">{connector.name}</span>
+          <p className="text-[11px] text-[#8a8579] truncate">{connector.description}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenConfig(e);
+        }}
+        className="p-1.5 rounded-lg text-[#8a8579] hover:text-[#f2eee6] hover:bg-[#282622]"
+      >
+        <Settings className="w-3.5 h-3.5" />
+      </button>
     </div>
   );
 }

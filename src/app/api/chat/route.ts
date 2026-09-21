@@ -539,73 +539,6 @@ async function synthesizeClaudeEnterpriseResponse(
     }
   }
 
-  // 0. ZERO-CLICK AUTONOMOUS DOER CLARIFICATION & IMMEDIATE DISPATCH
-  if (
-    lower.includes('clicking the things') ||
-    lower.includes('why it is not performing') ||
-    lower.includes('not performing like clicking') ||
-    lower.includes('click the things and send') ||
-    lower.includes('thats what i am telling') ||
-    lower.includes('that is what i am telling') ||
-    lower.includes('why are you giving links') ||
-    lower.includes('zero click') ||
-    lower.includes('without clicking') ||
-    lower.includes('why not clicking') ||
-    (lower.includes('why') && lower.includes('clicking')) ||
-    (lower.includes('why') && lower.includes('click') && lower.includes('send'))
-  ) {
-    let dispatchReport = '';
-    const gmailConn = activeConnectors.find((c: any) => c.id === 'conn-gmail');
-    const composioSenderEmail = gmailConn?.config?.email;
-    const targetRecipient = previousRecipient;
-    const targetSubject = previousSubject || 'Direct Confirmation: Autonomous Zero-Click Engine Online';
-    const bodyContent = `Hi,\n\nI am writing to confirm that the autonomous zero-click execution engine is online and active.\n\nAll actions, emails, and executions are dispatched directly in the background over secure sockets with zero manual links or clicks required.\n\nBest regards,\nSameer Shaik`;
-
-    if (targetRecipient && composioSenderEmail) {
-      try {
-        const sendRes = await sendRealEmail({
-          to: targetRecipient,
-          subject: targetSubject,
-          text: bodyContent,
-          fromEmail: composioSenderEmail,
-          fromName: 'Sameer Shaik',
-        });
-
-        if (sendRes.success) {
-          dispatchReport = `\n\n#### ⚡ Immediate Real-Time Live Dispatch Verification:
-- **Transmitted To:** \`${targetRecipient}\`
-- **Protocol:** Live Composio Socket (\`smtp.gmail.com:465\` SSL)
-- **Sender:** \`${composioSenderEmail}\` (Composio Verified)
-- **Server Handshake:** \`250 2.0.0 OK (Accepted for delivery)\`
-- **Message ID:** \`${sendRes.messageId}\`
-- **User Clicks Required:** **0 (Zero-Click Autonomous Background Execution)**`;
-        }
-      } catch (e) {}
-    } else if (!composioSenderEmail) {
-      dispatchReport = `\n\n> ℹ️ **Composio Mailbox Status:** No email account is connected for this chat yet. Open the **Connectors** modal and click **"⚡ Connect"** on Gmail to bind your authentic email account via Composio!`;
-    }
-
-    return `### ⚡ 100% Zero-Click Autonomous Execution Activated
-
-I hear you loud and clear. You asked:
-> *"why it is not performing like clicking the things and send them why"*
-
-Here is the exact technical explanation of what was happening and what has been permanently resolved:
-
-#### 1. Why it was giving you links previously:
-Previously, the chat interface was generating **pre-filled web intent links** (\`https://mail.google.com/mail/?view=cm...\` and \`mailto:\`). Those links required *you* to manually click a button, open a browser tab, and press send yourself. That was operating like a passive chatbot drafting a message, NOT like an **autonomous doer agent**.
-
-#### 2. Why OpenWork sent 600+ emails without asking:
-OpenWork never generated browser links or asked you to click anything. OpenWork opened raw TCP/SSL sockets directly to the SMTP mail server in the background and transmitted all 600+ emails silently with zero user friction.
-
-#### 3. What is permanently active right now:
-- **Zero Links to Click:** All \`[✉️ Launch & Send via Gmail]\` buttons and \`mailto:\` links have been completely removed.
-- **Direct Background Sockets:** When you say "send email", "send to ...", or "send it", the server immediately executes a live background SMTP transmission on **port 465 SSL** using your authenticated credentials.
-- **Zero-Click Assurance:** You receive instant server telemetry (\`250 OK: Message accepted for delivery\`, recipient, and message ID). Zero clicks, zero browser tabs, and zero friction.${dispatchReport}
-
-From this moment on, whenever you ask me to send or execute, it is done **100% autonomously in the background with zero clicks**.`;
-  }
-
   // 1. GREETINGS & IDENTITY
   if (/^(hi|hello|hey|greetings|who are you|what can you do|what models)/i.test(lower)) {
     return `Hello! I am **Claude 3.7 Sonnet Enterprise** — Anthropic’s flagship hybrid reasoning model with an autonomous doer engine.
@@ -745,7 +678,7 @@ print("Status: Ready to execute any script, build projects, or automate video pi
 What task, project, or video pipeline should we execute right now?`;
   }
 
-  // 1.6 CONNECTORS STATUS & LIVE AUDIT HANDLER
+  // 1.6 CONNECTOR STATUS FALLBACK
   if (
     lower.includes('connector') ||
     lower.includes('connectors') ||
@@ -756,39 +689,17 @@ What task, project, or video pipeline should we execute right now?`;
     lower.includes('what connector') ||
     lower.includes('status of connector') ||
     lower.includes('is gmail connected') ||
-    lower.includes('is google drive connected') ||
+    lower.includes('is github connected') ||
+    lower.includes('do you have github') ||
     lower.includes('connectors not working') ||
     lower.includes('connectors not responding')
   ) {
-    const gmailConn = activeConnectors.find((c: any) => c.id === 'conn-gmail');
-    const senderEmail = gmailConn?.config?.email || 'Composio OAuth Pending';
-    const activeNames = activeConnectors.filter((c: any) => c.enabled).map((c: any) => c.name);
-
-    return `### 🔌 Claude Enterprise Connectors · Live Status & Execution Audit
-
-All connectors are verified, configured, and bound to your active workspace:
-
-| Connector | Status | Connected Account / Endpoint | Capabilities |
-|---|---|---|---|
-| **Google Mail (Gmail)** | ${gmailConn?.config?.email ? '🟢 **Active & Online**' : '🟡 **Ready (Connect in Modal)**'} | **Sameer Shaik** (\`${senderEmail}\`) | Direct SMTP Port 465 (Zero-Click Dispatch), In-Memory Drafting, Attachment Handling |
-| **Google Drive** | 🟢 **Active & Online** | Workspace Shared Drive | File Sync, Spreadsheet Automation, Doc Parsing |
-| **Google Calendar** | 🟢 **Active & Online** | Primary Workspace Calendar | 1-Click Scheduling, Meet Generation, Agenda Sync |
-| **Canva** | 🟢 **Active & Online** | Design Studio | Visual Banners, Social Creatives, Layout Specs |
-| **GitHub** | 🟢 **Active & Online** | [\`sameer-sys/claude-enterprise-app\`](https://github.com/sameer-sys/claude-enterprise-app) (main) | Repository Sync, Live Commits, Issue Tracking |
-| **Slack Workspace** | 🟢 **Active & Online** | \`#general\` Squad Channel | Webhook Dispatch, Team Alerts, Thread Sync |
-| **Notion** | 🟢 **Active & Online** | Roadmap & Knowledge Base | PRD Specs, Task Databases, Document Sync |
-| **Figma** | 🟢 **Active & Online** | Design Tokens Engine | UI Components, Color Systems, Tailwind Layouts |
-| **Social Media Engine** | 🟢 **Active & Online** | YouTube Studio, Instagram Creator, Meta Suite, X/Twitter | Multi-Platform Syndication, SEO Tags, Reels Staging |
-| **Linear / Asana** | 🟢 **Active & Online** | Engineering Backlog | Issue Creation, Priority Routing, Acceptance Criteria |
-
----
-
-#### 🚀 Autonomous Execution Readiness:
-- **Zero-Button Background Operations:** When you give me an email, file task, or repository action, I execute it directly over secure sockets without requiring you to click confirmation buttons.
-- **Relentless Problem Bypassing:** Obstacles, CORS boundaries, and missing schemas are automatically bypassed and resolved.
-- **Current Active Count:** ${activeNames.length > 0 ? `**${activeNames.length} active connectors** (${activeNames.join(', ')})` : '**16 connectors ready to engage**'}.
-
-Tell me what task or project you want to execute, and I will dispatch across your active connectors immediately!`;
+    const enabledNames = activeConnectors.filter((c: any) => c?.enabled).map((c: any) => c?.name).filter(Boolean);
+    return '### Connector status\n\n' +
+      (enabledNames.length
+        ? 'Enabled for this chat: ' + enabledNames.join(', ') + '.\n\n'
+        : 'No connectors are enabled for this chat yet.\n\n') +
+      'Provider authorization is checked separately from the chat toggle. I will only report an external account as connected after the provider OAuth/runtime confirms it.';
   }
 
   // 1.8 END-TO-END PROJECT & IDEA ARCHITECT ENGINE
@@ -1196,7 +1107,9 @@ export async function POST(req: NextRequest) {
     const connectorStatusRequest =
       /(what|which|list|show|tell|are)\b.*\b(apps?|connectors?|accounts?|services?)\b.*\b(connect(?:ed|ions?)|authorized|linked)\b/i.test(lowerStatusText) ||
       /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lowerStatusText) ||
-      /\b(?:my|our)\s+(?:connected|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lowerStatusText);
+      /\b(?:my|our)\s+(?:connected|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lowerStatusText) ||
+      /\b(?:is|are)\s+(?:my\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connected|authorized|linked)\b/i.test(lowerStatusText) ||
+      /\bdo\s+you\s+have\s+(?:a\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connection|access)\b/i.test(lowerStatusText);
 
     if (connectorStatusRequest) {
       let statusContent = '';

@@ -1242,7 +1242,7 @@ export async function POST(req: NextRequest) {
           } else {
             const lines = active.map((a) => {
               const toolkit = String(a?.appUniqueId || a?.appName || 'unknown');
-              const label = String(a?.email || a?.accountIdentifier || a?.label || 'account authorized');
+              const label = String(a?.email || a?.accountIdentifier || a?.id || 'account authorized');
               return '- **' + toolkit + '** — ' + label + ' (ACTIVE)';
             });
             statusText =

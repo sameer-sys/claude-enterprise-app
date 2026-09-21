@@ -139,7 +139,7 @@ const AGENT_TOOLS = [
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[] } = {}
+  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
 ): Promise<string> {
   try {
     if (name === 'web_search') {
@@ -228,18 +228,47 @@ async function runAgentTool(
     }
 
     if (name === 'connector_search') {
-      if (!connectorContext.apiKey) return 'Composio is not configured. Add the Composio API key in connector settings first.';
-      const { searchComposioTools } = await import('@/lib/composio');
-      const toolkitSlugs = Array.from(new Set((connectorContext.connectors || [])
-        .filter((c: any) => c?.enabled !== false)
-        .map((c: any) => {
-          const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
-          return ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
-        })
-        .filter(Boolean)));
-      const found = await searchComposioTools(connectorContext.apiKey, String(args?.query || ''), toolkitSlugs);
-      if (!found.length) return 'No real connector action matched that request. Try describing the action more specifically.';
-      return JSON.stringify(found.slice(0, 12).map((t: any) => ({
+      if (!connectorContext.apiKey) {
+        return 'Composio is not configured on the server.';
+      }
+
+      const { searchComposioTools, listConnectedAccounts } = await import('@/lib/composio');
+      let accounts = Array.isArray(connectorContext.accounts) ? connectorContext.accounts : [];
+
+      if (!accounts.length) {
+        try {
+          accounts = await listConnectedAccounts(
+            connectorContext.apiKey,
+            connectorContext.composioUserId
+          );
+        } catch {}
+      }
+
+      const activeToolkits = Array.from(new Set(
+        accounts
+          .filter((a: any) => a?.status === 'ACTIVE')
+          .map((a: any) => String(a?.appUniqueId || a?.appName || '').toLowerCase())
+          .filter(Boolean)
+      ));
+
+      if (!activeToolkits.length) {
+        return JSON.stringify({
+          success: false,
+          error: 'No ACTIVE Composio app accounts are connected for this app user. Connect an app from the Composio connector first.',
+        });
+      }
+
+      const found = await searchComposioTools(
+        connectorContext.apiKey,
+        String(args?.query || ''),
+        activeToolkits.slice(0, 20)
+      );
+
+      if (!found.length) {
+        return 'No real Composio action matched the request for the connected app accounts.';
+      }
+
+      return JSON.stringify(found.slice(0, 20).map((t: any) => ({
         tool_slug: t.slug,
         toolkit: t.toolkit,
         name: t.name,
@@ -249,52 +278,67 @@ async function runAgentTool(
     }
 
     if (name === 'connector_execute') {
-      if (!connectorContext.apiKey) return 'Composio is not configured.';
+      if (!connectorContext.apiKey) return 'Composio is not configured on the server.';
+
       const slug = String(args?.tool_slug || '').trim();
       if (!slug) return 'tool_slug is required.';
-      let accounts = connectorContext.accounts || [];
-      const toolkit = slug.split('_')[0].toLowerCase();
-      const aliases: Record<string,string> = {
+
+      const { listConnectedAccounts } = await import('@/lib/composio');
+      const toolkitAliases: Record<string, string> = {
         google: 'google_drive',
         googledrive: 'google_drive',
+        gdrive: 'google_drive',
         gcalendar: 'google_calendar',
+        googlecalendar: 'google_calendar',
+        calendar: 'google_calendar',
         m365: 'microsoft365',
+        microsoft: 'microsoft365',
       };
-      const normalizedToolkit = aliases[toolkit] || toolkit;
 
-      // Never rely only on the connector card's local enabled flag. Resolve the
-      // real Composio connected account for the toolkit immediately before
-      // execution. This is what makes a connected GitHub account usable by
-      // natural-language actions instead of merely showing "Connected" in UI.
-      if (!accounts.some((a: any) =>
-        String(a?.appUniqueId || '').toLowerCase() === normalizedToolkit &&
-        a?.status === 'ACTIVE'
-      )) {
-        try {
-          const { listConnectedAccounts } = await import('@/lib/composio');
-          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, undefined, normalizedToolkit);
-          accounts = [...accounts, ...liveAccounts];
-        } catch {}
-      }
+      const rawToolkit = slug.split('_')[0].toLowerCase();
+      const normalizedToolkit =
+        toolkitAliases[rawToolkit] ||
+        (slug.toUpperCase().startsWith('GOOGLEDRIVE_') ? 'google_drive' : '') ||
+        (slug.toUpperCase().startsWith('GOOGLECALENDAR_') ? 'google_calendar' : '') ||
+        rawToolkit;
 
-      const connector = (connectorContext.connectors || []).find((c: any) => {
-        const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
-        const mapped = ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
-        return mapped === normalizedToolkit || String(c?.config?.connectedAccountId || '') === String(args?.connected_account_id || '');
-      });
+      let accounts = Array.isArray(connectorContext.accounts)
+        ? connectorContext.accounts
+        : [];
 
+      try {
+        accounts = await listConnectedAccounts(
+          connectorContext.apiKey,
+          connectorContext.composioUserId,
+          normalizedToolkit
+        );
+      } catch {}
+
+      const activeAccounts = accounts.filter((a: any) =>
+        a?.status === 'ACTIVE' &&
+        String(a?.appUniqueId || a?.appName || '').toLowerCase() === normalizedToolkit
+      );
+
+      const requestedAccountId = String(args?.connected_account_id || '').trim();
       const accountId =
-        args?.connected_account_id ||
-        connector?.config?.connectedAccountId ||
-        accounts.find((a: any) => {
-          const uid = String(a?.appUniqueId || '').toLowerCase();
-          return uid === normalizedToolkit && a?.status === 'ACTIVE';
-        })?.id;
+        requestedAccountId ||
+        (activeAccounts.length === 1 ? String(activeAccounts[0].id) : '');
 
       if (!accountId) {
+        if (activeAccounts.length > 1) {
+          return JSON.stringify({
+            success: false,
+            error: 'Multiple active ' + normalizedToolkit + ' accounts are connected. Select the intended account before executing this action.',
+            accounts: activeAccounts.map((a: any) => ({
+              id: a.id,
+              label: a.email || a.accountIdentifier || a.label || a.id,
+            })),
+          });
+        }
+
         return JSON.stringify({
           success: false,
-          error: `No active Composio connected account was found for ${normalizedToolkit}. The connector UI may be enabled, but the OAuth account is not available to the server yet.`,
+          error: 'No ACTIVE Composio account is connected for ' + normalizedToolkit + ' for this app user.',
         });
       }
 
@@ -303,10 +347,12 @@ async function runAgentTool(
         slug,
         args?.arguments || {},
         accountId,
-        'default'
+        connectorContext.composioUserId
       );
-      if (!result.success) return JSON.stringify({ success: false, error: result.error || 'Connector action failed' });
-      return JSON.stringify({ success: true, tool_slug: slug, data: result.data });
+
+      return result.success
+        ? JSON.stringify({ success: true, runtime: 'composio', tool_slug: slug, data: result.data })
+        : JSON.stringify({ success: false, runtime: 'composio', tool_slug: slug, error: result.error || 'Composio action failed.' });
     }
 
     return `Unknown tool: ${name}`;
@@ -1100,6 +1146,7 @@ export async function POST(req: NextRequest) {
       geminiKey,
       openRouterKey,
       composioApiKey: userComposioKey,
+      composioUserId: requestComposioUserId,
       omniRouteUrl,
       thinkingBudget = 16000,
       agentPrompt,
@@ -1107,6 +1154,10 @@ export async function POST(req: NextRequest) {
     } = await req.json();
 
     const composioApiKey = userComposioKey || process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
+    const composioUserId = String(
+      requestComposioUserId ||
+      'sameer-web-user'
+    ).trim() || 'sameer-web-user';
 
     const isOmniRouteModel =
       modelId === 'the-boss-chat' ||
@@ -1137,7 +1188,7 @@ To fetch your live YouTube playlists and channel tools, your **Composio API Key*
 3. Once set, I will query your real YouTube channel directly with zero hallucinations!`;
       } else {
         try {
-          const accounts = await listConnectedAccounts(composioApiKey);
+          const accounts = await listConnectedAccounts(composioApiKey, composioUserId);
           const ytAccount = accounts.find((a) =>
             (a.appUniqueId || a.appName || '').toLowerCase().includes('youtube')
           );
@@ -1725,7 +1776,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
         let connectorAccounts: any[] = [];
         if (composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.enabled !== false)) {
           try {
-            connectorAccounts = await listConnectedAccounts(composioApiKey);
+            connectorAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
           } catch {}
         }
 
@@ -1776,6 +1827,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
                 apiKey: composioApiKey,
                 connectors,
                 accounts: connectorAccounts,
+                composioUserId,
               });
 
               fullMessages.push({

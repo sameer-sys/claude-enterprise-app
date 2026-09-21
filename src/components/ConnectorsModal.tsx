@@ -368,8 +368,8 @@ export function createDefaultConnectors(): Connector[] {
       name: 'composio',
       description: 'connect.composio.dev',
       icon: 'composio',
-      enabled: false,
-      status: 'ready',
+      enabled: true,
+      status: 'connected',
       category: 'Developer Tools',
       section: 'custom',
       isCustom: true,
@@ -2010,7 +2010,7 @@ export default function ConnectorsModal({
                     <p className="text-[10px] text-[#8a8579]">This selection belongs to this chat only. The same connected account can be reused by other chats.</p>
                     <button
                       type="button"
-                      onClick={() => handleComposioConnect(editingConnector.id, true)
+                      onClick={() => handleComposioConnect(editingConnector.id, true)}
                       className="text-[10px] text-[#cc785c] hover:text-[#f2eee6] font-medium"
                     >
                       + Connect another account

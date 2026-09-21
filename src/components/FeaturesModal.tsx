@@ -32,6 +32,7 @@ interface FeaturesModalProps {
   onSelectPrompt?: (prompt: string) => void;
   onOpenSettings?: () => void;
   onOpenDownload?: () => void;
+  onOpenSquad?: () => void;
   onSelectThinkingBudget?: (budget: number) => void;
 }
 
@@ -41,6 +42,7 @@ export default function FeaturesModal({
   onSelectPrompt,
   onOpenSettings,
   onOpenDownload,
+  onOpenSquad,
   onSelectThinkingBudget,
 }: FeaturesModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -226,6 +228,9 @@ export default function FeaturesModal({
       onSelectThinkingBudget?.(feat.budget);
       if (feat.samplePrompt) onSelectPrompt?.(feat.samplePrompt);
       onClose();
+    } else if (feat.actionType === 'squad') {
+      onClose();
+      onOpenSquad?.();
     } else if (feat.actionType === 'settings') {
       onClose();
       onOpenSettings?.();

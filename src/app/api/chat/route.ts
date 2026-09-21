@@ -1168,6 +1168,72 @@ export async function POST(req: NextRequest) {
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
 
+    // Live Composio status preflight. This runs before the model so questions
+    // such as "is GitHub connected?" are answered from the real account store
+    // instead of from model memory or stale UI state.
+    const connectorStatusQuestion =
+      /\b(?:is|are)\s+(?:my\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connected|authorized|linked)\b/i.test(lastText) ||
+      /\bdo\s+you\s+have\s+(?:a\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connection|access)\b/i.test(lastText) ||
+      /\b(?:list|show|what)\s+(?:my\s+)?(?:connected|authorized|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lastText) ||
+      /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lastText);
+
+    if (connectorStatusQuestion) {
+      let statusText = '';
+      if (!composioApiKey) {
+        statusText =
+          '### Composio connector status\n\n' +
+          'The Composio project API key is not configured on the server. No connected app is available to chat right now.';
+      } else {
+        try {
+          const accounts = await listConnectedAccounts(composioApiKey, composioUserId);
+          const active = accounts.filter((a) => a?.status === 'ACTIVE');
+          if (!active.length) {
+            statusText =
+              '### Composio connector status\n\n' +
+              'No ACTIVE app accounts are connected for this Composio user yet. Open **Connectors → Composio → Connect**, authorize an app, and retry.';
+          } else {
+            const lines = active.map((a) => {
+              const toolkit = String(a?.appUniqueId || a?.appName || 'unknown');
+              const label = String(a?.email || a?.accountIdentifier || a?.label || 'account authorized');
+              return '- **' + toolkit + '** — ' + label + ' (ACTIVE)';
+            });
+            statusText =
+              '### Composio connector status\n\n' +
+              'The following app accounts are ACTIVE for this app user:\n\n' +
+              lines.join('\n') +
+              '\n\nThose accounts are the accounts the chat can resolve for Composio tool execution.';
+          }
+        } catch (err: any) {
+          statusText =
+            '### Composio connector status\n\n' +
+            'The live Composio account lookup failed: ' + (err?.message || 'unknown error') + '.';
+        }
+      }
+
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          for (let pos = 0; pos < statusText.length; pos += 32) {
+            controller.enqueue(
+              encoder.encode('data: ' + JSON.stringify({ content: statusText.slice(pos, pos + 32) }) + '\n\n')
+            );
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Claude-Skill': 'Composio Connector Status',
+          'X-Claude-Router': 'composio-live-status',
+        },
+      });
+    }
+
     // ========================================================
     // REAL-TIME YOUTUBE PLAYLIST & CHANNEL QUERY INTERCEPTOR
     // ========================================================
@@ -1407,7 +1473,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
         if (!composioKey) {
           connectorContext += `\n[CONNECTORS]: Composio is not configured yet (COMPOSIO_API_KEY is not set). Tell the user plainly that no third-party app connectors are wired up yet - do not claim any app (Notion, Linear, HubSpot, Shopify, Drive, etc.) is connected or that any action on those apps succeeded.\n`;
         } else {
-          const realAccounts = await listConnectedAccounts(composioKey);
+          const realAccounts = await listConnectedAccounts(composioKey, composioUserId);
           const activeApps = realAccounts.filter((a) => a.status === 'ACTIVE').map((a) => a.appUniqueId);
 
           if (activeApps.length === 0) {
@@ -1774,7 +1840,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
         const agentDeadline = requestStartTime + 40000; // leave time for the final streamed answer
         const maxAgentTurns = 6;
         let connectorAccounts: any[] = [];
-        if (composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.enabled !== false)) {
+        if (composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
           try {
             connectorAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
           } catch {}

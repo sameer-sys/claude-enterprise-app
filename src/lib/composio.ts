@@ -104,7 +104,6 @@ export async function searchComposioTools(
 
 const COMPOSIO_V3_BASE = 'https://backend.composio.dev/api/v3';
 const COMPOSIO_V31_BASE = 'https://backend.composio.dev/api/v3.1';
-const COMPOSIO_V1_BASE = 'https://backend.composio.dev/api/v1';
 
 export async function getComposioApiKey(userKey?: string): Promise<string | null> {
   return (
@@ -524,61 +523,38 @@ export async function executeComposioAction(
   connectedAccountId?: string,
   entityId: string = 'default'
 ): Promise<{ success: boolean; data?: any; error?: string }> {
-  // 1. Try v3.1 tools execute
   try {
-    const v3Url = `${COMPOSIO_V31_BASE}/tools/execute/${encodeURIComponent(actionName)}`;
-    const res = await fetch(v3Url, {
+    const url = COMPOSIO_V31_BASE + '/tools/execute/' + encodeURIComponent(actionName);
+    const body: Record<string, any> = {
+      arguments: input,
+      user_id: entityId,
+      version: 'latest',
+    };
+    if (connectedAccountId) body.connected_account_id = connectedAccountId;
+
+    const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        arguments: input,
-        connected_account_id: connectedAccountId,
-        connectedAccountId,
-        user_id: entityId,
-        version: 'latest',
-      }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        success: true,
-        data: data.data || data.response_data || data,
-      };
-    }
-  } catch (e) {}
-
-  // 2. Try v1 actions execute
-  try {
-    const v1Url = `${COMPOSIO_V1_BASE}/actions/${encodeURIComponent(actionName)}/execute`;
-    const body: Record<string, any> = { input, entityId };
-    if (connectedAccountId) body.connectedAccountId = connectedAccountId;
-
-    const res = await fetch(v1Url, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20000),
     });
+    const data = await res.json().catch(() => ({}));
 
-    if (res.ok) {
-      const data = await res.json();
+    if (!res.ok || data?.successful === false) {
       return {
-        success: true,
-        data: data.response_data || data.data || data,
+        success: false,
+        error: data?.error?.message || data?.error || data?.message || 'Composio tool execution failed (' + res.status + ').',
       };
     }
-  } catch (e) {}
 
-  return {
-    success: false,
-    error: `Unable to execute action ${actionName}. Please check connected account permissions in Composio.`,
-  };
+    return {
+      success: true,
+      data: data?.data ?? data?.response_data ?? data,
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Composio tool execution failed.' };
+  }
 }
 
 /**

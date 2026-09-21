@@ -254,7 +254,7 @@ async function runAgentTool(
       const slug = String(args?.tool_slug || '').trim();
       if (!slug) return 'tool_slug is required.';
       let accounts = connectorContext.accounts || [];
-      const toolkit = slug.split('_')[0].toLowerCase();
+      const toolkit = toolkitFromComposioToolSlug(slug);
       const aliases: Record<string,string> = {
         google: 'google_drive',
         googledrive: 'google_drive',
@@ -1186,8 +1186,19 @@ export async function POST(req: NextRequest) {
 
     if (explicitConnectorRequest && composioApiKey) {
       try {
+        const builtInComposioIds = new Set([
+          'conn-github', 'conn-gmail', 'conn-gdrive', 'conn-gcalendar', 'conn-m365',
+          'conn-youtube', 'conn-instagram', 'conn-facebook', 'conn-twitter',
+          'conn-linkedin', 'conn-tiktok', 'conn-slack', 'conn-notion', 'conn-linear',
+          'conn-asana', 'conn-canva', 'conn-hubspot', 'conn-salesforce', 'conn-shopify',
+          'conn-reddit', 'conn-discord', 'conn-telegram', 'conn-whatsapp',
+        ]);
         const enabledRealConnectors = Array.isArray(connectors)
-          ? connectors.filter((c: any) => c?.enabled && !c?.isCustom)
+          ? connectors.filter((c: any) =>
+              c?.enabled &&
+              String(c?.id || '') !== 'conn-composio' &&
+              (!c?.isCustom || builtInComposioIds.has(String(c?.id || '')))
+            )
           : [];
 
         if (enabledRealConnectors.length > 0) {
@@ -1361,7 +1372,15 @@ Error communicating with Composio: ${err.message || 'Check your Composio API key
     // ========================================================
     const directEmailMatch = lastText.match(/^(?:send|dispatch)\s+(?:an?\s+)?email\s+to\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?:\s+(?:saying|with subject|that|about)\s+([\s\S]+))?$/i);
 
-    if (directEmailMatch) {
+    const gmailComposioSelected =
+      Array.isArray(connectors) &&
+      connectors.some((c: any) =>
+        c?.id === 'conn-gmail' &&
+        c?.enabled &&
+        String(c?.config?.connectedAccountId || '').trim()
+      );
+
+    if (directEmailMatch && !gmailComposioSelected) {
       const targetTo = directEmailMatch[1].trim();
       const rawBody = directEmailMatch[2] ? directEmailMatch[2].trim() : 'Project update & verification.';
       

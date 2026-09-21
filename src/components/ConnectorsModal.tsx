@@ -368,8 +368,8 @@ export function createDefaultConnectors(): Connector[] {
       name: 'composio',
       description: 'connect.composio.dev',
       icon: 'composio',
-      enabled: true,
-      status: 'connected',
+      enabled: false,
+      status: 'ready',
       category: 'Developer Tools',
       section: 'custom',
       isCustom: true,
@@ -381,8 +381,8 @@ export function createDefaultConnectors(): Connector[] {
       name: 'GitHub',
       description: 'Search repositories, inspect source code, issues, commits, and pull requests in real time.',
       icon: 'github',
-      enabled: true,
-      status: 'connected',
+      enabled: false,
+      status: 'ready',
       category: 'Code',
       section: 'custom',
       isVerified: true,
@@ -523,8 +523,8 @@ export function createDefaultConnectors(): Connector[] {
       name: 'YouTube Studio',
       description: 'Upload videos, optimize viral SEO titles & tags, manage channel schedules, and track analytics',
       icon: 'youtube',
-      enabled: true,
-      status: 'connected',
+      enabled: false,
+      status: 'ready',
       category: 'Media and entertainment',
       section: 'trending',
       isVerified: true,
@@ -536,8 +536,8 @@ export function createDefaultConnectors(): Connector[] {
       name: 'Instagram Creator',
       description: 'Publish Reels, generate 30 high-reach hashtags, format carousel captions, and automate DMs',
       icon: 'instagram',
-      enabled: true,
-      status: 'connected',
+      enabled: false,
+      status: 'ready',
       category: 'Social media',
       section: 'trending',
       isVerified: true,
@@ -549,8 +549,8 @@ export function createDefaultConnectors(): Connector[] {
       name: 'Facebook Meta Business',
       description: 'Cross-post to Pages & Groups, schedule community updates, track reach, and run Meta Ads',
       icon: 'facebook',
-      enabled: true,
-      status: 'connected',
+      enabled: false,
+      status: 'ready',
       category: 'Social media',
       section: 'trending',
       isVerified: true,
@@ -902,6 +902,7 @@ export default function ConnectorsModal({
   const [configChannel, setConfigChannel] = useState('');
   const [configHandle, setConfigHandle] = useState('');
   const [configSubreddit, setConfigSubreddit] = useState('');
+  const [configAccountId, setConfigAccountId] = useState('');
 
   // Google OAuth Modal state (matches Screenshot 1: media_1789661196153.png)
   const [googleOAuthConnector, setGoogleOAuthConnector] = useState<Connector | null>(null);
@@ -909,6 +910,24 @@ export default function ConnectorsModal({
   const [showCustomGoogleAccount, setShowCustomGoogleAccount] = useState(false);
   const [customGoogleEmail, setCustomGoogleEmail] = useState('');
   // Composio Master OAuth Hub State
+  const ensureComposioUserId = () => {
+    if (typeof window === 'undefined') return 'default';
+    const key = 'sameer_composio_user_id';
+    const existing = localStorage.getItem(key);
+    if (existing && existing.trim()) return existing.trim();
+    let generated = '';
+    try {
+      generated = typeof crypto?.randomUUID === 'function'
+        ? 'sameer_' + crypto.randomUUID()
+        : 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    } catch {
+      generated = 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    }
+    localStorage.setItem(key, generated);
+    return generated;
+  };
+
+  const composioAccountsRef = React.useRef<any[]>([]);
   const [composioApiKey, setComposioApiKey] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('composio_api_key') || '';
@@ -916,44 +935,69 @@ export default function ConnectorsModal({
     return '';
   });
   const [composioSaved, setComposioSaved] = useState(false);
+  const [composioAccounts, setComposioAccounts] = useState<any[]>([]);
   const [isConnectingComposio, setIsConnectingComposio] = useState<string | null>(null);
   const [isSyncingComposio, setIsSyncingComposio] = useState(false);
   const [composioSyncMessage, setComposioSyncMessage] = useState<string | null>(null);
   const [composioError, setComposioError] = useState<string | null>(null);
 
+  const toolkitForConnector = (connectorId: string) => {
+    const raw = String(connectorId || '').replace(/^conn-/i, '').toLowerCase();
+    const aliases: Record<string, string> = {
+      gdrive: 'google_drive',
+      gcalendar: 'google_calendar',
+      m365: 'microsoft365',
+      google_drive: 'google_drive',
+      google_calendar: 'google_calendar',
+    };
+    return aliases[raw] || raw;
+  };
   // Synchronize authentic connected accounts from Composio
   const fetchComposioAccounts = async () => {
     if (!composioApiKey) return;
     setIsSyncingComposio(true);
     setComposioError(null);
     try {
+      const userId = ensureComposioUserId();
       const res = await fetch(
-        `/api/composio?apiKey=${encodeURIComponent(composioApiKey)}`
+        `/api/composio?apiKey=${encodeURIComponent(composioApiKey)}&entityId=${encodeURIComponent(userId)}`
       );
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.connectedAccounts) && onUpdateConnectorConfig) {
+          setComposioAccounts(data.connectedAccounts);
+          composioAccountsRef.current = data.connectedAccounts;
           let updatedCount = 0;
-          for (const acc of data.connectedAccounts) {
-            const appUid = (acc.appUniqueId || acc.appName || '').toLowerCase();
-            const matchedConn = activeConnectors.find((c) => {
-              const cKey = c.id.replace('conn-', '').toLowerCase();
-              return (
-                appUid.includes(cKey) ||
-                cKey.includes(appUid) ||
-                (cKey === 'gmail' && (appUid.includes('gmail') || appUid.includes('google')))
-              );
-            });
-            if (matchedConn) {
-              const accEmail = acc.email || acc.accountIdentifier || 'Connected Account';
-              onUpdateConnectorConfig(matchedConn.id, {
-                ...matchedConn.config,
-                email: accEmail,
-                connectedAccountId: acc.id,
-              });
-              if (!matchedConn.enabled) {
-                onToggleConnector(matchedConn.id);
+
+          // Preserve an explicitly selected account for each chat. Auto-select only
+          // when exactly one active account exists for that platform.
+          for (const conn of activeConnectors) {
+            if (conn.isCustom) continue;
+            const toolkit = toolkitForConnector(conn.id);
+            const matching = data.connectedAccounts.filter((acc: any) =>
+              String(acc?.appUniqueId || acc?.appName || '').toLowerCase() === toolkit &&
+              acc?.status === 'ACTIVE'
+            );
+            const selectedId = String(conn.config?.connectedAccountId || '').trim();
+
+            if (selectedId && matching.some((acc: any) => String(acc.id) === selectedId)) {
+              const selected = matching.find((acc: any) => String(acc.id) === selectedId);
+              const display = selected?.email || selected?.accountIdentifier || conn.config?.email;
+              if (display && display !== conn.config?.email) {
+                onUpdateConnectorConfig(conn.id, { ...conn.config, email: display, connectedAccountId: selectedId });
+                updatedCount++;
               }
+              continue;
+            }
+
+            if (!selectedId && matching.length === 1) {
+              const only = matching[0];
+              onUpdateConnectorConfig(conn.id, {
+                ...conn.config,
+                email: only.email || only.accountIdentifier || undefined,
+                connectedAccountId: only.id,
+              });
+              if (!conn.enabled) onToggleConnector(conn.id);
               updatedCount++;
             }
           }
@@ -1031,6 +1075,13 @@ export default function ConnectorsModal({
       }
     } catch (e) {}
 
+    const userId = ensureComposioUserId();
+    const beforeIds = new Set(
+      composioAccountsRef.current
+        .filter((a: any) => toolkitForConnector(connectorId) === String(a?.appUniqueId || a?.appName || '').toLowerCase())
+        .map((a: any) => String(a.id))
+    );
+
     try {
       const res = await fetch('/api/composio', {
         method: 'POST',
@@ -1039,7 +1090,7 @@ export default function ConnectorsModal({
           action: 'connect',
           appName: connectorId,
           apiKey: keyToUse,
-          entityId: sessionId || 'default',
+          entityId: userId,
         }),
       });
       const data = await res.json();
@@ -1049,7 +1100,8 @@ export default function ConnectorsModal({
         } else {
           window.open(data.redirectUrl, '_blank');
         }
-        onToggleConnector(connectorId);
+        // Poll until Composio confirms the newly authorized account. Do not enable
+        // the chat connector before a real account exists.
 
         // Poll for newly connected account and extract real email
         let pollCount = 0;
@@ -1060,26 +1112,33 @@ export default function ConnectorsModal({
           }
           try {
             const checkRes = await fetch(
-              `/api/composio?apiKey=${encodeURIComponent(keyToUse)}`
+              `/api/composio?apiKey=${encodeURIComponent(keyToUse)}&entityId=${encodeURIComponent(userId)}`
             );
             if (checkRes.ok) {
               const checkData = await checkRes.json();
               if (Array.isArray(checkData.connectedAccounts) && onUpdateConnectorConfig) {
-                const appKey = connectorId.replace('conn-', '').toLowerCase();
-                const matched = checkData.connectedAccounts.find((a: any) => {
-                  const name = (a.appUniqueId || a.appName || '').toLowerCase();
-                  return (
-                    name.includes(appKey) ||
-                    appKey.includes(name) ||
-                    (appKey === 'gmail' && (name.includes('gmail') || name.includes('google')))
-                  );
-                });
+                const toolkit = toolkitForConnector(connectorId);
+                const candidates = checkData.connectedAccounts.filter((a: any) =>
+                  String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit &&
+                  a?.status === 'ACTIVE'
+                );
+                const matched = candidates.find((a: any) => !beforeIds.has(String(a.id))) ||
+                  candidates.slice().sort((a: any, b: any) =>
+                    new Date(b.updatedAt || b.updated_at || 0).getTime() - new Date(a.updatedAt || a.updated_at || 0).getTime()
+                  )[0];
                 if (matched) {
                   const resolvedEmail = matched.email || matched.accountIdentifier || 'Connected via Composio';
-                  onUpdateConnectorConfig(connectorId, {
-                    email: resolvedEmail,
-                    connectedAccountId: matched.id,
-                  });
+                  if (onUpdateConnectorConfig) {
+                    onUpdateConnectorConfig(connectorId, {
+                      email: resolvedEmail,
+                      connectedAccountId: matched.id,
+                    });
+                  }
+                  if (!activeConnectors.find((c) => c.id === connectorId)?.enabled) {
+                    onToggleConnector(connectorId);
+                  }
+                  setComposioAccounts(checkData.connectedAccounts);
+                  composioAccountsRef.current = checkData.connectedAccounts;
                   clearInterval(pollTimer);
                 }
               }
@@ -1164,6 +1223,7 @@ export default function ConnectorsModal({
     setConfigChannel(conn.config?.channelName || 'My Official Channel');
     setConfigHandle(conn.config?.handle || '@sameer.official');
     setConfigSubreddit(conn.config?.subreddit || 'r/artificial');
+    setConfigAccountId(conn.config?.connectedAccountId || '');
   };
 
   const handleSaveConfig = () => {
@@ -1175,6 +1235,7 @@ export default function ConnectorsModal({
       channelName: configChannel.trim(),
       handle: configHandle.trim(),
       subreddit: configSubreddit.trim(),
+      connectedAccountId: configAccountId.trim() || undefined,
     });
     setEditingConnector(null);
   };
@@ -1189,8 +1250,8 @@ export default function ConnectorsModal({
       name: newConnName.trim(),
       description: newConnUrl.trim(),
       icon: 'mcp',
-      enabled: true,
-      status: 'connected',
+      enabled: false,
+      status: 'ready',
       category: 'Developer Tools',
       section: 'custom',
       isCustom: true,
@@ -1853,6 +1914,30 @@ export default function ConnectorsModal({
                 </button>
               </div>
 
+              {!editingConnector.isCustom && (() => {
+                const toolkit = toolkitForConnector(editingConnector.id);
+                const options = composioAccounts.filter((a: any) =>
+                  String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit && a?.status === 'ACTIVE'
+                );
+                return (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-[#dcd8ce]">Account for this chat:</label>
+                    <select
+                      value={configAccountId}
+                      onChange={(e) => setConfigAccountId(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-[#141310] border border-[#2b2923] text-xs text-[#f2eee6] focus:outline-none focus:border-[#cc785c]"
+                    >
+                      <option value="">Auto-select only account (when unambiguous)</option>
+                      {options.map((acc: any) => (
+                        <option key={acc.id} value={acc.id}>
+                          {(acc.email || acc.accountIdentifier || 'Connected account') + ' · ' + acc.id}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-[#8a8579]">This selection belongs to this chat only. The same connected account can be reused by other chats.</p>
+                  </div>
+                );
+              })()}
               {editingConnector.id === 'conn-gmail' && (
                 <div className="space-y-1.5">
                   <label className="text-xs text-[#dcd8ce]">Target Mailbox / Assigned Email:</label>
@@ -2146,7 +2231,9 @@ function ConnectorCard({
   const isGoogle = connector.id === 'conn-gmail' || connector.id === 'conn-gdrive' || connector.id === 'conn-gcalendar';
 
   const handleClick = () => {
-    if (isGoogle && !isEnabled && onGoogleAuth) {
+    if (!isEnabled && !connector.isCustom && onComposioConnect) {
+      onComposioConnect(connector.id);
+    } else if (isGoogle && !isEnabled && onGoogleAuth) {
       onGoogleAuth(connector);
     } else {
       onToggle();
@@ -2279,7 +2366,9 @@ function ConnectorCard({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            if (isGoogle && !isEnabled && onGoogleAuth) {
+            if (!isEnabled && !connector.isCustom && onComposioConnect) {
+              onComposioConnect(connector.id);
+            } else if (isGoogle && !isEnabled && onGoogleAuth) {
               onGoogleAuth(connector);
             } else {
               onToggle();

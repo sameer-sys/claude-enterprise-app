@@ -5,6 +5,7 @@ import {
   listConnectedAccounts,
   executeComposioAction,
   executeComposioNaturalLanguage,
+  createComposioConnectionLink,
   getComposioApiKey,
 } from '@/lib/composio';
 
@@ -104,6 +105,23 @@ const AGENT_TOOLS = [
           query: { type: 'string', description: 'Describe the action needed, such as create a GitHub issue, update a repository file, list pull requests, send a Gmail message, or find a Drive file.' },
         },
         required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'connector_manage_connections',
+      description: 'List connected Composio accounts or create a real OAuth Connect Link for an app. Use this when the user asks to connect, authorize, disconnect, or inspect an app.',
+      parameters: {
+        type: 'object',
+        properties: {
+          operation: { type: 'string', enum: ['list','connect','disconnect'] },
+          toolkit: { type: 'string', description: 'App/toolkit slug such as github, gmail, google_calendar, google_drive, slack, notion, microsoft365, etc.' },
+          connected_account_id: { type: 'string' },
+          alias: { type: 'string' },
+        },
+        required: ['operation'],
       },
     },
   },
@@ -299,18 +317,15 @@ async function runAgentTool(
           .map((a: any) => String(a?.appUniqueId || a?.appName || '').toLowerCase())
           .filter(Boolean)
       ));
-
-      if (!activeToolkits.length) {
-        return JSON.stringify({
-          success: false,
-          error: 'No ACTIVE Composio app accounts are connected for this app user. Connect an app from the Composio connector first.',
-        });
-      }
+      // Match Composio Connect: search can discover an app before it is connected.
+      const searchableToolkits = activeToolkits.length
+        ? activeToolkits
+        : ['github','gmail','google_drive','google_calendar','youtube','slack','notion','microsoft365','instagram','facebook','linkedin','linear','asana','canva','hubspot'];
 
       const found = await searchComposioTools(
         connectorContext.apiKey,
         String(args?.query || ''),
-        activeToolkits.slice(0, 20)
+        searchableToolkits.slice(0, 20)
       );
 
       if (!found.length) {
@@ -324,6 +339,52 @@ async function runAgentTool(
         description: t.description,
         input_schema: t.inputSchema,
       })));
+    }
+
+    if (name === 'connector_manage_connections') {
+      if (!connectorContext.apiKey) return 'Composio is not configured on the server.';
+      const { listConnectedAccounts, createComposioConnectionLink } = await import('@/lib/composio');
+      const operation = String(args?.operation || 'list').toLowerCase();
+      let accounts = Array.isArray(connectorContext.accounts) ? connectorContext.accounts : [];
+      try {
+        accounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId);
+      } catch {}
+
+      if (operation === 'list') {
+        return JSON.stringify({ success: true, accounts: accounts.filter((a: any) => a?.status === 'ACTIVE').map((a: any) => ({
+          id: a.id, toolkit: a.appUniqueId || a.appName, label: a.email || a.accountIdentifier || a.alias || a.id
+        })) });
+      }
+
+      if (operation === 'connect') {
+        const toolkit = String(args?.toolkit || '').trim();
+        if (!toolkit) return 'toolkit is required to connect an app.';
+        const link = await createComposioConnectionLink(
+          connectorContext.apiKey,
+          connectorContext.composioUserId || 'sameer-web-user',
+          toolkit,
+          undefined,
+          String(args?.alias || '').trim() || undefined
+        );
+        return JSON.stringify({
+          success: Boolean(link.success),
+          toolkit,
+          connect_url: link.redirectUrl || null,
+          error: link.error || null,
+          message: link.success ? ('Connect your ' + toolkit + ' account using the link, then return here and retry.') : 'Could not create the connection link.'
+        });
+      }
+
+      if (operation === 'disconnect') {
+        const id = String(args?.connected_account_id || '').trim();
+        if (!id) return 'connected_account_id is required to disconnect an app.';
+        const res = await fetch(
+          'https://backend.composio.dev/api/v3.1/connected_accounts/' + encodeURIComponent(id),
+          { method: 'DELETE', headers: { 'x-api-key': connectorContext.apiKey, 'Content-Type': 'application/json' }, cache: 'no-store' }
+        );
+        const data = await res.json().catch(() => ({}));
+        return res.ok ? JSON.stringify({ success: true, connected_account_id: id }) : JSON.stringify({ success: false, error: data?.error?.message || data?.message || ('Disconnect failed (' + res.status + ').') });
+      }
     }
 
     if (name === 'connector_execute') {

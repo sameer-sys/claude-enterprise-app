@@ -333,15 +333,6 @@ const SYSTEM_PROMPTS = {
     'You are DeepSeek R1 Enterprise — state-of-the-art open reasoning engine built for complex mathematics, coding architectures, and autonomous multi-step execution.',
 };
 
-function detectConnectorStatusRequest(text: string): boolean {
-  const lower = String(text || '').toLowerCase();
-  return (
-    /(what|which|list|show|tell|are)\b.*\b(apps?|connectors?|accounts?)\b.*\b(connect(?:ed|ions?)|authorized|linked|available)\b/i.test(lower) ||
-    /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lower) ||
-    /\b(?:my|our)\s+(?:connected|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lower)
-  );
-}
-
 function detectSkill(lastMsg: string, hasImages: boolean): string {
   if (hasImages) return 'Multimodal Vision & Analysis';
   const lower = lastMsg.toLowerCase();
@@ -1113,10 +1104,8 @@ export async function POST(req: NextRequest) {
       thinkingBudget = 16000,
       agentPrompt,
       connectors = [],
-      composioUserId: requestComposioUserId,
     } = await req.json();
 
-    const composioUserId = String(requestComposioUserId || 'default').trim() || 'default';
     const composioApiKey = userComposioKey || process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
 
     const isOmniRouteModel =
@@ -1127,61 +1116,6 @@ export async function POST(req: NextRequest) {
     const userLastMsg = messages[messages.length - 1];
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
-    const connectorStatusRequest = detectConnectorStatusRequest(lastText);
-
-    // Live connector status comes directly from Composio so the model cannot
-    // invent the current connection state.
-    if (connectorStatusRequest) {
-      let statusContent = '';
-      try {
-        if (!composioApiKey) {
-          statusContent = 'No Composio account is configured for this workspace yet.';
-        } else {
-          const accounts = await listConnectedAccounts(composioApiKey, composioUserId);
-          const active = accounts.filter((a: any) => a?.status === 'ACTIVE');
-          const grouped = new Map<string, { name: string; count: number }>();
-          for (const account of active) {
-            const slug = String(account?.appUniqueId || '').trim().toLowerCase();
-            if (!slug) continue;
-            const old = grouped.get(slug);
-            grouped.set(slug, {
-              name: String(account?.appName || slug),
-              count: (old?.count || 0) + 1,
-            });
-          }
-          if (!grouped.size) {
-            statusContent = 'I checked the live Composio connection list for this workspace user, and there are currently no ACTIVE connected apps.';
-          } else {
-            statusContent =
-              '### Connected apps\n\n' +
-              Array.from(grouped.values())
-                .map((x) => '- **' + x.name + '** — ' + x.count + ' active account' + (x.count === 1 ? '' : 's') + '.')
-                .join('\n');
-          }
-        }
-      } catch (err: any) {
-        statusContent = 'I could not read the live Composio connection list right now. ' + (err?.message || 'Please try again.');
-      }
-      const encoder = new TextEncoder();
-      const stream = new ReadableStream({
-        start(controller) {
-          for (let pos = 0; pos < statusContent.length; pos += 28) {
-            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: statusContent.slice(pos, pos + 28) }) + '\n\n'));
-          }
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-          controller.close();
-        },
-      });
-      return new Response(stream, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-          'X-Claude-Skill': 'Connector Status',
-          'X-Claude-Router': 'composio-connection-status',
-        },
-      });
-    }
 
     // ========================================================
     // REAL-TIME YOUTUBE PLAYLIST & CHANNEL QUERY INTERCEPTOR
@@ -1203,7 +1137,7 @@ To fetch your live YouTube playlists and channel tools, your **Composio API Key*
 3. Once set, I will query your real YouTube channel directly with zero hallucinations!`;
       } else {
         try {
-          const accounts = await listConnectedAccounts(composioApiKey, composioUserId);
+          const accounts = await listConnectedAccounts(composioApiKey);
           const ytAccount = accounts.find((a) =>
             (a.appUniqueId || a.appName || '').toLowerCase().includes('youtube')
           );
@@ -1791,7 +1725,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
         let connectorAccounts: any[] = [];
         if (composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.enabled !== false)) {
           try {
-            connectorAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+            connectorAccounts = await listConnectedAccounts(composioApiKey);
           } catch {}
         }
 

@@ -400,7 +400,7 @@ async function runAgentTool(
       if (!accountId) {
         return JSON.stringify({
           success: false,
-          error: \`No active Composio account was found for \${normalizedToolkit}. This is an explicitly configured Composio adapter, not a built-in direct connector.\`,
+          error: `No active Composio account was found for ${normalizedToolkit}. This is an explicitly configured Composio adapter, not a built-in direct connector.`,
         });
       }
 

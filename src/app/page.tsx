@@ -648,8 +648,6 @@ export default function Home() {
             modelId: activeModel,
             geminiKey: geminiKey || undefined,
             openRouterKey: openRouterKey || undefined,
-            composioApiKey: composioKey,
-            composioUserId: getStableComposioUserId(),
             sessionId: activeSession.id,
             thinkingBudget,
             agentPrompt: activeSession.agentPrompt,

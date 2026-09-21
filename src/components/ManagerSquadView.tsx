@@ -25,7 +25,7 @@ interface ManagerSquadViewProps {
   isOpen?: boolean;
   onClose?: () => void;
   onSendPromptToSubAgent?: (agentAlias: string, prompt: string) => void;
-  onDeployToSession?: (directive: string) => void;
+  onDeployToSession?: (directive: string) => void | Promise<void>;
 }
 
 const DEFAULT_SUB_AGENTS: ManagedSubAgent[] = [
@@ -112,7 +112,7 @@ export default function ManagerSquadView({
     return () => clearInterval(timer);
   }, [isAutoMonitoring]);
 
-  const handleRunSquadLocally = (customDirective?: string) => {
+  const handleRunSquadLocally = (customDirective?: string, dispatchToChat = true) => {
     const directive = (customDirective || directiveInput).trim();
     if (!directive) return;
 
@@ -142,13 +142,17 @@ export default function ManagerSquadView({
 
     // No simulated completion. The squad only records that a directive
     // was dispatched; actual completion comes from the live workspace engine.
+    if (dispatchToChat && onDeployToSession) {
+      onDeployToSession(directive);
+    }
+
     setDirectiveInput('');
   };
 
   const handleDeployDirectiveToChat = () => {
     if (!directiveInput.trim()) return;
     const directive = directiveInput.trim();
-    handleRunSquadLocally(directive);
+    handleRunSquadLocally(directive, false);
     if (onDeployToSession) {
       onDeployToSession(directive);
     }

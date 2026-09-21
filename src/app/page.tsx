@@ -567,44 +567,36 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      const composioKey = typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || undefined : undefined;
+      const composioKey =
+        typeof window !== 'undefined'
+          ? localStorage.getItem('composio_api_key') || undefined
+          : undefined;
+
+      const chatBody = {
+        messages: [...activeSession.messages.slice(-30), userMessage],
+        modelId: activeModel,
+        geminiKey: geminiKey || undefined,
+        openRouterKey: openRouterKey || undefined,
+        composioApiKey: composioKey,
+        composioUserId: getStableComposioUserId(),
+        thinkingBudget,
+        agentPrompt: activeSession.agentPrompt,
+        connectors: currentSessionConnectors,
+      };
 
       let response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [...activeSession.messages.slice(-30), userMessage],
-          modelId: activeModel,
-          geminiKey: geminiKey || undefined,
-          openRouterKey: openRouterKey || undefined,
-          composioApiKey: composioKey,
-          thinkingBudget,
-          agentPrompt: activeSession.agentPrompt,
-          connectors: currentSessionConnectors,
-          composioUserId: getStableComposioUserId(),
-          composioApiKey: localStorage.getItem('composio_api_key') || undefined,
-        }),
+        body: JSON.stringify(chatBody),
         signal: controller.signal,
       });
 
       if (!response.ok && (response.status === 504 || response.status === 502 || response.status === 503)) {
-        // Instant resilient auto-retry
         await new Promise((r) => setTimeout(r, 600));
         response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: [...activeSession.messages.slice(-30), userMessage],
-            modelId: activeModel,
-            geminiKey: geminiKey || undefined,
-            openRouterKey: openRouterKey || undefined,
-            composioApiKey: composioKey,
-            thinkingBudget,
-            agentPrompt: activeSession.agentPrompt,
-            connectors: currentSessionConnectors,
-          composioUserId: getStableComposioUserId(),
-          composioApiKey: localStorage.getItem('composio_api_key') || undefined,
-          }),
+          body: JSON.stringify(chatBody),
           signal: controller.signal,
         });
       }

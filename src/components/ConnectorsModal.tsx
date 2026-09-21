@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
 import { getConnectorDefinition, getConnectorLaunchUrl } from '@/lib/connectorRegistry';
+import { hasDirectOAuthForConnector } from '@/lib/connectorRuntime';
 
 export type { Connector, ConnectorConfig };
 
@@ -902,6 +903,7 @@ export default function ConnectorsModal({
   const [configChannel, setConfigChannel] = useState('');
   const [configHandle, setConfigHandle] = useState('');
   const [configSubreddit, setConfigSubreddit] = useState('');
+  const [connectingId, setConnectingId] = useState<string | null>(null);
 
   const handleOpenConnector = (connectorId: string) => {
     const connector = activeConnectors.find((c) => c.id === connectorId);
@@ -914,6 +916,20 @@ export default function ConnectorsModal({
     try {
       if (typeof window !== 'undefined') window.open(target, '_blank', 'noopener,noreferrer');
     } catch {}
+  };
+
+  const handleConnectConnector = (connectorId: string) => {
+    const connector = activeConnectors.find((c) => c.id === connectorId);
+    if (!connector || connectingId) return;
+    setConnectingId(connectorId);
+    try {
+      const authUrl = `/api/connectors/oauth/start?connector=${encodeURIComponent(connectorId)}`;
+      if (typeof window !== 'undefined') {
+        window.open(authUrl, '_blank', 'noopener,noreferrer');
+      }
+    } finally {
+      window.setTimeout(() => setConnectingId(null), 1200);
+    }
   };
 
   if (!isOpen) return null;
@@ -964,7 +980,6 @@ export default function ConnectorsModal({
       channelName: configChannel.trim(),
       handle: configHandle.trim(),
       subreddit: configSubreddit.trim(),
-      connectedAccountId: configAccountId.trim() || undefined,
     });
     setEditingConnector(null);
   };
@@ -1577,7 +1592,7 @@ export default function ConnectorsModal({
                     className="w-full px-3 py-2 rounded-xl bg-[#141310] border border-[#2b2923] text-xs text-[#f2eee6] focus:outline-none focus:border-[#cc785c]"
                   />
                   <p className="text-[10px] text-[#8a8579]">
-                    Emails drafted and 1-click send links in this chat will be associated with this account.
+                    When this chat uses Gmail, actions run through the directly authorized Google account shown here.
                   </p>
                 </div>
               )}
@@ -1706,8 +1721,10 @@ function ConnectorCard({
   onOpenConnector?: (connectorId: string) => void;
 }) {
   const isEnabled = connector.enabled;
+  const isConnected = connector.status === 'connected';
   const definition = getConnectorDefinition(connector.id);
   const launchUrl = getConnectorLaunchUrl(connector);
+  const isDirectOAuthConnector = (conn: Connector) => hasDirectOAuthForConnector(conn.id);
 
   const openConnector = (e?: React.SyntheticEvent) => {
     e?.stopPropagation();
@@ -1717,7 +1734,7 @@ function ConnectorCard({
 
   return (
     <div
-      onClick={() => { if (!isEnabled) openConnector(); }}
+      onClick={() => { if (!isEnabled && !isConnected) handleConnectConnector(connector.id); }}
       className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between group ${isEnabled ? 'bg-[#1e1c19] border-[#38352d] hover:border-[#4a463d]' : 'bg-[#171614] border-[#26241f] hover:border-[#333129] hover:bg-[#1a1916]'}`}
     >
       <div className="flex items-center space-x-3 min-w-0 pr-2">
@@ -1737,6 +1754,11 @@ function ConnectorCard({
             <span>{connector.config?.connectionType === 'mcp' ? 'MCP' : connector.config?.connectionType === 'webhook' ? 'Webhook' : connector.config?.connectionType === 'zapier' ? 'Zapier' : connector.config?.connectionType === 'composio' ? 'Composio' : connector.config?.connectionType === 'custom-api' ? 'Custom API' : 'Direct'}</span>
             {launchUrl && <span className="truncate">{launchUrl}</span>}
           </div>
+          {isConnected && (connector.config?.email || connector.config?.accountName) && (
+            <p className="text-[10px] text-emerald-400 font-mono truncate">
+              Account: {connector.config.email || connector.config.accountName}
+            </p>
+          )}
           {isEnabled && connector.config?.email && <p className="text-[10px] text-emerald-400 font-mono truncate">Mailbox: {connector.config.email}</p>}
           {isEnabled && connector.config?.repo && <p className="text-[10px] text-[#cc785c] truncate">Repo: {connector.config.repo}</p>}
           {isEnabled && connector.config?.channelName && <p className="text-[10px] text-[#cc785c] truncate">Channel: {connector.config.channelName}</p>}
@@ -1746,12 +1768,28 @@ function ConnectorCard({
       </div>
 
       <div className="flex items-center space-x-1.5 shrink-0">
+        {isDirectOAuthConnector(connector) && !isConnected && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); handleConnectConnector(connector.id); }}
+            className="px-2.5 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-[10px] font-semibold text-black transition-colors"
+            title="Start direct first-party OAuth"
+          >
+            {connectingId === connector.id ? 'Opening…' : 'Connect'}
+          </button>
+        )}
         {launchUrl && (
           <button type="button" onClick={openConnector}
             className="p-1.5 rounded-lg text-[#8a8579] hover:text-[#f2eee6] hover:bg-[#282622] transition-colors"
-            title={definition?.actionLabel || 'Open connector'}>
+            title={definition?.actionLabel || 'Open provider'}>
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
+        )}
+        {isConnected && (
+          <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono">
+            <Check className="w-3 h-3" />
+            Connected
+          </span>
         )}
         {isEnabled && (
           <button type="button" onClick={onOpenConfig}
@@ -1760,9 +1798,9 @@ function ConnectorCard({
             <Settings className="w-3.5 h-3.5" />
           </button>
         )}
-        <button type="button" onClick={(e) => { e.stopPropagation(); onToggle(); }}
+        <button type="button" onClick={(e) => { e.stopPropagation(); if (isConnected) onToggle(); else handleConnectConnector(connector.id); }}
           className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isEnabled ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25' : 'bg-[#26241f] border border-[#333028] text-[#dcd8ce] hover:text-white hover:bg-[#33302a]'}`}
-          title={isEnabled ? 'Enabled for this chat (Click to turn off)' : 'Enable for this chat'}>
+          title={isConnected ? (isEnabled ? 'Enabled for this chat (Click to turn off)' : 'Enable this connected connector for this chat') : 'Connect this service'}>
           {isEnabled ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
         </button>
       </div>

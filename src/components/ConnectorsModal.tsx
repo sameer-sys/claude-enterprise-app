@@ -1377,6 +1377,7 @@ export default function ConnectorsModal({
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
                         onOpenConnector={handleOpenConnector}
+                        onConnect={handleConnectConnector}
                       />
                     ))}
                   </div>
@@ -1719,6 +1720,7 @@ function ConnectorCard({
   onToggle: () => void;
   onOpenConfig: (e: React.MouseEvent) => void;
   onOpenConnector?: (connectorId: string) => void;
+  onConnect: (connectorId: string) => void;
 }) {
   const isEnabled = connector.enabled;
   const isConnected = connector.status === 'connected';
@@ -1734,7 +1736,7 @@ function ConnectorCard({
 
   return (
     <div
-      onClick={() => { if (!isEnabled && !isConnected) handleConnectConnector(connector.id); }}
+      onClick={() => { if (!isEnabled && !isConnected) onConnect(connector.id); }}
       className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between group ${isEnabled ? 'bg-[#1e1c19] border-[#38352d] hover:border-[#4a463d]' : 'bg-[#171614] border-[#26241f] hover:border-[#333129] hover:bg-[#1a1916]'}`}
     >
       <div className="flex items-center space-x-3 min-w-0 pr-2">

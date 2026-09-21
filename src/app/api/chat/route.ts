@@ -151,9 +151,9 @@ function detectExplicitConnectorRequest(text: string): boolean {
 function detectConnectorStatusRequest(text: string): boolean {
   const lower = String(text || '').toLowerCase();
   return (
-    /(what|which|list|show|tell|are)\\b.*\\b(apps?|connectors?|accounts?)\\b.*\\b(connect(?:ed|ions?)|authorized|linked|available)\\b/i.test(lower) ||
-    /\\bwhat\\s+(?:apps?|services?)\\s+(?:are|am)\\s+(?:you|we)\\s+(?:connected|linked)\\s+with\\b/i.test(lower) ||
-    /\\b(?:my|our)\\s+(?:connected|linked)\\s+(?:apps?|accounts?|services?)\\b/i.test(lower)
+    /(what|which|list|show|tell|are)\b.*\b(apps?|connectors?|accounts?)\b.*\b(connect(?:ed|ions?)|authorized|linked|available)\b/i.test(lower) ||
+    /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lower) ||
+    /\b(?:my|our)\s+(?:connected|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lower)
   );
 }
 

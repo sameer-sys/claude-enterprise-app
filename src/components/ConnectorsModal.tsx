@@ -84,7 +84,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
       if (!res.ok) throw new Error(data.error || 'Could not read Composio status.');
       const next = Array.isArray(data.connectedAccounts) ? data.connectedAccounts : [];
       setAccounts(next);
-      const active = next.filter(function (a: ComposioAccount) { return String(a.status).toUpperCase() === 'ACTIVE'; });
+      const active = next.filter(function (a: ComposioAccount) { return String(a.status).toUpperCase() === 'ACTIVE'; }) as ComposioAccount[];
       onUpdateConnectorConfig && onUpdateConnectorConfig('conn-composio', {
         connectionType: 'composio',
         providerName: 'Composio',

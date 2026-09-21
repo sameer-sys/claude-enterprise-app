@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const accounts = await listConnectedAccounts(apiKey, entityId);
+    const accounts = await listConnectedAccounts(apiKey);
 
     return NextResponse.json({
       configured: true,

@@ -415,6 +415,22 @@ export default function Sidebar({
             </button>
           )}
 
+          {onOpenSquad && (
+            <button
+              onClick={onOpenSquad}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#25241d] text-xs text-[#bfb9ad] hover:text-[#f2eee6] transition-all group"
+              title="Open Manager Squad"
+            >
+              <div className="flex items-center space-x-2">
+                <Crown className="w-3.5 h-3.5 text-[#cc785c] group-hover:scale-110 transition-transform" />
+                <span>Manager Squad</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#2b2923] text-[#bfb9ad] font-mono">
+                LIVE
+              </span>
+            </button>
+          )}
+
           {onOpenAgents && (
             <button
               onClick={onOpenAgents}

@@ -9,9 +9,7 @@ import {
   getComposioApiKey,
   createComposioToolRouterSession,
   searchComposioToolRouter,
-  generateComposioToolInput,
   executeComposioToolRouter,
-  executeComposioNaturalLanguage,
   toolkitFromComposioToolSlug,
   normalizeComposioToolkitSlug,
 } from '@/lib/composio';
@@ -1426,49 +1424,14 @@ Please verify your credentials or connected account in the Connectors modal.`;
 
     const hasImages =
       userLastMsg?.attachments?.some((a: any) => a.isImage && a.dataUrl) || false;
-    // ========================================================
-    // DETERMINISTIC CONNECTOR PREFLIGHT
-    // Explicit external-app requests are executed through Composio before
-    // any model is allowed to answer. This prevents the model from bypassing
-    // the connector and inventing statuses, links, or "not connected" claims.
-    // ========================================================
-    let preflightConnectorResult: any = null;
-    if (explicitConnectorRequest && composioApiKey && activeConnectors.some((c: any) => !c?.isCustom)) {
-      try {
-        const accounts = await listConnectedAccounts(composioApiKey, composioUserId);
-        preflightConnectorResult = await executeComposioNaturalLanguage(
-          composioApiKey,
-          composioUserId,
-          lastText,
-          activeConnectors,
-          accounts,
-          'claude-3-7-sonnet'
-        );
-        if (preflightConnectorResult?.success) {
-          connectorContext += `\n[REAL COMPOSIO EXECUTION RESULT]: ${JSON.stringify({
-            tool_slug: preflightConnectorResult.toolSlug,
-            arguments: preflightConnectorResult.arguments,
-            data: preflightConnectorResult.data,
-            session_id: preflightConnectorResult.sessionId,
-          })}\n`;
-        } else {
-          connectorContext += `\n[COMPOSIO PREFLIGHT ERROR]: ${preflightConnectorResult?.error || 'No executable connector action was found.'}\n`;
-        }
-      } catch (err: any) {
-        preflightConnectorResult = { success: false, error: err?.message || 'Composio preflight failed.' };
-        connectorContext += `\n[COMPOSIO PREFLIGHT ERROR]: ${preflightConnectorResult.error}\n`;
-      }
-    }
-
     const connectorSystemDirective = explicitConnectorRequest ?
-      `\n[MANDATORY EXTERNAL-ACTION DIRECTIVE]: The latest user message is an external-app task. Use Composio for it. Do not substitute a URL, public API, fake status, or prose-only plan. If a real execution result is present in context, summarize that exact result and do not repeat the action. If execution failed or an account is missing/ambiguous, say so exactly.\n` : '';
+      `\n[MANDATORY EXTERNAL-ACTION DIRECTIVE]: The latest user message is an external-app task. Use Composio for it. Do not substitute a URL, public API, fake status, or prose-only plan. Search for the exact live tool first, then execute it. If a real execution result is present in the conversation, summarize that exact result and do not repeat the action. If execution failed or an account is missing/ambiguous, say so exactly.\n` : '';
 
-    // Rebuild the system prompt after the deterministic connector preflight so
-    // the actual result is visible to every downstream model provider.
     const finalSystemPrompt = `${baseSystemPrompt}${developerDirective}${connectorContext}${connectorSystemDirective}`;
 
     // ========================================================
     // OMNIROUTER STAGE 0: Direct OmniRoute Model Dispatch (Local)
+
     // ========================================================
     if (isOmniRouteModel) {
       const isCloudEnv = Boolean(process.env.VERCEL || process.env.AWS_REGION);
@@ -1778,7 +1741,8 @@ Please verify your credentials or connected account in the Connectors modal.`;
       // repeat, until the model gives a final answer with no more tool
       // calls, or we hit the turn/time limits. Time-budgeted so this never
       // eats into the final answer's share of the 60s Vercel function cap.
-      if (activeOrKey && !preflightConnectorResult?.success) {
+      let connectorAgentExecutionResult: string | null = null;
+      if (activeOrKey) {
         const agentDeadline = requestStartTime + 40000; // leave time for the final streamed answer
         const maxAgentTurns = 6;
         let connectorAccounts: any[] = [];
@@ -1846,6 +1810,14 @@ Please verify your credentials or connected account in the Connectors modal.`;
               } catch (e) {}
 
               const result = await runAgentTool(toolName, toolArgs, agentConnectorContext);
+              if (toolName === 'connector_execute') {
+                try {
+                  const parsedResult = JSON.parse(result);
+                  if (parsedResult?.success === true) connectorAgentExecutionResult = result;
+                } catch {
+                  if (result.includes('"success":true') || result.includes('success: true')) connectorAgentExecutionResult = result;
+                }
+              }
 
               fullMessages.push({
                 role: 'tool',
@@ -1857,6 +1829,41 @@ Please verify your credentials or connected account in the Connectors modal.`;
             // whether it needs another tool call or is ready to answer.
           } catch (e) {
             break;
+          }
+        }
+
+        // Deterministic rescue: if the model failed to execute the connector action,
+        // use Composio's live tool search + input generation + session execute.
+        if (explicitConnectorRequest && !connectorAgentExecutionResult && composioApiKey && activeConnectors.some((c: any) => !c?.isCustom)) {
+          try {
+            const rescueAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+            const { createComposioToolRouterSession, searchComposioToolRouter, generateComposioToolInput, executeComposioToolRouter } = await import('@/lib/composio');
+            const rescueSession = await createComposioToolRouterSession(composioApiKey, composioUserId, activeConnectors, rescueAccounts);
+            if (rescueSession.success && rescueSession.sessionId) {
+              const found = await searchComposioToolRouter(composioApiKey, rescueSession.sessionId, lastText, 'claude-3-7-sonnet');
+              if (found.success) {
+                const first = Array.isArray(found.data?.results) ? found.data.results[0] : null;
+                const schemas = found.data?.tool_schemas || {};
+                const toolSlug = first?.primary_tool_slugs?.[0] || first?.tool_slugs?.[0] || Object.keys(schemas)[0];
+                if (toolSlug) {
+                  const generated = await generateComposioToolInput(composioApiKey, toolSlug, lastText, 'claude-3-7-sonnet');
+                  if (generated.success && generated.arguments) {
+                    const toolkit = toolkitFromComposioToolSlug(toolSlug);
+                    const selected = activeConnectors.find((c: any) =>
+                      !c?.isCustom && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit
+                    );
+                    const accountId = String(selected?.config?.connectedAccountId || '').trim() || undefined;
+                    const executed = await executeComposioToolRouter(composioApiKey, rescueSession.sessionId, toolSlug, generated.arguments, accountId);
+                    if (executed.success) {
+                      connectorAgentExecutionResult = JSON.stringify({ success: true, tool_slug: toolSlug, arguments: generated.arguments, data: executed.data, session_id: rescueSession.sessionId });
+                      fullMessages.push({ role: 'system', content: `[COMPOSIO RESCUE EXECUTION RESULT] ${connectorAgentExecutionResult}` });
+                    }
+                  }
+                }
+              }
+            }
+          } catch (rescueErr: any) {
+            fullMessages.push({ role: 'system', content: `[COMPOSIO RESCUE FAILURE] ${rescueErr?.message || 'Connector rescue failed.'}` });
           }
         }
       }
@@ -2021,30 +2028,8 @@ Please verify your credentials or connected account in the Connectors modal.`;
     // ========================================================
     // CONNECTOR FAILURE / NO-MODEL SAFETY FALLBACK
     // ========================================================
-    if (explicitConnectorRequest) {
-      if (preflightConnectorResult?.success) {
-        const resultText = `### ✅ Connector action completed
-
-**Tool:** \`${preflightConnectorResult.toolSlug || 'Composio action'}\`
-**Result:**
-
-\```json
-${JSON.stringify(preflightConnectorResult.data, null, 2).slice(0, 12000)}
-\```
-
-The action was executed against the account selected for this chat.`;
-        return streamTextResponse(resultText, { 'X-Claude-Skill': 'Connector Execution', 'X-Claude-Router': 'composio-preflight' });
-      }
-      if (preflightConnectorResult && !preflightConnectorResult.success) {
-        return streamTextResponse(`### ⚠️ Connector action was not completed
-
-${preflightConnectorResult.error || 'Composio could not execute the requested action.'}
-
-No external action was claimed as successful.`, { 'X-Claude-Skill': 'Connector Execution Error', 'X-Claude-Router': 'composio-preflight-error' });
-      }
-      if (!composioApiKey) {
-        return streamTextResponse('### ⚠️ Connector not configured for this request\\n\\nConnect the required app through the Connectors panel first. I will not substitute a link or pretend the action was performed.', { 'X-Claude-Skill': 'Connector Configuration', 'X-Claude-Router': 'composio-not-configured' });
-      }
+    if (explicitConnectorRequest && connectorAgentExecutionResult) {
+      return streamTextResponse(`### ✅ Connector action completed\n\nLive connector result:\n\n\\`\\`\\`json\n${connectorAgentExecutionResult.slice(0, 12000)}\n\\`\\`\\``, { 'X-Claude-Skill': 'Connector Execution', 'X-Claude-Router': 'composio-agent-result' });
     }
 
     // ========================================================

@@ -1291,26 +1291,45 @@ export async function POST(req: NextRequest) {
     if (connectorStatusRequest) {
       let statusContent = '';
       try {
-        if (!composioApiKey) {
-          statusContent = 'No Composio API key is configured for this workspace.';
+        const directConnections = getAllConnectionsFromCookieHeader(cookieHeader);
+        const labels = Object.entries(directConnections).map(([id, connection]: [string, any]) => {
+          const label = connection?.account?.email ||
+            connection?.account?.username ||
+            connection?.account?.name ||
+            connection?.account?.label ||
+            'authorized account';
+          return { id, label };
+        });
+
+        const composioConfigured = Boolean(composioApiKey);
+        const explicitlyComposioEnabled = Array.isArray(connectors) && connectors.some((c: any) =>
+          c?.enabled && (c?.provider === 'composio' || c?.config?.connectionType === 'composio')
+        );
+
+        if (labels.length === 0 && !(composioConfigured && explicitlyComposioEnabled)) {
+          statusContent = '### Connector status\n\nNo directly authorized first-party connector accounts are active in this browser yet. Use **Connect** on a connector to authorize it with the provider.';
         } else {
-          const statusAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
-          const activeAccounts = statusAccounts.filter((a: any) => a?.status === 'ACTIVE');
-          const grouped = new Map<string, number>();
-          for (const account of activeAccounts) {
-            const slug = String(account?.appUniqueId || '').trim().toLowerCase();
-            if (slug) grouped.set(slug, (grouped.get(slug) || 0) + 1);
-          }
-          if (grouped.size === 0) {
-            statusContent = 'I checked the live Composio account list for this workspace user. There are currently no ACTIVE connected apps.';
-          } else {
-            statusContent = '### Connected apps\n\n' + Array.from(grouped.entries())
-              .map(([slug, count]) => '- **' + slug + '** — ' + count + ' active account' + (count === 1 ? '' : 's') + '.')
-              .join('\n');
+          const directText = labels.length
+            ? labels.map(({ id, label }) => \`- **\${id.replace(/^conn-/, '')}** — \${label} (direct provider OAuth).\`).join('\n')
+            : 'No direct provider OAuth accounts are connected.';
+          statusContent = '### Connected apps\n\n' + directText;
+
+          if (composioConfigured && explicitlyComposioEnabled) {
+            try {
+              const statusAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+              const activeAccounts = statusAccounts.filter((account: any) => account?.status === 'ACTIVE');
+              const composioText = activeAccounts.map((account: any) => {
+                const slug = String(account?.appUniqueId || account?.appName || '').trim();
+                return slug ? \`- **\${slug}** — active (explicit Composio adapter).\` : '';
+              }).filter(Boolean).join('\n');
+              if (composioText) statusContent += '\n\n### Explicit Composio adapters\n\n' + composioText;
+            } catch (err: any) {
+              statusContent += '\n\n> Explicit Composio adapter status could not be refreshed: ' + (err?.message || 'unknown error');
+            }
           }
         }
       } catch (err: any) {
-        statusContent = 'Live Composio status lookup failed: ' + (err?.message || 'unknown error');
+        statusContent = 'Live connector status lookup failed: ' + (err?.message || 'unknown error');
       }
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
@@ -1328,7 +1347,7 @@ export async function POST(req: NextRequest) {
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
           'X-Claude-Skill': 'Connector Status',
-          'X-Claude-Router': 'composio-live-status',
+          'X-Claude-Router': 'direct-first-party-status',
         },
       });
     }
@@ -1417,6 +1436,139 @@ export async function POST(req: NextRequest) {
         });
       }
     }
+    const explicitConnectorRequest = detectExplicitConnectorRequest(lastText);
+
+    if (explicitConnectorRequest) {
+      try {
+        const directExecution = await executeDirectConnectorRequest(cookieHeader, connectors, lastText);
+        if (directExecution.handled) {
+          const message = directExecution.success
+            ? '### Direct connector action completed\n\n' +
+              '**Tool:** ' + (directExecution.tool_slug || 'direct provider action') + '\n\n' +
+              '**Live result:**\n\n' +
+              JSON.stringify(directExecution.data ?? {}, null, 2).slice(0, 14000) +
+              '\n\nThe result came directly from the provider API.'
+            : '### Direct connector action was not completed\n\n' +
+              (directExecution.error || 'The provider API rejected or could not complete the request.') +
+              '\n\nNothing is reported as completed unless the provider returned a successful response.';
+
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream({
+            start(controller) {
+              for (let pos = 0; pos < message.length; pos += 28) {
+                controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message.slice(pos, pos + 28) }) + '\n\n'));
+              }
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              controller.close();
+            },
+          });
+
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Claude-Skill': 'Direct Connector Execution',
+              'X-Claude-Router': directExecution.success ? 'direct-provider' : 'direct-provider-error',
+            },
+          });
+        }
+      } catch (err: any) {
+        const message = '### Direct connector execution error\n\n' +
+          (err?.message || 'The directly connected service could not be reached.') +
+          '\n\nNo action is reported as completed.';
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message }) + '\n\n'));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'X-Claude-Skill': 'Direct Connector Execution',
+            'X-Claude-Router': 'direct-provider-error',
+          },
+        });
+      }
+
+      // Composio is now an opt-in runtime adapter for explicitly Composio-configured
+      // connectors only. Built-in connectors never fall through to Composio.
+      const explicitComposioConnectors = Array.isArray(connectors)
+        ? connectors.filter((c: any) =>
+            c?.enabled &&
+            (c?.provider === 'composio' || c?.config?.connectionType === 'composio')
+          )
+        : [];
+
+      if (composioApiKey && explicitComposioConnectors.length > 0) {
+        try {
+          const liveAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+          const execution = await executeComposioNaturalLanguage(
+            composioApiKey,
+            composioUserId,
+            lastText,
+            explicitComposioConnectors,
+            liveAccounts,
+            'claude-3-7-sonnet'
+          );
+
+          const message = execution.success
+            ? '### Composio connector action completed\n\n' +
+              '**Tool:** ' + (execution.toolSlug || 'Composio tool') + '\n\n' +
+              '**Live result:**\n\n' +
+              JSON.stringify(execution.data ?? {}, null, 2).slice(0, 14000)
+            : '### Composio connector action was not completed\n\n' +
+              (execution.error || 'The configured Composio adapter could not execute this request.') +
+              '\n\nNothing is reported as completed unless Composio returned a successful execution result.';
+
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream({
+            start(controller) {
+              for (let pos = 0; pos < message.length; pos += 28) {
+                controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message.slice(pos, pos + 28) }) + '\n\n'));
+              }
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              controller.close();
+            },
+          });
+
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Claude-Skill': 'Composio Adapter Execution',
+              'X-Claude-Router': execution.success ? 'composio-adapter' : 'composio-adapter-error',
+            },
+          });
+        } catch (err: any) {
+          const message = '### Composio adapter error\n\n' + (err?.message || 'The explicitly configured Composio runtime failed.');
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message }) + '\n\n'));
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              controller.close();
+            },
+          });
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Claude-Skill': 'Composio Adapter Execution',
+              'X-Claude-Router': 'composio-adapter-error',
+            },
+          });
+        }
+      }
+    }
+
     // ========================================================
     // REAL-TIME YOUTUBE PLAYLIST & CHANNEL QUERY INTERCEPTOR
     // ========================================================

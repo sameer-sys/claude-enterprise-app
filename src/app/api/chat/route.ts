@@ -4,11 +4,15 @@ import { fetchLatestEmails } from '@/lib/imapReader';
 import {
   listConnectedAccounts,
   executeComposioAction,
-  fetchLiveYouTubePlaylists,
-  fetchLiveDriveFiles,
   getComposioApiKey,
-  executeComposioNaturalLanguage,
+  searchComposioTools,
 } from '@/lib/composio';
+import {
+  executeDirectConnectorRequest,
+  executeDirectConnectorTool,
+  searchDirectConnectorTools,
+} from '@/lib/connectorRuntime';
+import { getAllConnectionsFromCookieHeader } from '@/lib/connectorAuth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -140,7 +144,12 @@ const AGENT_TOOLS = [
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[] } = {}
+  connectorContext: {
+    apiKey?: string;
+    connectors?: any[];
+    accounts?: any[];
+    cookieHeader?: string;
+  } = {}
 ): Promise<string> {
   try {
     if (name === 'web_search') {
@@ -308,6 +317,148 @@ async function runAgentTool(
       );
       if (!result.success) return JSON.stringify({ success: false, error: result.error || 'Connector action failed' });
       return JSON.stringify({ success: true, tool_slug: slug, data: result.data });
+    }
+
+    if (name === 'connector_search') {
+      const query = String(args?.query || '').trim();
+      const direct = searchDirectConnectorTools(connectorContext.connectors || [], query);
+
+      const composioConnectors = (connectorContext.connectors || []).filter((c: any) =>
+        c?.enabled &&
+        (c?.provider === 'composio' || c?.config?.connectionType === 'composio')
+      );
+
+      let composio: any[] = [];
+      if (connectorContext.apiKey && composioConnectors.length > 0) {
+        try {
+          const toolkitSlugs = Array.from(new Set(composioConnectors.map((c: any) => {
+            const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
+            return ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string, string>)[id] || id;
+          }).filter(Boolean)));
+          composio = await searchComposioTools(connectorContext.apiKey, query, toolkitSlugs);
+        } catch {}
+      }
+
+      const merged = [
+        ...direct.map((t) => ({
+          tool_slug: t.tool_slug,
+          toolkit: t.toolkit,
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema,
+          runtime: 'direct',
+        })),
+        ...composio.slice(0, 12).map((t: any) => ({
+          tool_slug: t.slug,
+          toolkit: t.toolkit,
+          name: t.name,
+          description: t.description,
+          input_schema: t.inputSchema,
+          runtime: 'composio',
+        })),
+      ];
+
+      if (!merged.length) {
+        return JSON.stringify({
+          success: false,
+          error: 'No live connector action is available for the enabled connectors. Connect the service or add a runtime adapter (MCP, Zapier, Composio, webhook, or custom API).',
+        });
+      }
+
+      return JSON.stringify(merged.slice(0, 20));
+    }
+
+    if (name === 'connector_execute') {
+      const slug = String(args?.tool_slug || '').trim();
+      if (!slug) return 'tool_slug is required.';
+
+      const directSlugs = new Set([
+        'GMAIL_LIST_MESSAGES',
+        'GMAIL_SEND_EMAIL',
+        'DRIVE_LIST_FILES',
+        'CALENDAR_LIST_EVENTS',
+        'YOUTUBE_LIST_PLAYLISTS',
+        'GITHUB_LIST_REPOSITORIES',
+        'GITHUB_LIST_ISSUES',
+        'GITHUB_CREATE_ISSUE',
+      ]);
+
+      if (directSlugs.has(slug.toUpperCase())) {
+        const result = await executeDirectConnectorTool(
+          connectorContext.cookieHeader || '',
+          slug,
+          args?.arguments || {}
+        );
+        return JSON.stringify(result.success
+          ? { success: true, tool_slug: result.tool_slug, data: result.data, runtime: 'direct' }
+          : { success: false, tool_slug: result.tool_slug || slug, error: result.error || 'Direct connector action failed.' });
+      }
+
+      const composioConnectors = (connectorContext.connectors || []).filter((c: any) =>
+        c?.enabled &&
+        (c?.provider === 'composio' || c?.config?.connectionType === 'composio')
+      );
+
+      if (!connectorContext.apiKey) {
+        return JSON.stringify({ success: false, error: 'This action requires a configured runtime adapter. The built-in direct connectors do not use Composio.' });
+      }
+      if (!composioConnectors.length) {
+        return JSON.stringify({ success: false, error: 'This action is not available through the enabled direct connectors. Configure a Composio adapter for the requested tool, or add an MCP/Zapier/custom API connector.' });
+      }
+
+      let accounts = connectorContext.accounts || [];
+      const slugUpper = slug.toUpperCase();
+      const prefix = slugUpper.split('_')[0] || '';
+      const toolkitAliases: Record<string, string> = {
+        GOOGLE: 'google_drive',
+        GDRIVE: 'google_drive',
+        GCALENDAR: 'google_calendar',
+        CALENDAR: 'google_calendar',
+        M365: 'microsoft365',
+      };
+      const normalizedToolkit = toolkitAliases[prefix] || prefix.toLowerCase();
+
+      if (!accounts.some((a: any) =>
+        String(a?.appUniqueId || '').toLowerCase() === normalizedToolkit &&
+        a?.status === 'ACTIVE'
+      )) {
+        try {
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, undefined, normalizedToolkit);
+          accounts = [...accounts, ...liveAccounts];
+        } catch {}
+      }
+
+      const connector = composioConnectors.find((c: any) => {
+        const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
+        return id === normalizedToolkit ||
+          String(c?.config?.connectedAccountId || '') === String(args?.connected_account_id || '');
+      });
+
+      const accountId =
+        args?.connected_account_id ||
+        connector?.config?.connectedAccountId ||
+        accounts.find((a: any) => {
+          const uid = String(a?.appUniqueId || '').toLowerCase();
+          return uid === normalizedToolkit && a?.status === 'ACTIVE';
+        })?.id;
+
+      if (!accountId) {
+        return JSON.stringify({
+          success: false,
+          error: \`No active Composio account was found for \${normalizedToolkit}. This is an explicitly configured Composio adapter, not a built-in direct connector.\`,
+        });
+      }
+
+      const result = await executeComposioAction(
+        connectorContext.apiKey,
+        slug,
+        args?.arguments || {},
+        accountId,
+        'default'
+      );
+      return JSON.stringify(result.success
+        ? { success: true, tool_slug: slug, data: result.data, runtime: 'composio' }
+        : { success: false, tool_slug: slug, error: result.error || 'Composio connector action failed.', runtime: 'composio' });
     }
 
     return `Unknown tool: ${name}`;
@@ -1101,6 +1252,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const requestStartTime = Date.now();
+    const cookieHeader = req.headers.get('cookie') || '';
+
     const {
       messages,
       modelId = 'claude-3-7-sonnet',

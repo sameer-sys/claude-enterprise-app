@@ -423,6 +423,37 @@ interface ConnectorsModalProps {
   sessionId?: string;
 }
 
+const COMPOSIO_APP_OPTIONS = [
+  { slug: 'gmail', name: 'Gmail', icon: 'gmail', description: 'Read and send email.' },
+  { slug: 'github', name: 'GitHub', icon: 'github', description: 'Repositories, issues, pull requests and code.' },
+  { slug: 'google_drive', name: 'Google Drive', icon: 'gdrive', description: 'Files, folders and documents.' },
+  { slug: 'google_calendar', name: 'Google Calendar', icon: 'gcalendar', description: 'Events and schedules.' },
+  { slug: 'youtube', name: 'YouTube', icon: 'youtube', description: 'Channel and video tools.' },
+  { slug: 'slack', name: 'Slack', icon: 'slack', description: 'Messages and workspace actions.' },
+  { slug: 'notion', name: 'Notion', icon: 'notion', description: 'Pages and databases.' },
+  { slug: 'microsoft365', name: 'Microsoft 365', icon: 'm365', description: 'Microsoft account tools.' },
+];
+
+function getStableComposioUserId(): string {
+  if (typeof window === 'undefined') return 'sameer-web-user';
+  const key = 'sameer_composio_user_id';
+  const existing = localStorage.getItem(key);
+  if (existing && existing.trim()) return existing.trim();
+
+  let value = '';
+  try {
+    value =
+      typeof crypto?.randomUUID === 'function'
+        ? 'sameer_' + crypto.randomUUID()
+        : 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  } catch {
+    value = 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  }
+
+  localStorage.setItem(key, value);
+  return value;
+}
+
 export default function ConnectorsModal({
   isOpen,
   onClose,
@@ -481,189 +512,158 @@ export default function ConnectorsModal({
   const [isSyncingComposio, setIsSyncingComposio] = useState(false);
   const [composioSyncMessage, setComposioSyncMessage] = useState<string | null>(null);
   const [composioError, setComposioError] = useState<string | null>(null);
+  const [composioAccounts, setComposioAccounts] = useState<any[]>([]);
+  const [isComposioHubOpen, setIsComposioHubOpen] = useState(false);
+  const [connectingToolkit, setConnectingToolkit] = useState<string | null>(null);
 
-  // Synchronize authentic connected accounts from Composio
+  // Composio is the single built-in connector. App accounts are connected
+  // through Composio using one stable user ID, then discovered live by the app.
   const fetchComposioAccounts = async () => {
-    if (!composioApiKey) return;
+    if (typeof window === 'undefined') return;
+
     setIsSyncingComposio(true);
     setComposioError(null);
+
     try {
-      const res = await fetch(
-        `/api/composio?apiKey=${encodeURIComponent(composioApiKey)}`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.connectedAccounts) && onUpdateConnectorConfig) {
-          let updatedCount = 0;
-          for (const acc of data.connectedAccounts) {
-            const appUid = (acc.appUniqueId || acc.appName || '').toLowerCase();
-            const matchedConn = activeConnectors.find((c) => {
-              const cKey = c.id.replace('conn-', '').toLowerCase();
-              return (
-                appUid.includes(cKey) ||
-                cKey.includes(appUid) ||
-                (cKey === 'gmail' && (appUid.includes('gmail') || appUid.includes('google')))
-              );
-            });
-            if (matchedConn) {
-              const accEmail = acc.email || acc.accountIdentifier || 'Connected Account';
-              onUpdateConnectorConfig(matchedConn.id, {
-                ...matchedConn.config,
-                email: accEmail,
-                connectedAccountId: acc.id,
-              });
-              if (!matchedConn.enabled) {
-                onToggleConnector(matchedConn.id);
-              }
-              updatedCount++;
-            }
-          }
-          setComposioSyncMessage(
-            data.connectedAccounts.length > 0
-              ? `Synced ${data.connectedAccounts.length} account${data.connectedAccounts.length > 1 ? 's' : ''} from Composio!`
-              : 'No connected accounts found in Composio yet.'
-          );
-          setTimeout(() => setComposioSyncMessage(null), 4000);
-        }
+      const userId = getStableComposioUserId();
+      const localKey = localStorage.getItem('composio_api_key') || '';
+      const params = new URLSearchParams({ entityId: userId });
+      if (localKey) params.set('apiKey', localKey);
+
+      const res = await fetch('/api/composio?' + params.toString(), { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setComposioError(data?.error || 'Composio status lookup failed.');
+        return;
       }
+
+      const accounts = Array.isArray(data?.connectedAccounts) ? data.connectedAccounts : [];
+      setComposioAccounts(accounts);
+
+      if (onUpdateConnectorConfig) {
+        const activeToolkits = Array.from(new Set(
+          accounts
+            .filter((a: any) => a?.status === 'ACTIVE')
+            .map((a: any) => String(a?.appUniqueId || a?.appName || '').toLowerCase())
+            .filter(Boolean)
+        ));
+
+        onUpdateConnectorConfig('conn-composio', {
+          connectionType: 'composio',
+          providerName: 'Composio',
+          composioAccountCount: accounts.filter((a: any) => a?.status === 'ACTIVE').length,
+          composioToolkits: activeToolkits,
+        });
+      }
+
+      setComposioSyncMessage(
+        accounts.length
+          ? accounts.filter((a: any) => a?.status === 'ACTIVE').length + ' active Composio account' +
+            (accounts.filter((a: any) => a?.status === 'ACTIVE').length === 1 ? '' : 's') + '.'
+          : 'No active Composio app accounts yet.'
+      );
     } catch (err: any) {
-      setComposioError(err.message || 'Failed to sync with Composio');
+      setComposioError(err?.message || 'Failed to load Composio connections.');
     } finally {
       setIsSyncingComposio(false);
     }
   };
 
   useEffect(() => {
-    if (!composioApiKey || !isOpen) return;
+    if (!isOpen) return;
+
     fetchComposioAccounts();
 
     const handleFocus = () => {
       fetchComposioAccounts();
     };
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'sameer-composio-connected') return;
+
+      fetchComposioAccounts();
+      setComposioSyncMessage(
+        event.data?.status === 'success'
+          ? 'Composio connection completed. Live account status refreshed.'
+          : 'Composio connection was not completed.'
+      );
+    };
+
     window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [composioApiKey, isOpen]);
+    window.addEventListener('message', handleMessage);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('message', handleMessage);
+    };
+  }, [isOpen]);
 
   const handleSaveComposioKey = (key: string) => {
-    setComposioApiKey(key);
+    const value = key.trim();
+    setComposioApiKey(value);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('composio_api_key', key);
+      if (value) localStorage.setItem('composio_api_key', value);
+      else localStorage.removeItem('composio_api_key');
     }
     setComposioSaved(true);
     setTimeout(() => setComposioSaved(false), 2000);
   };
 
-  const handleComposioConnect = async (connectorId: string) => {
-    let keyToUse = composioApiKey;
-    if (!keyToUse && typeof window !== 'undefined') {
-      keyToUse = localStorage.getItem('composio_api_key') || '';
-    }
-    if (!keyToUse) {
-      const entered = window.prompt('Enter your Composio API Key from app.composio.dev to authenticate:');
-      if (entered && entered.trim()) {
-        keyToUse = entered.trim();
-        handleSaveComposioKey(keyToUse);
-      } else {
-        return;
-      }
-    }
+  const handleComposioConnect = (connectorId: string) => {
+    if (connectorId !== 'conn-composio') return;
+    setIsComposioHubOpen(true);
+    fetchComposioAccounts();
+  };
 
-    setIsConnectingComposio(connectorId);
+  const handleConnectComposioToolkit = async (toolkit: string) => {
+    if (connectingToolkit) return;
+
+    setConnectingToolkit(toolkit);
     setComposioError(null);
 
-    // Open popup immediately on user action to prevent browser popup blockers
-    let authWindow: Window | null = null;
+    let popup: Window | null = null;
     try {
-      authWindow = window.open('about:blank', '_blank', 'width=650,height=750');
-      if (authWindow) {
-        authWindow.document.write(`
-          <!DOCTYPE html>
-          <html>
-            <head><title>Composio OAuth Gateway</title></head>
-            <body style="background:#161512;color:#ece9e2;font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;">
-              <div style="text-align:center;padding:24px;background:#1e1d19;border:1px solid #38352d;border-radius:18px;max-width:380px;">
-                <div style="font-size:32px;margin-bottom:12px;">⚡</div>
-                <h3 style="margin:0 0 8px 0;font-size:16px;color:#f2eee6;">Connecting via Composio</h3>
-                <p style="margin:0;font-size:13px;color:#9c978b;line-height:1.5;">Preparing OAuth authorization window. Redirecting you to Composio...</p>
-              </div>
-            </body>
-          </html>
-        `);
+      if (typeof window !== 'undefined') {
+        popup = window.open(
+          'about:blank',
+          'sameer_composio_connect',
+          'popup,width=650,height=760,resizable=yes,scrollbars=yes'
+        );
       }
-    } catch (e) {}
 
-    try {
-      const res = await fetch('/api/composio', {
+      const key = typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || '' : '';
+      const response = await fetch('/api/composio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'connect',
-          appName: connectorId,
-          apiKey: keyToUse,
-          entityId: sessionId || 'default',
+          appName: toolkit,
+          ...(key ? { apiKey: key } : {}),
+          entityId: getStableComposioUserId(),
         }),
       });
-      const data = await res.json();
-      if (data.redirectUrl) {
-        if (authWindow && !authWindow.closed) {
-          authWindow.location.href = data.redirectUrl;
-        } else {
-          window.open(data.redirectUrl, '_blank');
-        }
-        onToggleConnector(connectorId);
 
-        // Poll for newly connected account and extract real email
-        let pollCount = 0;
-        const pollTimer = setInterval(async () => {
-          pollCount++;
-          if (pollCount > 30 || authWindow?.closed) {
-            clearInterval(pollTimer);
-          }
-          try {
-            const checkRes = await fetch(
-              `/api/composio?apiKey=${encodeURIComponent(keyToUse)}`
-            );
-            if (checkRes.ok) {
-              const checkData = await checkRes.json();
-              if (Array.isArray(checkData.connectedAccounts) && onUpdateConnectorConfig) {
-                const appKey = connectorId.replace('conn-', '').toLowerCase();
-                const matched = checkData.connectedAccounts.find((a: any) => {
-                  const name = (a.appUniqueId || a.appName || '').toLowerCase();
-                  return (
-                    name.includes(appKey) ||
-                    appKey.includes(name) ||
-                    (appKey === 'gmail' && (name.includes('gmail') || name.includes('google')))
-                  );
-                });
-                if (matched) {
-                  const resolvedEmail = matched.email || matched.accountIdentifier || 'Connected via Composio';
-                  onUpdateConnectorConfig(connectorId, {
-                    email: resolvedEmail,
-                    connectedAccountId: matched.id,
-                  });
-                  clearInterval(pollTimer);
-                }
-              }
-            }
-          } catch (e) {}
-        }, 2500);
-      } else {
-        const fallbackUrl = 'https://app.composio.dev/apps';
-        if (authWindow && !authWindow.closed) {
-          authWindow.location.href = fallbackUrl;
-        }
-        if (data.error) {
-          setComposioError(data.error);
-        }
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data?.redirectUrl) {
+        const message = data?.error || 'Composio could not create a fresh authorization link.';
+        setComposioError(message);
+        if (popup && !popup.closed) popup.close();
+        return;
       }
-    } catch (e: any) {
-      const fallbackUrl = 'https://app.composio.dev/apps';
-      if (authWindow && !authWindow.closed) {
-        authWindow.location.href = fallbackUrl;
+
+      if (popup && !popup.closed) {
+        popup.location.href = data.redirectUrl;
+      } else if (typeof window !== 'undefined') {
+        window.location.href = data.redirectUrl;
       }
-      setComposioError(e.message || 'Failed to connect via Composio');
+    } catch (err: any) {
+      setComposioError(err?.message || 'Failed to start Composio authorization.');
+      if (popup && !popup.closed) popup.close();
     } finally {
-      setIsConnectingComposio(null);
+      setConnectingToolkit(null);
     }
   };
 
@@ -819,19 +819,24 @@ export default function ConnectorsModal({
               </div>
             </div>
 
-            {/* Connected Mailbox Badge */}
+            {/* Composio runtime status */}
             {(() => {
-              const connectedEmail = activeConnectors.find((c) => c.id === 'conn-gmail')?.config?.email;
+              const activeAccounts = composioAccounts.filter((a: any) => a?.status === 'ACTIVE');
               return (
-                <div className="flex items-center space-x-2.5 bg-[#131210] border border-[#26241f] rounded-xl px-3.5 py-2 select-none shadow-sm">
-                  <div className={`w-2 h-2 rounded-full ${connectedEmail ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-mono text-[#8a8579] uppercase">Composio Mailbox</span>
+                <button
+                  type="button"
+                  onClick={() => setIsComposioHubOpen(true)}
+                  className="flex items-center space-x-2.5 bg-[#131210] border border-[#26241f] rounded-xl px-3.5 py-2 select-none shadow-sm hover:border-[#4a463d] transition-colors"
+                  title="Open Composio connection manager"
+                >
+                  <div className={`w-2 h-2 rounded-full ${activeAccounts.length ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
+                  <div className="flex flex-col text-left">
+                    <span className="text-[10px] font-mono text-[#8a8579] uppercase">Composio Hub</span>
                     <span className="text-xs font-semibold text-[#cc785c] font-mono truncate max-w-[220px]">
-                      {connectedEmail || 'No Mailbox Connected (Use ⚡ Connect)'}
+                      {activeAccounts.length ? activeAccounts.length + ' app account' + (activeAccounts.length === 1 ? '' : 's') + ' connected' : 'No app accounts connected'}
                     </span>
                   </div>
-                </div>
+                </button>
               );
             })()}
 

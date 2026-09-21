@@ -290,8 +290,10 @@ export async function listConnectedAccounts(
     const params = new URLSearchParams();
     params.set('account_type', 'ALL');
     params.set('limit', '100');
-    if (entityId && entityId !== 'default') params.set('user_ids', entityId);
-    if (toolkitSlug) params.set('toolkit_slugs', toolkitSlug);
+    // Composio v3.1 documents these filters as arrays. Append each value
+    // so the API receives the same wire shape as the SDK (userIds/toolkitSlugs).
+    if (entityId && entityId !== 'default') params.append('user_ids', entityId);
+    if (toolkitSlug) params.append('toolkit_slugs', toolkitSlug);
 
     const urls = [
       `${COMPOSIO_V31_BASE}/connected_accounts?${params.toString()}`,

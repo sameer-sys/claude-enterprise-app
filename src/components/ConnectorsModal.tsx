@@ -8,6 +8,7 @@ import {
   Plus,
   Settings,
   ExternalLink,
+  RefreshCw,
   Layers,
   Sparkles,
 } from 'lucide-react';
@@ -901,7 +902,6 @@ export default function ConnectorsModal({
   const [configChannel, setConfigChannel] = useState('');
   const [configHandle, setConfigHandle] = useState('');
   const [configSubreddit, setConfigSubreddit] = useState('');
-  const [configAccountId, setConfigAccountId] = useState('');
 
   const handleOpenConnector = (connectorId: string) => {
     const connector = activeConnectors.find((c) => c.id === connectorId);
@@ -953,7 +953,6 @@ export default function ConnectorsModal({
     setConfigChannel(conn.config?.channelName || 'My Official Channel');
     setConfigHandle(conn.config?.handle || '@sameer.official');
     setConfigSubreddit(conn.config?.subreddit || 'r/artificial');
-    setConfigAccountId(conn.config?.connectedAccountId || '');
   };
 
   const handleSaveConfig = () => {
@@ -1362,7 +1361,7 @@ export default function ConnectorsModal({
                         connector={conn}
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
-                                                onOpenConnector={handleOpenConnector}
+                        onOpenConnector={handleOpenConnector}
                       />
                     ))}
                   </div>
@@ -1391,9 +1390,8 @@ export default function ConnectorsModal({
                         key={conn.id}
                         connector={conn}
                         onToggle={() => onToggleConnector(conn.id)}
-                        onOpenConnector={handleOpenConnector}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
-                                                onOpenConnector={handleOpenConnector}
+                        onOpenConnector={handleOpenConnector}
                       />
                     ))}
                   </div>
@@ -1423,7 +1421,7 @@ export default function ConnectorsModal({
                         connector={conn}
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
-                                                onOpenConnector={handleOpenConnector}
+                        onOpenConnector={handleOpenConnector}
                       />
                     ))}
                   </div>

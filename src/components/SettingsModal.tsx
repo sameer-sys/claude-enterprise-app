@@ -116,7 +116,6 @@ export default function SettingsModal({
   const [roomId, setRoomId] = useState(syncRoomId);
   const [subUrl, setSubUrl] = useState(supabaseUrl);
   const [subKey, setSubKey] = useState(supabaseKey);
-  const [saved, setSaved] = useState(false);
 
   // Official Preferences UI state (matching screenshot)
   const [theme, setTheme] = useState<'system' | 'light' | 'dark'>('dark');
@@ -218,9 +217,9 @@ export default function SettingsModal({
         const target = customServerUrl.trim() || 'http://127.0.0.1:20128/v1';
         try {
           const probe = await fetch(target, { method: 'GET', cache: 'no-store' });
-          setTestResult(`OmniRoute probe returned HTTP ${probe.status} from ${target}. The endpoint is reachable.`);
+          setTestResult('OmniRoute probe returned HTTP ' + probe.status + ' from ' + target + '. The endpoint is reachable.');
         } catch (err: any) {
-          setTestResult(`OmniRoute could not be reached at ${target}: ${err?.message || 'connection failed'}.`);
+          setTestResult('OmniRoute could not be reached at ' + target + ': ' + (err?.message || 'connection failed') + '.');
         }
       } else {
         const res = await fetch('/api/connectors/status', { cache: 'no-store' });
@@ -230,17 +229,17 @@ export default function SettingsModal({
         if (connection?.connected) {
           const account = connection.account || {};
           const label = account.email || account.username || account.name || account.label || 'authorized account';
-          setTestResult(`Direct first-party connection verified for ${label}.`);
-        } else if (data?.supportedOAuthConnectors?.includes?.(connectorId)) {
+          setTestResult('Direct first-party connection verified for ' + label + '.');
+        } else if (Array.isArray(data?.supportedOAuthConnectors) && data.supportedOAuthConnectors.includes(connectorId)) {
           setTestResult('No direct first-party OAuth account is connected for this connector yet.');
         } else if (connectorId === 'conn-github') {
           const target = customRepo || 'sameer-sys/claude-enterprise-app';
-          const githubRes = await fetch(`https://api.github.com/repos/${target}`, { cache: 'no-store' });
+          const githubRes = await fetch('https://api.github.com/repos/' + target, { cache: 'no-store' });
           if (githubRes.ok) {
             const githubData = await githubRes.json();
-            setTestResult(`Public GitHub repository is reachable: ${githubData.full_name} (default branch ${githubData.default_branch}).`);
+            setTestResult('Public GitHub repository is reachable: ' + githubData.full_name + ' (default branch ' + githubData.default_branch + ').');
           } else {
-            setTestResult(`GitHub repository lookup returned HTTP ${githubRes.status}.`);
+            setTestResult('GitHub repository lookup returned HTTP ' + githubRes.status + '.');
           }
         } else {
           setTestResult('No live connector test is available for this connector yet.');
@@ -1284,7 +1283,11 @@ export default function SettingsModal({
                               <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                                 <span className="text-sm font-semibold text-[#f2eee6]">{conn.name}</span>
                                 <span className="text-[10px] px-2 py-0.2 rounded font-mono uppercase bg-[#282621] text-[#9c978b] border border-[#333129]">
-                                  {conn.provider === 'anthropic' ? 'Anthropic Official' : 'MCP Standard'}
+                                  {conn.config?.connectionType === 'direct' ? 'Direct Provider' :
+                                   conn.config?.connectionType === 'mcp' ? 'MCP' :
+                                   conn.config?.connectionType === 'zapier' ? 'Zapier' :
+                                   conn.config?.connectionType === 'composio' ? 'Composio Adapter' :
+                                   conn.config?.connectionType === 'webhook' ? 'Webhook' : 'Custom API'}
                                 </span>
                                 <span
                                   className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
@@ -1348,25 +1351,25 @@ export default function SettingsModal({
                               conn.status === 'connected' ? (
                                 <button
                                   onClick={() => onToggleConnector?.(conn.id)}
-                                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center space-x-1.5 shrink-0 ${conn.enabled
-                                    ? 'bg-[#cc785c] hover:bg-[#db8a6e] text-black shadow-md shadow-[#cc785c]/25'
-                                    : 'bg-[#292721] hover:bg-[#333129] text-[#ece9e2] border border-[#3d3b31]'}`}
+                                  className={conn.enabled
+                                    ? 'px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#cc785c] text-black'
+                                    : 'px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#292721] text-[#ece9e2] border border-[#3d3b31]'}
                                 >
-                                  <Power className="w-3.5 h-3.5" />
-                                  <span>{conn.enabled ? 'Enabled' : 'Enable'}</span>
+                                  <Power className="w-3.5 h-3.5 inline-block mr-1.5" />
+                                  {conn.enabled ? 'Enabled' : 'Enable'}
                                 </button>
                               ) : (
                                 <button
                                   onClick={() => {
                                     if (typeof window !== 'undefined') {
-                                      window.open(`/api/connectors/oauth/start?connector=${encodeURIComponent(conn.id)}`, '_blank', 'noopener,noreferrer');
+                                      window.open('/api/connectors/oauth/start?connector=' + encodeURIComponent(conn.id), '_blank', 'noopener,noreferrer');
                                     }
                                   }}
-                                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#cc785c] hover:bg-[#db8a6e] text-black shadow-md shadow-[#cc785c]/25 flex items-center space-x-1.5 shrink-0"
+                                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#cc785c] hover:bg-[#db8a6e] text-black"
                                   title="Authorize directly with the provider"
                                 >
-                                  <Power className="w-3.5 h-3.5" />
-                                  <span>Authorize</span>
+                                  <Power className="w-3.5 h-3.5 inline-block mr-1.5" />
+                                  Authorize
                                 </button>
                               )
                             ) : (
@@ -1377,16 +1380,14 @@ export default function SettingsModal({
                                     window.open(target, '_blank', 'noopener,noreferrer');
                                   }
                                 }}
-                                className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#292721] hover:bg-[#333129] text-[#ece9e2] border border-[#3d3b31] flex items-center space-x-1.5 shrink-0"
+                                className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#292721] hover:bg-[#333129] text-[#ece9e2] border border-[#3d3b31]"
                                 title="Open the connector provider"
                               >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                                <span>Open</span>
+                                <ExternalLink className="w-3.5 h-3.5 inline-block mr-1.5" />
+                                Open
                               </button>
                             )}
-                          </div>                        </div>
-                        </div>
-                      );
+                          </div>
                     })}
                   </div>
                 )}
@@ -1692,7 +1693,7 @@ export default function SettingsModal({
                         className="w-full px-3 py-2 rounded-xl bg-[#181714] border border-[#302e26] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]"
                       />
                       <p className="text-[11px] text-[#8a8579] mt-1">
-                        The workspace uses the directly authorized Google account for live Gmail actions. The address shown here is account metadata, not a credential.
+                        Claude connects to your inbox to summarize discussion threads, monitor unread emails, and draft 1-click compose messages.
                       </p>
                     </div>
 
@@ -1749,14 +1750,14 @@ export default function SettingsModal({
                 {editingConnector && editingConnector.config?.connectionType === 'direct' && (
                   <div className="p-3 rounded-xl bg-[#1a1915] border border-[#2d2b24] space-y-2">
                     <div className="text-[11px] text-[#8a8579]">
-                      Authentication is handled directly with the service provider. No Composio account is involved.
+                      Sign in directly with the provider. The built-in connector does not use Composio.
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => {
                           if (typeof window !== 'undefined') {
-                            window.open(`/api/connectors/oauth/start?connector=${encodeURIComponent(editingConnector.id)}`, '_blank', 'noopener,noreferrer');
+                            window.open('/api/connectors/oauth/start?connector=' + encodeURIComponent(editingConnector.id), '_blank', 'noopener,noreferrer');
                           }
                         }}
                         className="px-3 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black text-xs font-semibold"
@@ -1767,17 +1768,16 @@ export default function SettingsModal({
                         <button
                           type="button"
                           onClick={async () => {
-                            try {
-                              await fetch('/api/connectors/disconnect', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ connector: editingConnector.id }),
-                              });
-                              onUpdateConnectorConfig?.(editingConnector.id, { email: undefined, accountName: undefined });
-                              setTestResult('Direct connection removed from this browser.');
-                            } catch {
-                              setTestResult('Unable to remove the direct connection.');
-                            }
+                            await fetch('/api/connectors/disconnect', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ connector: editingConnector.id }),
+                            });
+                            onUpdateConnectorConfig?.(editingConnector.id, {
+                              email: undefined,
+                              accountName: undefined,
+                            });
+                            setTestResult('Direct connection removed from this browser.');
                           }}
                           className="px-3 py-1.5 rounded-lg bg-[#292721] hover:bg-[#34322a] border border-[#3d3b31] text-[#dcd8ce] text-xs font-medium"
                         >

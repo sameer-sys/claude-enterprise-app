@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   // contains only a single-use session_uri. The app-user identity was stored
   // in an HttpOnly cookie when the Connect Link was created, then redeemed here.
   if (sessionUri) {
-    const apiKey = process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
+    const apiKey = process.env.COMPOSIO_API_KEY || '';
     const cookieUserId = req.cookies.get('sameer_composio_user_id')?.value || '';
     const userId = cookieUserId || callbackUserId;
 
@@ -116,14 +116,6 @@ export async function GET(req: NextRequest) {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
     },
-  });
-
-  response.cookies.set('sameer_composio_user_id', '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 0,
   });
 
   return response;

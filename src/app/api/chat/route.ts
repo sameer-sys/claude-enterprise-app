@@ -822,19 +822,14 @@ export async function POST(req: NextRequest) {
       modelId = 'claude-3-7-sonnet',
       geminiKey,
       openRouterKey,
-      composioApiKey: userComposioKey,
-      composioUserId: requestComposioUserId,
       omniRouteUrl,
       thinkingBudget = 16000,
       agentPrompt,
       connectors = [],
     } = await req.json();
 
-    const composioApiKey = userComposioKey || process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
-    const composioUserId = String(
-      requestComposioUserId ||
-      'sameer-web-user'
-    ).trim() || 'sameer-web-user';
+    const composioApiKey = process.env.COMPOSIO_API_KEY || '';
+    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'sameer-web-user';
 
     const isOmniRouteModel =
       modelId === 'the-boss-chat' ||

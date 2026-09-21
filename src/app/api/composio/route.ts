@@ -10,35 +10,49 @@ import {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-async function resolveKey(userKey?: string) {
-  return getComposioApiKey(userKey || undefined);
+async function resolveKey() {
+  return getComposioApiKey();
+}
+
+function resolveUserId(req: NextRequest): string {
+  return req.cookies.get('sameer_composio_user_id')?.value || `sameer_${crypto.randomUUID()}`;
+}
+
+function withUserCookie(response: NextResponse, userId: string): NextResponse {
+  response.cookies.set('sameer_composio_user_id', userId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 365,
+  });
+  return response;
 }
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const userApiKey = searchParams.get('apiKey') || undefined;
-    const entityId = searchParams.get('entityId') || 'default';
-    const apiKey = await resolveKey(userApiKey);
+    const entityId = resolveUserId(req);
+    const apiKey = await resolveKey();
 
     if (!apiKey) {
-      return NextResponse.json({
+      return withUserCookie(NextResponse.json({
         configured: false,
         apiKeyConfigured: false,
         connectedAccounts: [],
         supportedApps: Object.keys(COMPOSIO_APP_MAP),
         message: 'COMPOSIO_API_KEY is not configured.',
-      });
+      }), entityId);
     }
 
     const accounts = await listConnectedAccounts(apiKey, entityId);
-    return NextResponse.json({
+    return withUserCookie(NextResponse.json({
       configured: true,
       apiKeyConfigured: true,
       userId: entityId,
       connectedAccounts: accounts,
       supportedApps: Object.keys(COMPOSIO_APP_MAP),
-    });
+    }), entityId);
   } catch (err: any) {
     return NextResponse.json({ configured: false, error: err?.message || 'Composio status lookup failed.' }, { status: 500 });
   }
@@ -50,15 +64,14 @@ export async function POST(req: NextRequest) {
     const {
       action,
       appName,
-      apiKey: userKey,
-      entityId = 'default',
       redirectUrl,
       actionName,
       input,
       connectedAccountId,
     } = body || {};
 
-    const apiKey = await resolveKey(userKey);
+    const entityId = resolveUserId(req);
+    const apiKey = await resolveKey();
     if (!apiKey) {
       return NextResponse.json({
         success: false,
@@ -68,7 +81,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'connect') {
       if (!appName || !entityId) {
-        return NextResponse.json({ success: false, error: 'appName and entityId are required.' }, { status: 400 });
+        return NextResponse.json({ success: false, error: 'appName is required.' }, { status: 400 });
       }
       const result = await initiateAppConnection(
         apiKey,
@@ -76,17 +89,7 @@ export async function POST(req: NextRequest) {
         String(entityId),
         redirectUrl || new URL('/api/composio/callback', req.url).toString()
       );
-      const response = NextResponse.json(result, { status: result.success ? 200 : 502 });
-      if (result.success) {
-        response.cookies.set('sameer_composio_user_id', String(entityId), {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          path: '/',
-          maxAge: 60 * 60,
-        });
-      }
-      return response;
+      return withUserCookie(NextResponse.json(result, { status: result.success ? 200 : 502 }), entityId);
     }
 
     if (action === 'disconnect') {

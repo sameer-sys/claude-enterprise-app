@@ -109,7 +109,6 @@ export async function getComposioApiKey(userKey?: string): Promise<string | null
   return (
     userKey ||
     process.env.COMPOSIO_API_KEY ||
-    process.env.NEXT_PUBLIC_COMPOSIO_API_KEY ||
     null
   );
 }

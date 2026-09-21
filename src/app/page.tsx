@@ -4,13 +4,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import ChatArea from '@/components/ChatArea';
 import ArtifactPanel from '@/components/ArtifactPanel';
-import ConnectorsModal, { DEFAULT_CONNECTORS, createDefaultConnectors, Connector } from '@/components/ConnectorsModal';
+import ConnectorsModal, { DEFAULT_CONNECTORS, createDefaultConnectors } from '@/components/ConnectorsModal';
 import SettingsModal, { SettingsTab } from '@/components/SettingsModal';
 import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
 import AgentsModal from '@/components/AgentsModal';
 import FeaturesModal from '@/components/FeaturesModal';
-import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton, OpenWorkAgent, ConnectorConfig } from '@/types/chat';
+import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton, OpenWorkAgent, ConnectorConfig, Connector } from '@/types/chat';
 
 const DEFAULT_CUSTOM_BUTTONS: CustomButton[] = [
   { id: 'btn_1', label: '🚀 Deploy Guide', prompt: 'Provide a production deployment guide with Docker and CI/CD workflow.' },
@@ -28,25 +28,6 @@ const DEFAULT_SESSION: Session = {
   connectors: createDefaultConnectors(),
 };
 
-function getStableComposioUserId(): string {
-  if (typeof window === 'undefined') return 'sameer-web-user';
-  const key = 'sameer_composio_user_id';
-  const existing = localStorage.getItem(key);
-  if (existing && existing.trim()) return existing.trim();
-
-  let generated = '';
-  try {
-    generated =
-      typeof crypto?.randomUUID === 'function'
-        ? 'sameer_' + crypto.randomUUID()
-        : 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-  } catch {
-    generated = 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-  }
-
-  localStorage.setItem(key, generated);
-  return generated;
-}
 
 function normalizeToComposioOnlyConnectors(raw: any[]): Connector[] {
   const base = createDefaultConnectors()[0];
@@ -323,10 +304,7 @@ export default function Home() {
   useEffect(() => {
     const refreshComposioCount = async () => {
       try {
-        const userId = getStableComposioUserId();
-        const key = localStorage.getItem('composio_api_key') || '';
-        const q = new URLSearchParams({ entityId: userId });
-        if (key) q.set('apiKey', key);
+        const q = new URLSearchParams();
         const res = await fetch('/api/composio?' + q.toString(), { cache: 'no-store' });
         const data = await res.json().catch(() => ({}));
         const accounts = Array.isArray(data?.connectedAccounts) ? data.connectedAccounts : [];
@@ -339,7 +317,7 @@ export default function Home() {
             status: active.length ? 'connected' : 'ready',
             config: {
               ...conn.config,
-              composioUserId: userId,
+
               composioAccountCount: active.length,
               connectedAccountIds: active.map((a: any) => a.id),
             },
@@ -618,18 +596,11 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      const composioKey =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('composio_api_key') || undefined
-          : undefined;
-
       const chatBody = {
         messages: [...activeSession.messages.slice(-30), userMessage],
         modelId: activeModel,
         geminiKey: geminiKey || undefined,
         openRouterKey: openRouterKey || undefined,
-        composioApiKey: composioKey,
-        composioUserId: getStableComposioUserId(),
         thinkingBudget,
         agentPrompt: activeSession.agentPrompt,
         connectors: currentSessionConnectors,

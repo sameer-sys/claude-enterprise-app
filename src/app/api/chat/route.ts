@@ -148,6 +148,15 @@ function detectExplicitConnectorRequest(text: string): boolean {
   return platform.test(lower) && action.test(lower);
 }
 
+function detectConnectorStatusRequest(text: string): boolean {
+  const lower = String(text || '').toLowerCase();
+  return (
+    /(what|which|list|show|tell|are)\\b.*\\b(apps?|connectors?|accounts?)\\b.*\\b(connect(?:ed|ions?)|authorized|linked|available)\\b/i.test(lower) ||
+    /\\bwhat\\s+(?:apps?|services?)\\s+(?:are|am)\\s+(?:you|we)\\s+(?:connected|linked)\\s+with\\b/i.test(lower) ||
+    /\\b(?:my|our)\\s+(?:connected|linked)\\s+(?:apps?|accounts?|services?)\\b/i.test(lower)
+  );
+}
+
 function streamTextResponse(content: string, extraHeaders: Record<string, string> = {}) {
   const encoder = new TextEncoder();
   const chunkSize = 28;
@@ -1130,7 +1139,6 @@ export async function POST(req: NextRequest) {
 
     const composioApiKey = userComposioKey || process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
     const composioUserId = String(requestComposioUserId || 'default').trim() || 'default';
-    const requestSessionId = String(incomingSessionId || '').trim();
 
     const isOmniRouteModel =
       modelId === 'the-boss-chat' ||
@@ -1142,6 +1150,55 @@ export async function POST(req: NextRequest) {
     const lowerText = lastText.toLowerCase();
     const activeConnectors = Array.isArray(connectors) ? connectors.filter((c: any) => c?.enabled) : [];
     const explicitConnectorRequest = detectExplicitConnectorRequest(lastText);
+    const connectorStatusRequest = detectConnectorStatusRequest(lastText);
+
+    // ========================================================
+    // DETERMINISTIC CONNECTOR STATUS
+    // ========================================================
+    // This question is answered from Composio's live account list, not from
+    // the model, so the model cannot hallucinate the connection state.
+    if (connectorStatusRequest) {
+      let statusContent = '';
+      try {
+        if (!composioApiKey) {
+          statusContent =
+            'No Composio account is configured for this workspace yet. Connect Composio and authorize an app before using external connectors.';
+        } else {
+          const realAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+          const activeAccounts = realAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          const grouped = new Map<string, { name: string; count: number }>();
+
+          for (const account of activeAccounts) {
+            const slug = String(account?.appUniqueId || '').trim().toLowerCase();
+            if (!slug) continue;
+            const existing = grouped.get(slug);
+            grouped.set(slug, {
+              name: String(account?.appName || slug),
+              count: (existing?.count || 0) + 1,
+            });
+          }
+
+          if (grouped.size === 0) {
+            statusContent =
+              'I checked the live Composio connection list for this workspace user, and there are currently no ACTIVE connected apps.';
+          } else {
+            const lines = Array.from(grouped.values())
+              .map((item) => '- **' + item.name + '** — ' + item.count + ' active account' + (item.count === 1 ? '' : 's') + '.')
+              .join('\n');
+            statusContent =
+              '### Connected apps\n\n' + lines + '\n\nThese are the accounts actually connected through this app\'s Composio workspace.';
+          }
+        }
+      } catch (err: any) {
+        statusContent =
+          'I could not read the live Composio connection list right now. ' + (err?.message || 'Please try again.');
+      }
+
+      return streamTextResponse(statusContent, {
+        'X-Claude-Skill': 'Connector Status',
+        'X-Claude-Router': 'composio-connection-status',
+      });
+    }
 
     // ========================================================
     // REAL-TIME YOUTUBE PLAYLIST & CHANNEL QUERY INTERCEPTOR

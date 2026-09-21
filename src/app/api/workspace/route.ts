@@ -19,8 +19,13 @@ function isAuthorized(req: NextRequest): boolean {
 }
 
 function getSafePath(relativePath: string, baseDir: string = DEFAULT_WORKSPACE): string {
-  const resolved = path.resolve(baseDir, relativePath || '');
-  return resolved;
+  const base = path.resolve(baseDir);
+  const resolved = path.resolve(base, relativePath || '');
+  const rel = path.relative(base, resolved);
+  if (rel === '' || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel))) {
+    return resolved;
+  }
+  throw new Error('Path escapes the configured workspace directory.');
 }
 
 export async function GET(req: NextRequest) {

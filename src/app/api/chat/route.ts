@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendRealEmail, sendBulkRealEmails } from '@/lib/mailer';
+import { sendRealEmail } from '@/lib/mailer';
 import { fetchLatestEmails } from '@/lib/imapReader';
 import {
   listConnectedAccounts,
   executeComposioAction,
-  fetchLiveYouTubePlaylists,
-  fetchLiveDriveFiles,
   getComposioApiKey,
 } from '@/lib/composio';
 

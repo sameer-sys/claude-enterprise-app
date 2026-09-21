@@ -7,11 +7,6 @@ import {
   fetchLiveYouTubePlaylists,
   fetchLiveDriveFiles,
   getComposioApiKey,
-  createComposioToolRouterSession,
-  searchComposioToolRouter,
-  executeComposioToolRouter,
-  toolkitFromComposioToolSlug,
-  normalizeComposioToolkitSlug,
 } from '@/lib/composio';
 
 export const runtime = 'nodejs';
@@ -141,48 +136,10 @@ const AGENT_TOOLS = [
   },
 ];
 
-function detectExplicitConnectorRequest(text: string): boolean {
-  const lower = String(text || '').toLowerCase();
-  const platform = /(github|repo|repository|gmail|email|mail|google drive|gdrive|drive|calendar|youtube|yt|instagram|facebook|twitter|linkedin|tiktok|slack|notion|linear|asana|canva|hubspot|salesforce|shopify|reddit|discord|telegram|whatsapp)/i;
-  const action = /(list|count|show|get|check|read|find|search|look up|lookup|fetch|view|inspect|open|create|send|draft|reply|delete|remove|update|edit|change|post|publish|upload|download|schedule|book|move|archive|star|unstar|like|comment|follow|unfollow|sync|add|rename|close|merge)/i;
-  return platform.test(lower) && action.test(lower);
-}
-
-function detectConnectorStatusRequest(text: string): boolean {
-  const lower = String(text || '').toLowerCase();
-  return (
-    /(what|which|list|show|tell|are)\b.*\b(apps?|connectors?|accounts?)\b.*\b(connect(?:ed|ions?)|authorized|linked|available)\b/i.test(lower) ||
-    /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lower) ||
-    /\b(?:my|our)\s+(?:connected|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lower)
-  );
-}
-
-function streamTextResponse(content: string, extraHeaders: Record<string, string> = {}) {
-  const encoder = new TextEncoder();
-  const chunkSize = 28;
-  const safe = String(content || '');
-  const stream = new ReadableStream({
-    start(controller) {
-      for (let pos = 0; pos < safe.length; pos += chunkSize) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: safe.slice(pos, pos + chunkSize) })}\n\n`));
-      }
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-      controller.close();
-    },
-  });
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      ...extraHeaders,
-    },
-  });
-}
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[]; userId?: string; toolRouterSessionId?: string } = {}
+  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[] } = {}
 ): Promise<string> {
   try {
     if (name === 'web_search') {
@@ -271,71 +228,85 @@ async function runAgentTool(
     }
 
     if (name === 'connector_search') {
-      if (!connectorContext.apiKey) return JSON.stringify({ success: false, error: 'Composio is not configured.' });
-      const userId = String(connectorContext.userId || 'default');
-      let sessionId = connectorContext.toolRouterSessionId;
-      if (!sessionId) {
-        const session = await createComposioToolRouterSession(
-          connectorContext.apiKey, userId, connectorContext.connectors || [], connectorContext.accounts || []
-        );
-        if (!session.success || !session.sessionId) return JSON.stringify({ success: false, error: session.error || 'Could not create Composio session.' });
-        sessionId = session.sessionId;
-      }
-      connectorContext.toolRouterSessionId = sessionId;
-      const found = await searchComposioToolRouter(
-        connectorContext.apiKey, sessionId, String(args?.query || ''), 'claude-3-7-sonnet'
-      );
-      if (!found.success) return JSON.stringify({ success: false, session_id: sessionId, error: found.error || 'Connector search failed.' });
-      return JSON.stringify({ success: true, session_id: sessionId, data: found.data });
+      if (!connectorContext.apiKey) return 'Composio is not configured. Add the Composio API key in connector settings first.';
+      const { searchComposioTools } = await import('@/lib/composio');
+      const toolkitSlugs = Array.from(new Set((connectorContext.connectors || [])
+        .filter((c: any) => c?.enabled !== false)
+        .map((c: any) => {
+          const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
+          return ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
+        })
+        .filter(Boolean)));
+      const found = await searchComposioTools(connectorContext.apiKey, String(args?.query || ''), toolkitSlugs);
+      if (!found.length) return 'No real connector action matched that request. Try describing the action more specifically.';
+      return JSON.stringify(found.slice(0, 12).map((t: any) => ({
+        tool_slug: t.slug,
+        toolkit: t.toolkit,
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema,
+      })));
     }
 
     if (name === 'connector_execute') {
-      if (!connectorContext.apiKey) return JSON.stringify({ success: false, error: 'Composio is not configured.' });
+      if (!connectorContext.apiKey) return 'Composio is not configured.';
       const slug = String(args?.tool_slug || '').trim();
-      if (!slug) return JSON.stringify({ success: false, error: 'tool_slug is required.' });
-      const userId = String(connectorContext.userId || 'default');
-      let sessionId = connectorContext.toolRouterSessionId;
-      if (!sessionId) {
-        const session = await createComposioToolRouterSession(
-          connectorContext.apiKey, userId, connectorContext.connectors || [], connectorContext.accounts || []
-        );
-        if (!session.success || !session.sessionId) return JSON.stringify({ success: false, error: session.error || 'Could not create Composio session.' });
-        sessionId = session.sessionId;
-      }
-      const toolkit = toolkitFromComposioToolSlug(slug);
-      const connector = (connectorContext.connectors || []).find((c: any) =>
-        c?.enabled !== false && !c?.isCustom && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit
-      );
-      const explicitAccount = String(args?.connected_account_id || '').trim();
-      const accountId = explicitAccount || String(connector?.config?.connectedAccountId || '').trim() || undefined;
-      const result = await executeComposioToolRouter(
-        connectorContext.apiKey, sessionId, slug, args?.arguments || {}, accountId
-      );
-      if (result.success) return JSON.stringify({ success: true, tool_slug: slug, session_id: sessionId, data: result.data });
+      if (!slug) return 'tool_slug is required.';
+      let accounts = connectorContext.accounts || [];
+      const toolkit = slug.split('_')[0].toLowerCase();
+      const aliases: Record<string,string> = {
+        google: 'google_drive',
+        googledrive: 'google_drive',
+        gcalendar: 'google_calendar',
+        m365: 'microsoft365',
+      };
+      const normalizedToolkit = aliases[toolkit] || toolkit;
 
-      // Only fall back to the direct v3.1 executor when the chat has an
-      // unambiguous selected/single active account. Never silently pick
-      // an arbitrary account from a multi-account user.
-      if (!accountId) {
-        const matchingAccounts = (connectorContext.accounts || []).filter((a: any) =>
-          String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit && a?.status === 'ACTIVE'
-        );
-        if (matchingAccounts.length !== 1) {
-          return JSON.stringify({
-            success: false,
-            error: result.error || `Multiple or no active ${toolkit} accounts are available. Select an account for this chat in Connectors before retrying.`,
-          });
-        }
+      // Never rely only on the connector card's local enabled flag. Resolve the
+      // real Composio connected account for the toolkit immediately before
+      // execution. This is what makes a connected GitHub account usable by
+      // natural-language actions instead of merely showing "Connected" in UI.
+      if (!accounts.some((a: any) =>
+        String(a?.appUniqueId || '').toLowerCase() === normalizedToolkit &&
+        a?.status === 'ACTIVE'
+      )) {
+        try {
+          const { listConnectedAccounts } = await import('@/lib/composio');
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, undefined, normalizedToolkit);
+          accounts = [...accounts, ...liveAccounts];
+        } catch {}
       }
-      const directAccount = accountId || String((connectorContext.accounts || []).find((a: any) =>
-        String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit && a?.status === 'ACTIVE'
-      )?.id || '').trim() || undefined;
-      const direct = await executeComposioAction(
-        connectorContext.apiKey, slug, args?.arguments || {}, directAccount, userId
+
+      const connector = (connectorContext.connectors || []).find((c: any) => {
+        const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
+        const mapped = ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
+        return mapped === normalizedToolkit || String(c?.config?.connectedAccountId || '') === String(args?.connected_account_id || '');
+      });
+
+      const accountId =
+        args?.connected_account_id ||
+        connector?.config?.connectedAccountId ||
+        accounts.find((a: any) => {
+          const uid = String(a?.appUniqueId || '').toLowerCase();
+          return uid === normalizedToolkit && a?.status === 'ACTIVE';
+        })?.id;
+
+      if (!accountId) {
+        return JSON.stringify({
+          success: false,
+          error: `No active Composio connected account was found for ${normalizedToolkit}. The connector UI may be enabled, but the OAuth account is not available to the server yet.`,
+        });
+      }
+
+      const result = await executeComposioAction(
+        connectorContext.apiKey,
+        slug,
+        args?.arguments || {},
+        accountId,
+        'default'
       );
-      return direct.success
-        ? JSON.stringify({ success: true, tool_slug: slug, data: direct.data })
-        : JSON.stringify({ success: false, error: result.error || direct.error || 'Connector action failed.' });
+      if (!result.success) return JSON.stringify({ success: false, error: result.error || 'Connector action failed' });
+      return JSON.stringify({ success: true, tool_slug: slug, data: result.data });
     }
 
     return `Unknown tool: ${name}`;
@@ -361,6 +332,15 @@ const SYSTEM_PROMPTS = {
   'deepseek-r1':
     'You are DeepSeek R1 Enterprise — state-of-the-art open reasoning engine built for complex mathematics, coding architectures, and autonomous multi-step execution.',
 };
+
+function detectConnectorStatusRequest(text: string): boolean {
+  const lower = String(text || '').toLowerCase();
+  return (
+    /(what|which|list|show|tell|are)\b.*\b(apps?|connectors?|accounts?)\b.*\b(connect(?:ed|ions?)|authorized|linked|available)\b/i.test(lower) ||
+    /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lower) ||
+    /\b(?:my|our)\s+(?:connected|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lower)
+  );
+}
 
 function detectSkill(lastMsg: string, hasImages: boolean): string {
   if (hasImages) return 'Multimodal Vision & Analysis';
@@ -425,16 +405,6 @@ async function synthesizeClaudeEnterpriseResponse(
 ): Promise<string> {
   const p = (lastText || '').trim();
   const lower = p.toLowerCase();
-
-  // External-app requests must never fall through to synthetic/demo responses.
-  // If the live connector agent could not run (for example because the model
-  // provider is unavailable), fail honestly instead of fabricating an action.
-  if (detectExplicitConnectorRequest(p)) {
-    return [
-      'I could not complete that external-app action because no verified connector execution result was available.',
-      'Please check that the requested connector is enabled for this chat, its Composio account is connected/selected, and the AI provider is available, then retry.'
-    ].join(' ');
-  }
 
   // Extract multi-turn context from previous conversation messages
   let previousRecipient: string | null = null;
@@ -1139,16 +1109,15 @@ export async function POST(req: NextRequest) {
       geminiKey,
       openRouterKey,
       composioApiKey: userComposioKey,
-      composioUserId: requestComposioUserId,
-      sessionId: incomingSessionId,
       omniRouteUrl,
       thinkingBudget = 16000,
       agentPrompt,
       connectors = [],
+      composioUserId: requestComposioUserId,
     } = await req.json();
 
-    const composioApiKey = userComposioKey || process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
     const composioUserId = String(requestComposioUserId || 'default').trim() || 'default';
+    const composioApiKey = userComposioKey || process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
 
     const isOmniRouteModel =
       modelId === 'the-boss-chat' ||
@@ -1158,55 +1127,59 @@ export async function POST(req: NextRequest) {
     const userLastMsg = messages[messages.length - 1];
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
-    const activeConnectors = Array.isArray(connectors) ? connectors.filter((c: any) => c?.enabled) : [];
-    const explicitConnectorRequest = detectExplicitConnectorRequest(lastText);
     const connectorStatusRequest = detectConnectorStatusRequest(lastText);
 
-    // ========================================================
-    // DETERMINISTIC CONNECTOR STATUS
-    // ========================================================
-    // This question is answered from Composio's live account list, not from
-    // the model, so the model cannot hallucinate the connection state.
+    // Live connector status comes directly from Composio so the model cannot
+    // invent the current connection state.
     if (connectorStatusRequest) {
       let statusContent = '';
       try {
         if (!composioApiKey) {
-          statusContent =
-            'No Composio account is configured for this workspace yet. Connect Composio and authorize an app before using external connectors.';
+          statusContent = 'No Composio account is configured for this workspace yet.';
         } else {
-          const realAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
-          const activeAccounts = realAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          const accounts = await listConnectedAccounts(composioApiKey, composioUserId);
+          const active = accounts.filter((a: any) => a?.status === 'ACTIVE');
           const grouped = new Map<string, { name: string; count: number }>();
-
-          for (const account of activeAccounts) {
+          for (const account of active) {
             const slug = String(account?.appUniqueId || '').trim().toLowerCase();
             if (!slug) continue;
-            const existing = grouped.get(slug);
+            const old = grouped.get(slug);
             grouped.set(slug, {
               name: String(account?.appName || slug),
-              count: (existing?.count || 0) + 1,
+              count: (old?.count || 0) + 1,
             });
           }
-
-          if (grouped.size === 0) {
-            statusContent =
-              'I checked the live Composio connection list for this workspace user, and there are currently no ACTIVE connected apps.';
+          if (!grouped.size) {
+            statusContent = 'I checked the live Composio connection list for this workspace user, and there are currently no ACTIVE connected apps.';
           } else {
-            const lines = Array.from(grouped.values())
-              .map((item) => '- **' + item.name + '** — ' + item.count + ' active account' + (item.count === 1 ? '' : 's') + '.')
-              .join('\n');
             statusContent =
-              '### Connected apps\n\n' + lines + '\n\nThese are the accounts actually connected through this app\'s Composio workspace.';
+              '### Connected apps\n\n' +
+              Array.from(grouped.values())
+                .map((x) => '- **' + x.name + '** — ' + x.count + ' active account' + (x.count === 1 ? '' : 's') + '.')
+                .join('\n');
           }
         }
       } catch (err: any) {
-        statusContent =
-          'I could not read the live Composio connection list right now. ' + (err?.message || 'Please try again.');
+        statusContent = 'I could not read the live Composio connection list right now. ' + (err?.message || 'Please try again.');
       }
-
-      return streamTextResponse(statusContent, {
-        'X-Claude-Skill': 'Connector Status',
-        'X-Claude-Router': 'composio-connection-status',
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          for (let pos = 0; pos < statusContent.length; pos += 28) {
+            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: statusContent.slice(pos, pos + 28) }) + '\n\n'));
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Claude-Skill': 'Connector Status',
+          'X-Claude-Router': 'composio-connection-status',
+        },
       });
     }
 
@@ -1217,7 +1190,7 @@ export async function POST(req: NextRequest) {
       (lowerText.includes('playlist') || lowerText.includes('playtlist')) &&
       (lowerText.includes('youtube') || lowerText.includes('yt') || lowerText.includes('channel'));
 
-    if (isYtPlaylistRequest && !composioApiKey) {
+    if (isYtPlaylistRequest) {
       let ytContent = '';
 
       if (!composioApiKey) {
@@ -1230,7 +1203,7 @@ To fetch your live YouTube playlists and channel tools, your **Composio API Key*
 3. Once set, I will query your real YouTube channel directly with zero hallucinations!`;
       } else {
         try {
-          const accounts = await listConnectedAccounts(composioApiKey);
+          const accounts = await listConnectedAccounts(composioApiKey, composioUserId);
           const ytAccount = accounts.find((a) =>
             (a.appUniqueId || a.appName || '').toLowerCase().includes('youtube')
           );
@@ -1318,8 +1291,7 @@ Error communicating with Composio: ${err.message || 'Check your Composio API key
     // ========================================================
     const directEmailMatch = lastText.match(/^(?:send|dispatch)\s+(?:an?\s+)?email\s+to\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?:\s+(?:saying|with subject|that|about)\s+([\s\S]+))?$/i);
 
-    const hasActiveGmailConnector = activeConnectors.some((c: any) => c.id === 'conn-gmail' && c.enabled);
-    if (directEmailMatch && !hasActiveGmailConnector) {
+    if (directEmailMatch) {
       const targetTo = directEmailMatch[1].trim();
       const rawBody = directEmailMatch[2] ? directEmailMatch[2].trim() : 'Project update & verification.';
       
@@ -1412,6 +1384,8 @@ Please verify your credentials or connected account in the Connectors modal.`;
     // CLAUDE CONNECTORS INTEGRATION & CONTEXT INJECTION (MCP)
     // ========================================================
     let connectorContext = '';
+    const activeConnectors = Array.isArray(connectors) ? connectors.filter((c: any) => c.enabled) : [];
+
     const isGmailQuery = lowerText.includes('email') || lowerText.includes('gmail') || lowerText.includes('mail') || lowerText.includes('inbox') || lowerText.includes('send') || lowerText.includes('draft');
     const isGithubQuery = lowerText.includes('github') || lowerText.includes('repo') || lowerText.includes('commit') || lowerText.includes('pull request') || lowerText.includes('issue');
     const isSearchQuery = lowerText.includes('search') || lowerText.includes('latest') || lowerText.includes('news') || lowerText.includes('who is') || lowerText.includes('what is') || lowerText.includes('current') || lowerText.includes('weather');
@@ -1448,24 +1422,14 @@ Please verify your credentials or connected account in the Connectors modal.`;
         if (!composioKey) {
           connectorContext += `\n[CONNECTORS]: Composio is not configured yet (COMPOSIO_API_KEY is not set). Tell the user plainly that no third-party app connectors are wired up yet - do not claim any app (Notion, Linear, HubSpot, Shopify, Drive, etc.) is connected or that any action on those apps succeeded.\n`;
         } else {
-          const realAccounts = await listConnectedAccounts(composioKey, composioUserId);
+          const realAccounts = await listConnectedAccounts(composioKey);
           const activeApps = realAccounts.filter((a) => a.status === 'ACTIVE').map((a) => a.appUniqueId);
-          const selectedAccounts = activeConnectors
-            .filter((c: any) => !c?.isCustom && c?.config?.connectedAccountId)
-            .map((c: any) => ({
-              connector: c.name,
-              toolkit: String(c.id || '').replace(/^conn-/, ''),
-              accountId: c.config.connectedAccountId,
-              email: c.config?.email,
-            }));
 
           if (activeApps.length === 0) {
             connectorContext += `\n[CONNECTORS]: Composio is configured, but no apps are actively connected yet for this user. Tell the user plainly they need to connect an app first before you can use it - do not claim any app is connected or that an action succeeded.\n`;
           } else {
-            connectorContext += `\n[CONNECTORS FOR THIS CHAT]: Enabled connectors: ${activeConnectors.map((c: any) => c.name).join(', ') || 'none'}.\n`;
-            connectorContext += `[COMPOSIO ACCOUNTS FOR THIS APP USER]: ${JSON.stringify(activeApps)}\n`;
-            connectorContext += `[CHAT-SELECTED ACCOUNTS]: ${JSON.stringify(selectedAccounts)}\n`;
-            connectorContext += `[CONNECTOR RULES]: Only use the enabled connectors in this chat. A connected account is reusable across chats, but each chat's selected connectedAccountId is authoritative. Never use another chat's selection. Never claim an external action succeeded without a real Composio result.\n`;
+            connectorContext += `\n[CONNECTORS]: Really connected right now: ${activeApps.join(', ')}.\n` +
+              `- INSTRUCTIONS: Only report an action as done if a real result is shown below. If the user asks about an app not in this list, say plainly it is not connected yet - do not invent a status, a link, or a result for it.\n`;
 
             if (activeApps.includes('youtube') && (isSocialQuery || lowerText.includes('playlist'))) {
               const ytAcct = realAccounts.find((a) => a.appUniqueId === 'youtube');
@@ -1508,14 +1472,10 @@ Please verify your credentials or connected account in the Connectors modal.`;
 
     const hasImages =
       userLastMsg?.attachments?.some((a: any) => a.isImage && a.dataUrl) || false;
-    const connectorSystemDirective = explicitConnectorRequest ?
-      `\n[MANDATORY EXTERNAL-ACTION DIRECTIVE]: The latest user message is an external-app task. Use Composio for it. Do not substitute a URL, public API, fake status, or prose-only plan. Search for the exact live tool first, then execute it. If a real execution result is present in the conversation, summarize that exact result and do not repeat the action. If execution failed or an account is missing/ambiguous, say so exactly.\n` : '';
-
-    const finalSystemPrompt = `${baseSystemPrompt}${developerDirective}${connectorContext}${connectorSystemDirective}`;
+    const detectedSkill = detectSkill(lastText, hasImages);
 
     // ========================================================
     // OMNIROUTER STAGE 0: Direct OmniRoute Model Dispatch (Local)
-
     // ========================================================
     if (isOmniRouteModel) {
       const isCloudEnv = Boolean(process.env.VERCEL || process.env.AWS_REGION);
@@ -1544,7 +1504,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
             body: JSON.stringify({
               model: targetModel,
               messages: [
-                { role: 'system', content: finalSystemPrompt },
+                { role: 'system', content: systemPrompt },
                 ...messages.map((m: any) => ({
                   role: m.role === 'user' ? 'user' : 'assistant',
                   content: m.content || '',
@@ -1749,7 +1709,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
           body: JSON.stringify({
             model: 'auto/claude-sonnet',
             messages: [
-              { role: 'system', content: finalSystemPrompt },
+              { role: 'system', content: systemPrompt },
               ...messages.map((m: any) => ({
                 role: m.role === 'user' ? 'user' : 'assistant',
                 content: m.content,
@@ -1787,29 +1747,6 @@ Please verify your credentials or connected account in the Connectors modal.`;
       ? rawOrKey.trim().replace(/^["']|["']$/g, '')
       : BUILTIN_OPENROUTER_KEY;
 
-    // Shared provider context: available to both OpenRouter and the final
-    // fallback, even when no OpenRouter key is active.
-    const recentMessages = messages.slice(-8);
-    const fullMessages = [
-      { role: 'system', content: finalSystemPrompt },
-      ...recentMessages.map((m: any) => {
-        let content = m.content || '';
-        if (m.attachments && Array.isArray(m.attachments)) {
-          for (const att of m.attachments) {
-            if (att.contentSnippet) {
-              content += `\n\n--- [Attached Document: ${att.name}] ---\n${att.contentSnippet}\n--- [End of ${att.name}] ---`;
-            }
-          }
-        }
-        return {
-          role: m.role === 'user' ? 'user' : 'assistant',
-          content,
-        };
-      }),
-    ];
-
-    let connectorAgentExecutionResult: string | null = null;
-
     if (activeOrKey) {
       const selectedTargetModel =
         OPENROUTER_MODELS[modelId as keyof typeof OPENROUTER_MODELS] ||
@@ -1825,6 +1762,25 @@ Please verify your credentials or connected account in the Connectors modal.`;
         ])
       ).slice(0, 4);
 
+      const recentMessages = messages.slice(-8);
+      const fullMessages = [
+        { role: 'system', content: systemPrompt },
+        ...recentMessages.map((m: any) => {
+          let content = m.content || '';
+          if (m.attachments && Array.isArray(m.attachments)) {
+            for (const att of m.attachments) {
+              if (att.contentSnippet) {
+                content += `\n\n--- [Attached Document: ${att.name}] ---\n${att.contentSnippet}\n--- [End of ${att.name}] ---`;
+              }
+            }
+          }
+          return {
+            role: m.role === 'user' ? 'user' : 'assistant',
+            content,
+          };
+        }),
+      ];
+
       // MULTI-STEP AGENT LOOP: call -> execute tools -> feed results back ->
       // repeat, until the model gives a final answer with no more tool
       // calls, or we hit the turn/time limits. Time-budgeted so this never
@@ -1838,25 +1794,11 @@ Please verify your credentials or connected account in the Connectors modal.`;
             connectorAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
           } catch {}
         }
-        const agentConnectorContext = {
-          apiKey: composioApiKey,
-          connectors,
-          accounts: connectorAccounts,
-          userId: composioUserId,
-          toolRouterSessionId: undefined as string | undefined,
-        };
 
         for (let turn = 0; turn < maxAgentTurns; turn++) {
           if (Date.now() > agentDeadline) break;
 
           try {
-            const forcedToolChoice =
-              explicitConnectorRequest && turn === 0
-                ? { type: 'function', function: { name: 'connector_search' } }
-                : (explicitConnectorRequest && turn === 1
-                  ? { type: 'function', function: { name: 'connector_execute' } }
-                  : 'auto');
-
             const agentResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
               method: 'POST',
               headers: {
@@ -1869,7 +1811,7 @@ Please verify your credentials or connected account in the Connectors modal.`;
                 model: 'anthropic/claude-3.7-sonnet',
                 messages: fullMessages,
                 tools: AGENT_TOOLS,
-                tool_choice: forcedToolChoice,
+                tool_choice: 'auto',
                 max_tokens: 2048,
               }),
               signal: AbortSignal.timeout(Math.max(3000, agentDeadline - Date.now())),
@@ -1896,15 +1838,11 @@ Please verify your credentials or connected account in the Connectors modal.`;
                 toolArgs = JSON.parse(call.function?.arguments || '{}');
               } catch (e) {}
 
-              const result = await runAgentTool(toolName, toolArgs, agentConnectorContext);
-              if (toolName === 'connector_execute') {
-                try {
-                  const parsedResult = JSON.parse(result);
-                  if (parsedResult?.success === true) connectorAgentExecutionResult = result;
-                } catch {
-                  if (result.includes('"success":true') || result.includes('success: true')) connectorAgentExecutionResult = result;
-                }
-              }
+              const result = await runAgentTool(toolName, toolArgs, {
+                apiKey: composioApiKey,
+                connectors,
+                accounts: connectorAccounts,
+              });
 
               fullMessages.push({
                 role: 'tool',
@@ -1916,41 +1854,6 @@ Please verify your credentials or connected account in the Connectors modal.`;
             // whether it needs another tool call or is ready to answer.
           } catch (e) {
             break;
-          }
-        }
-
-        // Deterministic rescue: if the model failed to execute the connector action,
-        // use Composio's live tool search + input generation + session execute.
-        if (explicitConnectorRequest && !connectorAgentExecutionResult && composioApiKey && activeConnectors.some((c: any) => !c?.isCustom)) {
-          try {
-            const rescueAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
-            const { createComposioToolRouterSession, searchComposioToolRouter, generateComposioToolInput, executeComposioToolRouter } = await import('@/lib/composio');
-            const rescueSession = await createComposioToolRouterSession(composioApiKey, composioUserId, activeConnectors, rescueAccounts);
-            if (rescueSession.success && rescueSession.sessionId) {
-              const found = await searchComposioToolRouter(composioApiKey, rescueSession.sessionId, lastText, 'claude-3-7-sonnet');
-              if (found.success) {
-                const first = Array.isArray(found.data?.results) ? found.data.results[0] : null;
-                const schemas = found.data?.tool_schemas || {};
-                const toolSlug = first?.primary_tool_slugs?.[0] || first?.tool_slugs?.[0] || Object.keys(schemas)[0];
-                if (toolSlug) {
-                  const generated = await generateComposioToolInput(composioApiKey, toolSlug, lastText, 'claude-3-7-sonnet');
-                  if (generated.success && generated.arguments) {
-                    const toolkit = toolkitFromComposioToolSlug(toolSlug);
-                    const selected = activeConnectors.find((c: any) =>
-                      !c?.isCustom && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit
-                    );
-                    const accountId = String(selected?.config?.connectedAccountId || '').trim() || undefined;
-                    const executed = await executeComposioToolRouter(composioApiKey, rescueSession.sessionId, toolSlug, generated.arguments, accountId);
-                    if (executed.success) {
-                      connectorAgentExecutionResult = JSON.stringify({ success: true, tool_slug: toolSlug, arguments: generated.arguments, data: executed.data, session_id: rescueSession.sessionId });
-                      fullMessages.push({ role: 'system', content: `[COMPOSIO RESCUE EXECUTION RESULT] ${connectorAgentExecutionResult}` });
-                    }
-                  }
-                }
-              }
-            }
-          } catch (rescueErr: any) {
-            fullMessages.push({ role: 'system', content: `[COMPOSIO RESCUE FAILURE] ${rescueErr?.message || 'Connector rescue failed.'}` });
           }
         }
       }
@@ -2065,7 +1968,13 @@ Please verify your credentials or connected account in the Connectors modal.`;
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: fullMessages,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.slice(-6).map((m: any) => ({
+              role: m.role === 'user' ? 'user' : 'assistant',
+              content: m.content || '',
+            })),
+          ],
           model: 'openai',
         }),
         signal: AbortSignal.timeout(20000),
@@ -2110,13 +2019,6 @@ Please verify your credentials or connected account in the Connectors modal.`;
       }
     } catch (e) {
       // Fall through to synthesizer
-    }
-
-    // ========================================================
-    // CONNECTOR FAILURE / NO-MODEL SAFETY FALLBACK
-    // ========================================================
-    if (explicitConnectorRequest && connectorAgentExecutionResult) {
-      return streamTextResponse(`### ✅ Connector action completed\n\nLive connector result:\n\n\\`\\`\\`json\n${connectorAgentExecutionResult.slice(0, 12000)}\n\\`\\`\\``, { 'X-Claude-Skill': 'Connector Execution', 'X-Claude-Router': 'composio-agent-result' });
     }
 
     // ========================================================

@@ -446,6 +446,7 @@ export async function initiateAppConnection(
           body: JSON.stringify({
             auth_config_id: authConfig.id,
             user_id: entityId,
+            alias: String(composioAppName + '-' + entityId).slice(0, 120),
             callback_url: cbUrl,
           }),
         });

@@ -223,6 +223,25 @@ async function runAgentTool(
       const subject = String(args?.subject || '');
       const body = String(args?.body || '');
       if (!to || !subject || !body) return 'Missing to/subject/body - cannot send.';
+
+      const gmailDirectEnabled = Array.isArray(connectorContext.connectors) &&
+        connectorContext.connectors.some((c: any) =>
+          c?.enabled &&
+          c?.id === 'conn-gmail' &&
+          (c?.provider === 'direct' || c?.config?.connectionType === 'direct')
+        );
+
+      if (gmailDirectEnabled) {
+        const result = await executeDirectConnectorTool(
+          connectorContext.cookieHeader || '',
+          'GMAIL_SEND_EMAIL',
+          { to, subject, body }
+        );
+        return result.success
+          ? JSON.stringify({ success: true, runtime: 'direct', data: result.data })
+          : JSON.stringify({ success: false, runtime: 'direct', error: result.error });
+      }
+
       const sendRes = await sendRealEmail({ to, subject, text: body });
       return sendRes.success
         ? `Email sent successfully to ${to}. Message ID: ${sendRes.messageId}.`
@@ -231,92 +250,28 @@ async function runAgentTool(
 
     if (name === 'read_inbox') {
       const count = Math.min(Number(args?.count) || 3, 10);
+      const gmailDirectEnabled = Array.isArray(connectorContext.connectors) &&
+        connectorContext.connectors.some((c: any) =>
+          c?.enabled &&
+          c?.id === 'conn-gmail' &&
+          (c?.provider === 'direct' || c?.config?.connectionType === 'direct')
+        );
+
+      if (gmailDirectEnabled) {
+        const result = await executeDirectConnectorTool(
+          connectorContext.cookieHeader || '',
+          'GMAIL_LIST_MESSAGES',
+          { maxResults: count }
+        );
+        return result.success
+          ? JSON.stringify({ success: true, runtime: 'direct', data: result.data })
+          : JSON.stringify({ success: false, runtime: 'direct', error: result.error });
+      }
+
       const inboxRes = await fetchLatestEmails(count);
       if (!inboxRes.success) return `Could not read inbox: ${inboxRes.error}`;
       if (!inboxRes.emails.length) return 'Inbox is empty or SMTP/IMAP is not configured.';
       return inboxRes.emails.map((e: any) => `From: ${e.fromName} <${e.from}>, Subject: "${e.subject}", Date: ${e.date}`).join('\n');
-    }
-
-    if (name === 'connector_search') {
-      if (!connectorContext.apiKey) return 'Composio is not configured. Add the Composio API key in connector settings first.';
-      const { searchComposioTools } = await import('@/lib/composio');
-      const toolkitSlugs = Array.from(new Set((connectorContext.connectors || [])
-        .filter((c: any) => c?.enabled !== false)
-        .map((c: any) => {
-          const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
-          return ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
-        })
-        .filter(Boolean)));
-      const found = await searchComposioTools(connectorContext.apiKey, String(args?.query || ''), toolkitSlugs);
-      if (!found.length) return 'No real connector action matched that request. Try describing the action more specifically.';
-      return JSON.stringify(found.slice(0, 12).map((t: any) => ({
-        tool_slug: t.slug,
-        toolkit: t.toolkit,
-        name: t.name,
-        description: t.description,
-        input_schema: t.inputSchema,
-      })));
-    }
-
-    if (name === 'connector_execute') {
-      if (!connectorContext.apiKey) return 'Composio is not configured.';
-      const slug = String(args?.tool_slug || '').trim();
-      if (!slug) return 'tool_slug is required.';
-      let accounts = connectorContext.accounts || [];
-      const toolkit = toolkitFromComposioToolSlug(slug);
-      const aliases: Record<string,string> = {
-        google: 'google_drive',
-        googledrive: 'google_drive',
-        gcalendar: 'google_calendar',
-        m365: 'microsoft365',
-      };
-      const normalizedToolkit = aliases[toolkit] || toolkit;
-
-      // Never rely only on the connector card's local enabled flag. Resolve the
-      // real Composio connected account for the toolkit immediately before
-      // execution. This is what makes a connected GitHub account usable by
-      // natural-language actions instead of merely showing "Connected" in UI.
-      if (!accounts.some((a: any) =>
-        String(a?.appUniqueId || '').toLowerCase() === normalizedToolkit &&
-        a?.status === 'ACTIVE'
-      )) {
-        try {
-          const { listConnectedAccounts } = await import('@/lib/composio');
-          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, undefined, normalizedToolkit);
-          accounts = [...accounts, ...liveAccounts];
-        } catch {}
-      }
-
-      const connector = (connectorContext.connectors || []).find((c: any) => {
-        const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
-        const mapped = ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
-        return mapped === normalizedToolkit || String(c?.config?.connectedAccountId || '') === String(args?.connected_account_id || '');
-      });
-
-      const accountId =
-        args?.connected_account_id ||
-        connector?.config?.connectedAccountId ||
-        accounts.find((a: any) => {
-          const uid = String(a?.appUniqueId || '').toLowerCase();
-          return uid === normalizedToolkit && a?.status === 'ACTIVE';
-        })?.id;
-
-      if (!accountId) {
-        return JSON.stringify({
-          success: false,
-          error: `No active Composio connected account was found for ${normalizedToolkit}. The connector UI may be enabled, but the OAuth account is not available to the server yet.`,
-        });
-      }
-
-      const result = await executeComposioAction(
-        connectorContext.apiKey,
-        slug,
-        args?.arguments || {},
-        accountId,
-        'default'
-      );
-      if (!result.success) return JSON.stringify({ success: false, error: result.error || 'Connector action failed' });
-      return JSON.stringify({ success: true, tool_slug: slug, data: result.data });
     }
 
     if (name === 'connector_search') {

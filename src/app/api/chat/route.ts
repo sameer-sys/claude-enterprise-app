@@ -1787,6 +1787,27 @@ Please verify your credentials or connected account in the Connectors modal.`;
       ? rawOrKey.trim().replace(/^["']|["']$/g, '')
       : BUILTIN_OPENROUTER_KEY;
 
+    // Shared provider context: available to both OpenRouter and the final
+    // fallback, even when no OpenRouter key is active.
+    const recentMessages = messages.slice(-8);
+    const fullMessages = [
+      { role: 'system', content: finalSystemPrompt },
+      ...recentMessages.map((m: any) => {
+        let content = m.content || '';
+        if (m.attachments && Array.isArray(m.attachments)) {
+          for (const att of m.attachments) {
+            if (att.contentSnippet) {
+              content += `\n\n--- [Attached Document: ${att.name}] ---\n${att.contentSnippet}\n--- [End of ${att.name}] ---`;
+            }
+          }
+        }
+        return {
+          role: m.role === 'user' ? 'user' : 'assistant',
+          content,
+        };
+      }),
+    ];
+
     if (activeOrKey) {
       const selectedTargetModel =
         OPENROUTER_MODELS[modelId as keyof typeof OPENROUTER_MODELS] ||
@@ -1801,27 +1822,6 @@ Please verify your credentials or connected account in the Connectors modal.`;
           'inclusionai/ling-3.0-flash-vl:free',
         ])
       ).slice(0, 4);
-
-      // Keep the complete message context available to both the connector
-      // agent loop and the later provider fallback.
-      const recentMessages = messages.slice(-8);
-      const fullMessages = [
-        { role: 'system', content: finalSystemPrompt },
-        ...recentMessages.map((m: any) => {
-          let content = m.content || '';
-          if (m.attachments && Array.isArray(m.attachments)) {
-            for (const att of m.attachments) {
-              if (att.contentSnippet) {
-                content += `\n\n--- [Attached Document: ${att.name}] ---\n${att.contentSnippet}\n--- [End of ${att.name}] ---`;
-              }
-            }
-          }
-          return {
-            role: m.role === 'user' ? 'user' : 'assistant',
-            content,
-          };
-        }),
-      ];
 
       // MULTI-STEP AGENT LOOP: call -> execute tools -> feed results back ->
       // repeat, until the model gives a final answer with no more tool

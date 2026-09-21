@@ -72,13 +72,10 @@ exit
     setDemoOutput(null);
     setTimeout(() => {
       setDemoOutput(
-        `### ⚡ Google Mail (Gmail) Connector Executed\n\n` +
-        `* **Mailbox Account:** Composio Connected Mailbox (Sameer Shaik)\n` +
-        `* **Recipient (To):** team@company.com\n` +
-        `* **Subject:** Project Status & Production Update\n` +
-        `* **Status:** 100% Zero-Click Background Dispatch\n\n` +
-        `> **Email Body:**\n> Hi Team,\n>\n> Here is our latest progress update on the OpenWork Cloud workspace. All MCP connectors and hybrid reasoning pipelines are operating at 100% capacity.\n>\n> Best regards,\n> Sameer\n\n` +
-        `✅ **Dispatched Zero-Click via Live SMTP**`
+        `### Connector command preview\n\n` +
+        `**Command:** ${demoInput}\n\n` +
+        `This public demo does not connect to your Gmail, GitHub, or other third-party accounts. In the workspace, connectors execute only after the provider/runtime authorization succeeds.\n\n` +
+        `No email was sent and no external action was performed by this demo.`
       );
       setIsDemoRunning(false);
     }, 900);
@@ -249,7 +246,7 @@ exit
             </div>
             <div className="flex items-center space-x-2 text-xs">
               <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono text-[10px]">
-                8 Connectors Active
+                Provider-native connector architecture
               </span>
               <span className="px-2 py-0.5 rounded bg-[#cc785c]/15 text-[#cc785c] font-mono text-[10px]">
                 Claude 3.7 Sonnet

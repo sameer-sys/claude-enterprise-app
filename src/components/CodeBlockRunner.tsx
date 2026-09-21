@@ -34,6 +34,13 @@ export default function CodeBlockRunner({ code, language, className, children }:
     setOutput(null);
 
     try {
+      const electronAPI = typeof window !== 'undefined' ? (window as any).electronAPI : null;
+      if (electronAPI?.executeCode) {
+        const nativeResult = await electronAPI.executeCode(code, language || 'python');
+        setOutput(nativeResult);
+        return;
+      }
+
       const res = await fetch('/api/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -44,7 +51,17 @@ export default function CodeBlockRunner({ code, language, className, children }:
       });
 
       const data = await res.json();
-      setOutput(data);
+      setOutput(
+        res.ok
+          ? data
+          : {
+              stdout: data?.stdout || '',
+              stderr: data?.error || data?.stderr || 'Code execution is not available from this web session. Use the desktop app for host execution.',
+              exitCode: data?.exitCode ?? res.status,
+              executionTimeMs: data?.executionTimeMs || 0,
+              error: data?.error,
+            }
+      );
     } catch (err: any) {
       setOutput({
         stdout: '',

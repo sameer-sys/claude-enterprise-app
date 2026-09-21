@@ -477,10 +477,6 @@ export default function ChatArea({
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
-  const toggleThinking = (msgId: string) => {
-    setExpandedThinking((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
-  };
-
   const hasMessages = messages.length > 0;
 
   const renderPromptBox = (isHero: boolean) => (
@@ -863,7 +859,6 @@ export default function ChatArea({
           messages.map((msg, index) => {
             const isUser = msg.role === 'user';
             const isLastAssistant = !isUser && index === messages.length - 1;
-            const isThinkingOpen = expandedThinking[msg.id];
 
             return (
               <div

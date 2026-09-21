@@ -28,6 +28,42 @@ const DEFAULT_SESSION: Session = {
   connectors: createDefaultConnectors(),
 };
 
+function getStableComposioUserId(): string {
+  if (typeof window === 'undefined') return 'sameer-web-user';
+  const key = 'sameer_composio_user_id';
+  const existing = localStorage.getItem(key);
+  if (existing && existing.trim()) return existing.trim();
+
+  let generated = '';
+  try {
+    generated =
+      typeof crypto?.randomUUID === 'function'
+        ? 'sameer_' + crypto.randomUUID()
+        : 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  } catch {
+    generated = 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  }
+
+  localStorage.setItem(key, generated);
+  return generated;
+}
+
+function normalizeToComposioOnlyConnectors(raw: any[]): Connector[] {
+  const base = createDefaultConnectors()[0];
+  const savedHub = Array.isArray(raw) ? raw.find((c: any) => c?.id === 'conn-composio') : null;
+
+  return [{
+    ...base,
+    ...(savedHub || {}),
+    enabled: true,
+    status: savedHub?.status === 'connected' ? 'connected' : 'ready',
+    config: {
+      ...base.config,
+      ...(savedHub?.config || {}),
+    },
+  }];
+}
+
 function extractArtifact(content: string): Artifact | undefined {
   const codeBlockRegex = /```([a-zA-Z0-9_\-]+)?\n([\s\S]*?)```/;
   const match = content.match(codeBlockRegex);
@@ -104,13 +140,10 @@ export default function Home() {
   // Load from localStorage & Cloud Sync
   useEffect(() => {
     try {
-      let savedCustom: any[] = [];
-      const savedCustomStr = localStorage.getItem('claude_custom_connectors');
-      if (savedCustomStr) {
-        try {
-          savedCustom = JSON.parse(savedCustomStr);
-        } catch (e) {}
-      }
+      // This workspace intentionally exposes a single built-in connector:
+      // Composio. Clear connector data from older builds so stale GitHub/Gmail/
+      // social cards cannot return from browser storage.
+      localStorage.removeItem('claude_custom_connectors');
 
       const saved = localStorage.getItem('claude_cloud_sessions');
       if (saved) {
@@ -136,13 +169,7 @@ export default function Home() {
               return c;
             });
 
-            // Ensure custom connectors are merged in
-            const mergedConns = [...sanitizedConns];
-            for (const cust of savedCustom) {
-              if (!mergedConns.some((c: any) => c.id === cust.id)) {
-                mergedConns.unshift(cust);
-              }
-            }
+            const mergedConns = normalizeToComposioOnlyConnectors(sanitizedConns);
 
             return {
               ...s,
@@ -202,7 +229,11 @@ export default function Home() {
         .then((r) => r.json())
         .then((res) => {
           if (res?.data?.sessions && Array.isArray(res.data.sessions) && res.data.sessions.length > 0) {
-            setSessions(res.data.sessions);
+            const cloudSessions = res.data.sessions.map((session: any) => ({
+              ...session,
+              connectors: normalizeToComposioOnlyConnectors(session.connectors),
+            }));
+            setSessions(cloudSessions);
             if (res.data.projects) setProjects(res.data.projects);
             setSyncStatus('Cloud Synced');
           }
@@ -550,6 +581,8 @@ export default function Home() {
           thinkingBudget,
           agentPrompt: activeSession.agentPrompt,
           connectors: currentSessionConnectors,
+          composioUserId: getStableComposioUserId(),
+          composioApiKey: localStorage.getItem('composio_api_key') || undefined,
         }),
         signal: controller.signal,
       });
@@ -569,6 +602,8 @@ export default function Home() {
             thinkingBudget,
             agentPrompt: activeSession.agentPrompt,
             connectors: currentSessionConnectors,
+          composioUserId: getStableComposioUserId(),
+          composioApiKey: localStorage.getItem('composio_api_key') || undefined,
           }),
           signal: controller.signal,
         });

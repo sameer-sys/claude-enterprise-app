@@ -234,16 +234,17 @@ export default function SettingsModal({
         } else if (data?.supportedOAuthConnectors?.includes?.(connectorId)) {
           setTestResult('No direct first-party OAuth account is connected for this connector yet.');
         } else if (connectorId === 'conn-github') {
-        const target = customRepo || 'sameer-sys/claude-enterprise-app';
-        const res = await fetch(`https://api.github.com/repos/${target}`, { cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
-          setTestResult(`Public GitHub repository is reachable: ${data.full_name} (default branch ${data.default_branch}).`);
+          const target = customRepo || 'sameer-sys/claude-enterprise-app';
+          const githubRes = await fetch(`https://api.github.com/repos/${target}`, { cache: 'no-store' });
+          if (githubRes.ok) {
+            const githubData = await githubRes.json();
+            setTestResult(`Public GitHub repository is reachable: ${githubData.full_name} (default branch ${githubData.default_branch}).`);
+          } else {
+            setTestResult(`GitHub repository lookup returned HTTP ${githubRes.status}.`);
+          }
         } else {
-          setTestResult(`GitHub repository lookup returned HTTP ${res.status}.`);
+          setTestResult('No live connector test is available for this connector yet.');
         }
-      } else {
-        setTestResult('No live connector test is available for this connector yet.');
       }
     } catch (e: any) {
       setTestResult(e?.message || 'Connector test failed.');
@@ -1662,7 +1663,7 @@ export default function SettingsModal({
                         className="w-full px-3 py-2 rounded-xl bg-[#181714] border border-[#302e26] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]"
                       />
                       <p className="text-[11px] text-[#8a8579] mt-1">
-                        Claude connects to your inbox to summarize discussion threads, monitor unread emails, and draft 1-click compose messages.
+                        The workspace uses the directly authorized Google account for live Gmail actions. The address shown here is account metadata, not a credential.
                       </p>
                     </div>
 
@@ -1712,6 +1713,48 @@ export default function SettingsModal({
                         onChange={(e) => setCustomMcpCommand(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl bg-[#181714] border border-[#302e26] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]"
                       />
+                    </div>
+                  </div>
+                )}
+
+                {editingConnector && editingConnector.config?.connectionType === 'direct' && (
+                  <div className="p-3 rounded-xl bg-[#1a1915] border border-[#2d2b24] space-y-2">
+                    <div className="text-[11px] text-[#8a8579]">
+                      Authentication is handled directly with the service provider. No Composio account is involved.
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            window.open(`/api/connectors/oauth/start?connector=${encodeURIComponent(editingConnector.id)}`, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black text-xs font-semibold"
+                      >
+                        {editingConnector.status === 'connected' ? 'Re-authorize' : 'Authorize with provider'}
+                      </button>
+                      {editingConnector.status === 'connected' && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await fetch('/api/connectors/disconnect', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ connector: editingConnector.id }),
+                              });
+                              onUpdateConnectorConfig?.(editingConnector.id, { email: undefined, accountName: undefined });
+                              setTestResult('Direct connection removed from this browser.');
+                            } catch {
+                              setTestResult('Unable to remove the direct connection.');
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-[#292721] hover:bg-[#34322a] border border-[#3d3b31] text-[#dcd8ce] text-xs font-medium"
+                        >
+                          Disconnect
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

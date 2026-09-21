@@ -19,23 +19,6 @@ const DEFAULT_CUSTOM_BUTTONS: CustomButton[] = [
   { id: 'btn_3', label: '🔍 Security Audit', prompt: 'Audit this implementation for OWASP security vulnerabilities.' },
 ];
 
-function getStableComposioUserId(): string {
-  if (typeof window === 'undefined') return 'default';
-  const storageKey = 'sameer_composio_user_id';
-  const existing = localStorage.getItem(storageKey);
-  if (existing && existing.trim()) return existing.trim();
-  let generated = '';
-  try {
-    generated = typeof crypto?.randomUUID === 'function'
-      ? 'sameer_' + crypto.randomUUID()
-      : 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-  } catch {
-    generated = 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-  }
-  localStorage.setItem(storageKey, generated);
-  return generated;
-}
-
 const DEFAULT_SESSION: Session = {
   id: 'ses_default',
   title: 'New Conversation',
@@ -155,15 +138,12 @@ export default function Home() {
               return c;
             });
 
-            // Disable stale demo connectors that claim to be connected without a real
-            // Composio account bound to this chat. Real connections are restored
-            // by the connector sync/account picker.
+            // Direct first-party OAuth status is server-side and refreshed below.
+            // Do not disable a connector merely because the old Composio account id is absent.
             const normalizedConns = sanitizedConns.map((c: any) => {
               if (
-                !c?.isCustom &&
-                String(c?.id || '').startsWith('conn-') &&
-                c?.enabled === true &&
-                !c?.config?.connectedAccountId
+                String(c?.provider || '') === 'composio' ||
+                String(c?.config?.connectionType || '') === 'composio'
               ) {
                 return { ...c, enabled: false, status: 'ready' };
               }
@@ -336,6 +316,64 @@ export default function Home() {
       ? activeSession.connectors
       : createDefaultConnectors();
   const activeConnectorsCount = currentSessionConnectors.filter((c) => c.enabled).length;
+
+  const refreshConnectorConnections = async () => {
+    try {
+      const response = await fetch('/api/connectors/status', { cache: 'no-store' });
+      if (!response.ok) return;
+      const data = await response.json().catch(() => ({}));
+      const connections = data?.connections && typeof data.connections === 'object' ? data.connections : {};
+
+      setSessions((prev) =>
+        prev.map((session) => {
+          const sessionConnectors = session.connectors || createDefaultConnectors();
+          const nextConnectors = sessionConnectors.map((connector) => {
+            const info = connections[connector.id];
+            const isDirectOAuth = Boolean(data?.supportedOAuthConnectors?.includes?.(connector.id));
+            if (info?.connected) {
+              const account = info.account || {};
+              const label = account.email || account.username || account.name || account.label || '';
+              return {
+                ...connector,
+                status: 'connected',
+                config: {
+                  ...connector.config,
+                  ...(account.email ? { email: account.email } : {}),
+                  ...(label ? { accountName: label } : {}),
+                },
+              };
+            }
+            if (isDirectOAuth) {
+              return {
+                ...connector,
+                status: 'ready',
+                config: {
+                  ...connector.config,
+                  email: undefined,
+                  accountName: undefined,
+                },
+              };
+            }
+            return connector;
+          });
+          return { ...session, connectors: nextConnectors };
+        })
+      );
+    } catch {
+      // Keep the existing local state when the status endpoint is temporarily unavailable.
+    }
+  };
+
+  useEffect(() => {
+    refreshConnectorConnections();
+    const handleFocus = () => { refreshConnectorConnections(); };
+    window.addEventListener('focus', handleFocus);
+    const timer = window.setInterval(refreshConnectorConnections, 60_000);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const handleToggleConnector = (id: string) => {
     setSessions((prev) =>
@@ -583,8 +621,6 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      const composioKey = typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || undefined : undefined;
-
       let response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -593,8 +629,6 @@ export default function Home() {
           modelId: activeModel,
           geminiKey: geminiKey || undefined,
           openRouterKey: openRouterKey || undefined,
-          composioApiKey: composioKey,
-          composioUserId: getStableComposioUserId(),
           sessionId: activeSession.id,
           thinkingBudget,
           agentPrompt: activeSession.agentPrompt,

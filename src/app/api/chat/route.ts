@@ -1127,6 +1127,59 @@ export async function POST(req: NextRequest) {
     const lowerText = lastText.toLowerCase();
 
     // ========================================================
+    // DETERMINISTIC CONNECTED-APP STATUS
+    // ========================================================
+    const lowerStatusText = lastText.toLowerCase();
+    const connectorStatusRequest =
+      /(what|which|list|show|tell|are)\b.*\b(apps?|connectors?|accounts?|services?)\b.*\b(connect(?:ed|ions?)|authorized|linked)\b/i.test(lowerStatusText) ||
+      /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lowerStatusText) ||
+      /\b(?:my|our)\s+(?:connected|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lowerStatusText);
+
+    if (connectorStatusRequest) {
+      let statusContent = '';
+      try {
+        if (!composioApiKey) {
+          statusContent = 'No Composio API key is configured for this workspace.';
+        } else {
+          const statusAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+          const activeAccounts = statusAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          const grouped = new Map<string, number>();
+          for (const account of activeAccounts) {
+            const slug = String(account?.appUniqueId || '').trim().toLowerCase();
+            if (slug) grouped.set(slug, (grouped.get(slug) || 0) + 1);
+          }
+          if (grouped.size === 0) {
+            statusContent = 'I checked the live Composio account list for this workspace user. There are currently no ACTIVE connected apps.';
+          } else {
+            statusContent = '### Connected apps\n\n' + Array.from(grouped.entries())
+              .map(([slug, count]) => '- **' + slug + '** — ' + count + ' active account' + (count === 1 ? '' : 's') + '.')
+              .join('\n');
+          }
+        }
+      } catch (err: any) {
+        statusContent = 'Live Composio status lookup failed: ' + (err?.message || 'unknown error');
+      }
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          for (let pos = 0; pos < statusContent.length; pos += 28) {
+            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: statusContent.slice(pos, pos + 28) }) + '\n\n'));
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Claude-Skill': 'Connector Status',
+          'X-Claude-Router': 'composio-live-status',
+        },
+      });
+    }
+    // ========================================================
     // DETERMINISTIC REAL CONNECTOR EXECUTION
     // ========================================================
     const explicitConnectorRequest = detectExplicitConnectorRequest(lastText);

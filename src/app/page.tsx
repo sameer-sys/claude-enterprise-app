@@ -317,7 +317,49 @@ export default function Home() {
     activeSession.connectors && activeSession.connectors.length > 0
       ? activeSession.connectors
       : createDefaultConnectors();
-  const activeConnectorsCount = currentSessionConnectors.filter((c) => c.enabled).length;
+  const [composioActiveAccountCount, setComposioActiveAccountCount] = useState(0);
+  const activeConnectorsCount = composioActiveAccountCount;
+
+  useEffect(() => {
+    const refreshComposioCount = async () => {
+      try {
+        const userId = getStableComposioUserId();
+        const key = localStorage.getItem('composio_api_key') || '';
+        const q = new URLSearchParams({ entityId: userId });
+        if (key) q.set('apiKey', key);
+        const res = await fetch('/api/composio?' + q.toString(), { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        const accounts = Array.isArray(data?.connectedAccounts) ? data.connectedAccounts : [];
+        const active = accounts.filter((a: any) => String(a?.status).toUpperCase() === 'ACTIVE');
+        setComposioActiveAccountCount(active.length);
+        setSessions((prev) => prev.map((s) => ({
+          ...s,
+          connectors: normalizeToComposioOnlyConnectors(s.connectors || []).map((conn) => ({
+            ...conn,
+            status: active.length ? 'connected' : 'ready',
+            config: {
+              ...conn.config,
+              composioUserId: userId,
+              composioAccountCount: active.length,
+              connectedAccountIds: active.map((a: any) => a.id),
+            },
+          })),
+        })));
+      } catch {}
+    };
+
+    refreshComposioCount();
+    const onComposioMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === 'sameer-composio-connected') refreshComposioCount();
+    };
+    window.addEventListener('message', onComposioMessage);
+    const timer = window.setInterval(refreshComposioCount, 30000);
+    return () => {
+      window.removeEventListener('message', onComposioMessage);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const handleToggleConnector = (id: string) => {
     setSessions((prev) =>

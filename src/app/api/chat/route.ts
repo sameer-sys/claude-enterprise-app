@@ -213,18 +213,68 @@ async function runAgentTool(
       const subject = String(args?.subject || '');
       const body = String(args?.body || '');
       if (!to || !subject || !body) return 'Missing to/subject/body - cannot send.';
+
+      if (connectorContext.apiKey && connectorContext.composioUserId && connectorContext.connectors?.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
+        try {
+          const liveAccounts = await listConnectedAccounts(
+            connectorContext.apiKey,
+            connectorContext.composioUserId,
+            'gmail'
+          );
+          const activeGmail = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          if (activeGmail.length === 1) {
+            const sent = await executeComposioAction(
+              connectorContext.apiKey,
+              'GMAIL_SEND_EMAIL',
+              { to, subject, body },
+              String(activeGmail[0].id),
+              connectorContext.composioUserId
+            );
+            return sent.success
+              ? JSON.stringify({ success: true, runtime: 'composio', data: sent.data })
+              : JSON.stringify({ success: false, runtime: 'composio', error: sent.error || 'Gmail send failed.' });
+          }
+        } catch {}
+      }
+
       const sendRes = await sendRealEmail({ to, subject, text: body });
       return sendRes.success
-        ? `Email sent successfully to ${to}. Message ID: ${sendRes.messageId}.`
-        : `Email FAILED to send: ${sendRes.error}`;
+        ? 'Email sent successfully to ' + to + '. Message ID: ' + sendRes.messageId + '.'
+        : 'Email FAILED to send: ' + sendRes.error;
     }
 
     if (name === 'read_inbox') {
       const count = Math.min(Number(args?.count) || 3, 10);
+
+      if (connectorContext.apiKey && connectorContext.composioUserId && connectorContext.connectors?.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
+        try {
+          const liveAccounts = await listConnectedAccounts(
+            connectorContext.apiKey,
+            connectorContext.composioUserId,
+            'gmail'
+          );
+          const activeGmail = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          if (activeGmail.length === 1) {
+            const result = await executeComposioAction(
+              connectorContext.apiKey,
+              'GMAIL_LIST_MESSAGES',
+              { maxResults: count },
+              String(activeGmail[0].id),
+              connectorContext.composioUserId
+            );
+            return result.success
+              ? JSON.stringify({ success: true, runtime: 'composio', data: result.data })
+              : JSON.stringify({ success: false, runtime: 'composio', error: result.error || 'Gmail inbox read failed.' });
+          }
+        } catch {}
+      }
+
       const inboxRes = await fetchLatestEmails(count);
-      if (!inboxRes.success) return `Could not read inbox: ${inboxRes.error}`;
+      if (!inboxRes.success) return 'Could not read inbox: ' + inboxRes.error;
       if (!inboxRes.emails.length) return 'Inbox is empty or SMTP/IMAP is not configured.';
-      return inboxRes.emails.map((e: any) => `From: ${e.fromName} <${e.from}>, Subject: "${e.subject}", Date: ${e.date}`).join('\n');
+      return inboxRes.emails.map((e: any) =>
+        'From: ' + e.fromName + ' <' + e.from + '>, Subject: "' + e.subject + '", Date: ' + e.date
+      ).join('\n');
     }
 
     if (name === 'connector_search') {
@@ -1235,109 +1285,6 @@ export async function POST(req: NextRequest) {
     }
 
     // ========================================================
-    // REAL-TIME YOUTUBE PLAYLIST & CHANNEL QUERY INTERCEPTOR
-    // ========================================================
-    const isYtPlaylistRequest =
-      (lowerText.includes('playlist') || lowerText.includes('playtlist')) &&
-      (lowerText.includes('youtube') || lowerText.includes('yt') || lowerText.includes('channel'));
-
-    if (isYtPlaylistRequest) {
-      let ytContent = '';
-
-      if (!composioApiKey) {
-        ytContent = `### ⚠️ Composio API Key Required
-
-To fetch your live YouTube playlists and channel tools, your **Composio API Key** is required:
-
-1. Copy your API Key from **[app.composio.dev/settings](https://app.composio.dev/settings)**.
-2. Open **Settings > API Keys** (or the Connectors modal) and paste your key.
-3. Once set, I will query your real YouTube channel directly with zero hallucinations!`;
-      } else {
-        try {
-          const accounts = await listConnectedAccounts(composioApiKey, composioUserId);
-          const ytAccount = accounts.find((a) =>
-            (a.appUniqueId || a.appName || '').toLowerCase().includes('youtube')
-          );
-
-          if (!ytAccount) {
-            ytContent = `### 🎥 YouTube Channel Not Connected
-
-I connected to Composio, but your **YouTube** account has not been authorized yet.
-
-#### How to connect in 1 click:
-1. Open the **Connectors** menu (top-right of chat).
-2. Find **YouTube Studio** and click **"Connect"**.
-3. Complete the Google / YouTube authorization in the popup window.
-4. Come back and ask me again — I will immediately pull your live channel data!`;
-          } else {
-            const playlistRes = await fetchLiveYouTubePlaylists(composioApiKey, ytAccount.id);
-
-            if (playlistRes.success && playlistRes.playlists && playlistRes.playlists.length > 0) {
-              const rows = playlistRes.playlists.map((p, idx) =>
-                `| ${idx + 1} | [${p.title}](${p.url}) | \`${p.itemCount} videos\` | \`${p.privacyStatus}\` | \`${p.id}\` |`
-              ).join('\n');
-
-              ytContent = `### 🎥 Live YouTube Playlists (Real Channel Data)
-
-**Connected Account:** \`${ytAccount.accountIdentifier || ytAccount.email || 'Verified YouTube Channel'}\`  
-**Total Playlists Found:** **${playlistRes.playlists.length}**
-
-| # | Playlist Title | Video Count | Privacy | Playlist ID |
-|---|---|---|---|---|
-${rows}
-
-✅ **100% Real Data:** Retrieved live from your YouTube channel via Composio real-time execution.`;
-            } else if (playlistRes.success && playlistRes.playlists && playlistRes.playlists.length === 0) {
-              ytContent = `### 🎥 YouTube Channel Verified
-
-**Connected Account:** \`${ytAccount.accountIdentifier || ytAccount.email || 'Verified YouTube Channel'}\`
-
-You currently have **0 playlists** on this channel.
-
-Would you like me to help you create a new playlist, organize tags, or prepare video descriptions?`;
-            } else {
-              ytContent = `### 🎥 YouTube Channel Connected
-
-**Connected Account:** \`${ytAccount.accountIdentifier || ytAccount.email || 'Verified YouTube Channel'}\`  
-**Status:** 🟢 Connected & Active on Composio
-
-${playlistRes.error ? `> Note: ${playlistRes.error}` : ''}
-
-Your channel is connected. You can ask me to fetch your videos, stage uploads, or check channel analytics!`;
-            }
-          }
-        } catch (err: any) {
-          ytContent = `### 🎥 YouTube Query Error
-          
-Error communicating with Composio: ${err.message || 'Check your Composio API key permissions.'}`;
-        }
-      }
-
-      const encoder = new TextEncoder();
-      const chunkSize = 28;
-      const stream = new ReadableStream({
-        start(controller) {
-          for (let pos = 0; pos < ytContent.length; pos += chunkSize) {
-            const piece = ytContent.slice(pos, pos + chunkSize);
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: piece })}\n\n`));
-          }
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-          controller.close();
-        },
-      });
-
-      return new Response(stream, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-          'X-Claude-Skill': 'Real-Time YouTube Execution',
-          'X-Claude-Router': 'composio-live-youtube',
-        },
-      });
-    }
-
-    // ========================================================
     // STRICT DIRECT EMAIL DISPATCH (ONLY ON EXPLICIT USER COMMAND)
     // ========================================================
     const directEmailMatch = lastText.match(/^(?:send|dispatch)\s+(?:an?\s+)?email\s+to\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?:\s+(?:saying|with subject|that|about)\s+([\s\S]+))?$/i);
@@ -1432,76 +1379,34 @@ Please verify your credentials or connected account in the Connectors modal.`;
     }
 
     // ========================================================
-    // CLAUDE CONNECTORS INTEGRATION & CONTEXT INJECTION (MCP)
+    // COMPOSIO CONNECTOR CONTEXT
     // ========================================================
     let connectorContext = '';
-    const activeConnectors = Array.isArray(connectors) ? connectors.filter((c: any) => c.enabled) : [];
+    const activeConnectors = Array.isArray(connectors) ? connectors.filter((c: any) => c?.enabled) : [];
+    const composioHubEnabled = activeConnectors.some((c: any) => c?.id === 'conn-composio');
 
-    const isGmailQuery = lowerText.includes('email') || lowerText.includes('gmail') || lowerText.includes('mail') || lowerText.includes('inbox') || lowerText.includes('send') || lowerText.includes('draft');
-    const isGithubQuery = lowerText.includes('github') || lowerText.includes('repo') || lowerText.includes('commit') || lowerText.includes('pull request') || lowerText.includes('issue');
-    const isSearchQuery = lowerText.includes('search') || lowerText.includes('latest') || lowerText.includes('news') || lowerText.includes('who is') || lowerText.includes('what is') || lowerText.includes('current') || lowerText.includes('weather');
-    const isDriveQuery = lowerText.includes('drive') || lowerText.includes('google doc') || lowerText.includes('sheet') || lowerText.includes('slide');
-    const isSlackQuery = lowerText.includes('slack') || lowerText.includes('channel') || lowerText.includes('#general');
-    const isNotionQuery = lowerText.includes('notion') || lowerText.includes('prd') || lowerText.includes('roadmap') || lowerText.includes('database');
-    const isFigmaQuery = lowerText.includes('figma') || lowerText.includes('design token') || lowerText.includes('ui component');
-    const isFilesystemQuery = lowerText.includes('filesystem') || lowerText.includes('local file') || lowerText.includes('scratch/') || lowerText.includes('directory');
-    const isSocialQuery = lowerText.includes('youtube') || lowerText.includes('yt') || lowerText.includes('instagram') || lowerText.includes('ig') || lowerText.includes('facebook') || lowerText.includes('fb') || lowerText.includes('twitter') || lowerText.includes('tweet') || lowerText.includes('tiktok') || lowerText.includes('whatsapp') || lowerText.includes('telegram') || lowerText.includes('reddit') || lowerText.includes('linkedin') || lowerText.includes('channel') || lowerText.includes('upload') || lowerText.includes('social');
-
-    if (activeConnectors.length > 0 || isGmailQuery || isGithubQuery || isSearchQuery || isDriveQuery || isSlackQuery || isNotionQuery || isFigmaQuery || isFilesystemQuery || isSocialQuery) {
-      connectorContext += '\n\n[CLAUDE CONNECTORS & MODEL CONTEXT PROTOCOL (MCP) ACTIVE]:\n';
-      for (const conn of activeConnectors) {
-        connectorContext += `- ${conn.name} (${conn.category}): Active and ready.\n`;
-      }
-
-      // Gmail / GitHub / Web Search are now handled by the agent tool loop
-      // below (send_email, read_inbox, github_lookup, web_search tools) instead
-      // of regex-triggered blocks - avoids duplicate actions and lets the model
-      // decide when a tool is actually needed.
-
-      // 4. REAL CONNECTED APPS (Composio) - uses the existing composio.ts
-      // helpers instead of fabricating text. Everything below used to be
-      // template strings pretending Drive, Slack, Notion, Figma,
-      // Filesystem, Calendar, Linear, Canva, Asana, HubSpot, Shopify,
-      // Salesforce, Microsoft 365 and the social platforms were connected
-      // and had done something - none of that was real.
+    if (composioHubEnabled && composioApiKey) {
       try {
-        // FIX: was ignoring the user's own key pasted into the Connectors
-        // panel (sent as composioApiKey in the request body) and only ever
-        // checking the server env var - now checks both, user key first.
-        const composioKey = await getComposioApiKey(composioApiKey);
+        const realAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+        const activeAccounts = realAccounts.filter((a: any) => a?.status === 'ACTIVE');
+        connectorContext += '\n\n[COMPOSIO LIVE ACCOUNTS]\n';
 
-        if (!composioKey) {
-          connectorContext += `\n[CONNECTORS]: Composio is not configured yet (COMPOSIO_API_KEY is not set). Tell the user plainly that no third-party app connectors are wired up yet - do not claim any app (Notion, Linear, HubSpot, Shopify, Drive, etc.) is connected or that any action on those apps succeeded.\n`;
+        if (!activeAccounts.length) {
+          connectorContext += '- No ACTIVE Composio app accounts are connected for this user.\n';
         } else {
-          const realAccounts = await listConnectedAccounts(composioKey, composioUserId);
-          const activeApps = realAccounts.filter((a) => a.status === 'ACTIVE').map((a) => a.appUniqueId);
-
-          if (activeApps.length === 0) {
-            connectorContext += `\n[CONNECTORS]: Composio is configured, but no apps are actively connected yet for this user. Tell the user plainly they need to connect an app first before you can use it - do not claim any app is connected or that an action succeeded.\n`;
-          } else {
-            connectorContext += `\n[CONNECTORS]: Really connected right now: ${activeApps.join(', ')}.\n` +
-              `- INSTRUCTIONS: Only report an action as done if a real result is shown below. If the user asks about an app not in this list, say plainly it is not connected yet - do not invent a status, a link, or a result for it.\n`;
-
-            if (activeApps.includes('youtube') && (isSocialQuery || lowerText.includes('playlist'))) {
-              const ytAcct = realAccounts.find((a) => a.appUniqueId === 'youtube');
-              const ytRes = await fetchLiveYouTubePlaylists(composioKey, ytAcct?.id);
-              connectorContext += ytRes.success
-                ? `\n[⚡ YOUTUBE - REAL DATA]: ${JSON.stringify(ytRes.playlists).slice(0, 1200)}\n`
-                : `\n[⚡ YOUTUBE]: Connected, but the live fetch failed (${ytRes.error}). Report this plainly, do not invent playlist data.\n`;
-            }
-
-            if (activeApps.includes('google_drive') && isDriveQuery) {
-              const driveAcct = realAccounts.find((a) => a.appUniqueId === 'google_drive');
-              const driveRes = await fetchLiveDriveFiles(composioKey, driveAcct?.id);
-              connectorContext += driveRes.success
-                ? `\n[⚡ GOOGLE DRIVE - REAL DATA]: ${JSON.stringify(driveRes.files).slice(0, 1200)}\n`
-                : `\n[⚡ GOOGLE DRIVE]: Connected, but the live fetch failed (${driveRes.error}). Report this plainly, do not invent file data.\n`;
-            }
-          }
+          connectorContext += activeAccounts.map((account: any) => {
+            const toolkit = String(account?.appUniqueId || account?.appName || 'unknown');
+            const label = String(account?.email || account?.accountIdentifier || account?.alias || account?.id || 'connected account');
+            return '- ' + toolkit + ' — ' + label + ' (ACTIVE)';
+          }).join('\n') + '\n';
         }
+
+        connectorContext += '- The model must use connector_search before connector_execute and report only real tool results.\n';
       } catch (err: any) {
-        connectorContext += `\n[CONNECTORS]: Real connector lookup failed (${err?.message || 'unknown error'}). Tell the user this plainly instead of pretending it worked.\n`;
+        connectorContext += '\n[COMPOSIO LIVE ACCOUNTS]\n- Lookup failed: ' + (err?.message || 'unknown error') + '.\n';
       }
+    } else if (composioHubEnabled) {
+      connectorContext += '\n\n[COMPOSIO LIVE ACCOUNTS]\n- Composio project API key is not configured on the server. No external app action is available.\n';
     }
 
     // URL fetching is now the web_fetch agent tool below, instead of a

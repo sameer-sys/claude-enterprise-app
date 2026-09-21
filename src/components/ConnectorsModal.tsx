@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
 import { getConnectorDefinition, getConnectorLaunchUrl } from '@/lib/connectorRegistry';
-import { hasDirectOAuthForConnector } from '@/lib/connectorRuntime';
 
 export type { Connector, ConnectorConfig };
 
@@ -1745,7 +1744,7 @@ function ConnectorCard({
   const isConnected = connector.status === 'connected';
   const definition = getConnectorDefinition(connector.id);
   const launchUrl = getConnectorLaunchUrl(connector);
-  const isDirectOAuthConnector = (conn: Connector) => hasDirectOAuthForConnector(conn.id);
+  const isDirectOAuthConnector = (conn: Connector) => Boolean(getConnectorDefinition(conn.id)?.supportsOAuth);
 
   const openConnector = (e?: React.SyntheticEvent) => {
     e?.stopPropagation();

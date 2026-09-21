@@ -272,6 +272,7 @@ async function runAgentTool(
         if (!session.success || !session.sessionId) return JSON.stringify({ success: false, error: session.error || 'Could not create Composio session.' });
         sessionId = session.sessionId;
       }
+      connectorContext.toolRouterSessionId = sessionId;
       const found = await searchComposioToolRouter(
         connectorContext.apiKey, sessionId, String(args?.query || ''), 'claude-3-7-sonnet'
       );
@@ -303,9 +304,25 @@ async function runAgentTool(
       );
       if (result.success) return JSON.stringify({ success: true, tool_slug: slug, session_id: sessionId, data: result.data });
 
-      // Fallback to the direct v3.1 executor if the session endpoint rejects the request.
+      // Only fall back to the direct v3.1 executor when the chat has an
+      // unambiguous selected/single active account. Never silently pick
+      // an arbitrary account from a multi-account user.
+      if (!accountId) {
+        const matchingAccounts = (connectorContext.accounts || []).filter((a: any) =>
+          String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit && a?.status === 'ACTIVE'
+        );
+        if (matchingAccounts.length !== 1) {
+          return JSON.stringify({
+            success: false,
+            error: result.error || `Multiple or no active ${toolkit} accounts are available. Select an account for this chat in Connectors before retrying.`,
+          });
+        }
+      }
+      const directAccount = accountId || String((connectorContext.accounts || []).find((a: any) =>
+        String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit && a?.status === 'ACTIVE'
+      )?.id || '').trim() || undefined;
       const direct = await executeComposioAction(
-        connectorContext.apiKey, slug, args?.arguments || {}, accountId, userId
+        connectorContext.apiKey, slug, args?.arguments || {}, directAccount, userId
       );
       return direct.success
         ? JSON.stringify({ success: true, tool_slug: slug, data: direct.data })

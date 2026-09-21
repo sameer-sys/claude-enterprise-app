@@ -63,7 +63,66 @@ export async function POST(req: NextRequest) {
       '?user_id=' + encodeURIComponent(String(entityId || 'default'))
     );
     const result = await initiateAppConnection(apiKey, appName, entityId, callback);
-      return NextResponse.json(result);
+      const response = NextResponse.json(result);
+      if (result?.success && result?.redirectUrl) {
+        response.cookies.set('sameer_composio_user_id', String(entityId || 'default'), {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 60 * 15,
+        });
+      }
+      return response;
+    }
+
+    if (action === 'disconnect') {
+      if (!connectedAccountId) {
+        return NextResponse.json({ success: false, error: 'connectedAccountId is required' }, { status: 400 });
+      }
+
+      try {
+        const revokeUrl = `https://backend.composio.dev/api/v3.1/connected_accounts/${encodeURIComponent(String(connectedAccountId))}/revoke`;
+        const revokeRes = await fetch(revokeUrl, {
+          method: 'POST',
+          headers: {
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+        });
+
+        if (!revokeRes.ok && revokeRes.status !== 404) {
+          const errorData = await revokeRes.json().catch(() => ({}));
+          return NextResponse.json(
+            { success: false, error: errorData?.error?.message || errorData?.message || 'Composio could not revoke the provider grant.' },
+            { status: revokeRes.status }
+          );
+        }
+      } catch {}
+
+      const deleteRes = await fetch(
+        `https://backend.composio.dev/api/v3.1/connected_accounts/${encodeURIComponent(String(connectedAccountId))}`,
+        {
+          method: 'DELETE',
+          headers: { 'x-api-key': apiKey },
+          cache: 'no-store',
+        }
+      );
+
+      const deleteData = await deleteRes.json().catch(() => ({}));
+      if (!deleteRes.ok && deleteRes.status !== 404) {
+        return NextResponse.json(
+          { success: false, error: deleteData?.error?.message || deleteData?.message || 'Composio could not remove the connected account.' },
+          { status: deleteRes.status }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        connectedAccountId,
+        message: 'Connected account removed.',
+      });
     }
 
     if (action === 'execute') {

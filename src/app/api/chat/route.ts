@@ -1104,7 +1104,7 @@ export async function POST(req: NextRequest) {
       openRouterKey,
       composioApiKey: userComposioKey,
       composioUserId: requestComposioUserId,
-      sessionId: requestSessionId,
+      sessionId: incomingSessionId,
       omniRouteUrl,
       thinkingBudget = 16000,
       agentPrompt,
@@ -1113,9 +1113,7 @@ export async function POST(req: NextRequest) {
 
     const composioApiKey = userComposioKey || process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
     const composioUserId = String(requestComposioUserId || 'default').trim() || 'default';
-    const requestSessionId = String(requestSessionId || '').trim();
-    const activeConnectors = Array.isArray(connectors) ? connectors.filter((c: any) => c?.enabled) : [];
-    const explicitConnectorRequest = detectExplicitConnectorRequest(lastText);
+    const requestSessionId = String(incomingSessionId || '').trim();
 
     const isOmniRouteModel =
       modelId === 'the-boss-chat' ||
@@ -1125,6 +1123,8 @@ export async function POST(req: NextRequest) {
     const userLastMsg = messages[messages.length - 1];
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
+    const activeConnectors = Array.isArray(connectors) ? connectors.filter((c: any) => c?.enabled) : [];
+    const explicitConnectorRequest = detectExplicitConnectorRequest(lastText);
 
     // ========================================================
     // REAL-TIME YOUTUBE PLAYLIST & CHANNEL QUERY INTERCEPTOR

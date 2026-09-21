@@ -169,7 +169,26 @@ export function toolkitFromComposioToolSlug(toolSlug: string): string {
   return normalized;
 }
 
-function enabledComposioToolkits(connectors: any[] = []): string[] {
+function enabledComposioToolkits(
+  connectors: any[] = [],
+  accounts: ComposioConnectedAccount[] = []
+): string[] {
+  // The workspace has one built-in connector: Composio. In that mode,
+  // every ACTIVE toolkit attached to the current Composio user becomes
+  // available to the Tool Router session.
+  const hasComposioHub = connectors.some(
+    (c: any) => String(c?.id || '') === 'conn-composio' && c?.enabled !== false
+  );
+
+  if (hasComposioHub) {
+    return Array.from(new Set(
+      accounts
+        .filter((account) => String(account?.status || '').toUpperCase() === 'ACTIVE')
+        .map((account) => String(account?.appUniqueId || account?.appName || '').toLowerCase())
+        .filter(Boolean)
+    ));
+  }
+
   const builtInComposioIds = new Set([
     'conn-github', 'conn-gmail', 'conn-gdrive', 'conn-gcalendar', 'conn-m365',
     'conn-youtube', 'conn-instagram', 'conn-facebook', 'conn-twitter',
@@ -177,14 +196,16 @@ function enabledComposioToolkits(connectors: any[] = []): string[] {
     'conn-asana', 'conn-canva', 'conn-hubspot', 'conn-salesforce', 'conn-shopify',
     'conn-reddit', 'conn-discord', 'conn-telegram', 'conn-whatsapp',
   ]);
-  return Array.from(new Set(connectors
-    .filter((c: any) => {
-      if (c?.enabled === false) return false;
-      if (String(c?.id || '') === 'conn-composio') return false;
-      return !c?.isCustom || builtInComposioIds.has(String(c?.id || ''));
-    })
-    .map((c: any) => normalizeComposioToolkitSlug(String(c?.id || '')))
-    .filter(Boolean)));
+
+  return Array.from(new Set(
+    connectors
+      .filter((c: any) => {
+        if (c?.enabled === false) return false;
+        return !c?.isCustom || builtInComposioIds.has(String(c?.id || ''));
+      })
+      .map((c: any) => normalizeComposioToolkitSlug(String(c?.id || '')))
+      .filter(Boolean)
+  ));
 }
 
 export async function createComposioToolRouterSession(
@@ -193,7 +214,7 @@ export async function createComposioToolRouterSession(
   connectors: any[] = [],
   accounts: ComposioConnectedAccount[] = []
 ): Promise<{ success: boolean; sessionId?: string; error?: string }> {
-  const toolkits = enabledComposioToolkits(connectors);
+  const toolkits = enabledComposioToolkits(connectors, accounts);
   if (!apiKey) return { success: false, error: 'Missing Composio API key.' };
   if (!toolkits.length) return { success: false, error: 'No Composio-backed connectors are enabled for this chat.' };
 
@@ -457,6 +478,7 @@ export async function initiateAppConnection(
             auth_config_id: authConfig.id,
             user_id: entityId,
             callback_url: cbUrl,
+            allow_multiple: true,
           }),
         });
 

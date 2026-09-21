@@ -536,8 +536,6 @@ export default function Home() {
       content: '',
       timestamp: Date.now(),
       modelId: activeModel,
-      thinking: 'Analyzing query intent, evaluating constraints, synthesizing optimal architectural path...',
-      thinkingDuration: 2,
       thinkingBudget,
     };
 
@@ -623,7 +621,6 @@ export default function Home() {
 
       const decoder = new TextDecoder();
       let accumulatedContent = '';
-      let accumulatedThinking = '';
       let sseBuffer = '';
 
       while (true) {
@@ -643,10 +640,6 @@ export default function Home() {
           try {
             const data = JSON.parse(dataStr);
             let hasUpdate = false;
-            if (data.thinking) {
-              accumulatedThinking += data.thinking;
-              hasUpdate = true;
-            }
             if (data.content) {
               accumulatedContent += data.content;
               hasUpdate = true;
@@ -665,7 +658,6 @@ export default function Home() {
                         ? {
                             ...m,
                             content: accumulatedContent,
-                            thinking: accumulatedThinking || m.thinking,
                             artifact,
                             skillActivated: activeSkill,
                           }

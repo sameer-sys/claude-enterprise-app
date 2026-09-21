@@ -940,7 +940,6 @@ export class AutonomousProjectManager extends EventEmitter {
         'There is no directly authorized Gmail account available to this chat yet.\n\n' +
         'Open **Connectors → Gmail → Connect** and finish the provider\'s Google OAuth flow. The workspace will only use the account after the provider confirms authorization.';
     }
-    }
 
     let recipient = '';
     const emailMatch = p.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);

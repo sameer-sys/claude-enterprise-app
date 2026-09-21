@@ -58,16 +58,6 @@ const SERVICE_OPTIONS = [
   ['asana', 'Asana'], ['canva', 'Canva'], ['hubspot', 'HubSpot'],
 ] as const;
 
-function getUserId(): string {
-  if (typeof window === 'undefined') return 'sameer-web-user';
-  const key = 'sameer_composio_user_id';
-  const existing = localStorage.getItem(key);
-  if (existing) return existing;
-  const generated = 'sameer_' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
-  localStorage.setItem(key, generated);
-  return generated;
-}
-
 function serviceLabel(slug: string): string {
   const found = SERVICE_OPTIONS.find(function (item) { return item[0] === slug; });
   return found ? found[1] : slug.replace(/_/g, ' ');
@@ -89,9 +79,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     if (!silent) setLoading(true);
     setError('');
     try {
-      const userId = getUserId();
-      const q = new URLSearchParams({ entityId: userId });
-      const res = await fetch('/api/composio?' + q.toString(), { cache: 'no-store' });
+      const res = await fetch('/api/composio', { cache: 'no-store' });
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok) throw new Error(data.error || 'Could not read Composio status.');
       const next = Array.isArray(data.connectedAccounts) ? data.connectedAccounts : [];
@@ -100,7 +88,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
       onUpdateConnectorConfig && onUpdateConnectorConfig('conn-composio', {
         connectionType: 'composio',
         providerName: 'Composio',
-        composioUserId: userId,
+        composioUserId: data.userId,
         composioAccountCount: active.length,
         connectedAccountIds: active.map(function (a) { return a.id; }),
       });
@@ -124,14 +112,12 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     setConnecting(service);
     setError('');
     try {
-      const userId = getUserId();
       const res = await fetch('/api/composio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'connect',
           appName: service,
-          entityId: userId,
           callbackUrl: window.location.origin + '/api/composio/callback',
         }),
       });
@@ -154,8 +140,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
           return;
         }
         try {
-          const q = new URLSearchParams({ entityId: userId });
-          const statusRes = await fetch('/api/composio?' + q.toString(), { cache: 'no-store' });
+          const statusRes = await fetch('/api/composio', { cache: 'no-store' });
           const statusData = await statusRes.json().catch(function () { return {}; });
           const live = Array.isArray(statusData.connectedAccounts) ? statusData.connectedAccounts : [];
           setAccounts(live);

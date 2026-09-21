@@ -344,7 +344,18 @@ export async function executeComposioNaturalLanguage(
   if (!generated.success || !generated.arguments) return { success: false, sessionId: session.sessionId, toolSlug, error: generated.error || `Could not generate arguments for ${toolSlug}.` };
   const connector = connectors.find((c: any) => c?.enabled !== false && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit);
   const selectedId = String(connector?.config?.connectedAccountId || '').trim();
-  const executed = await executeComposioToolRouter(apiKey, session.sessionId, toolSlug, generated.arguments, selectedId || undefined);
+  const activeForToolkit = accounts.filter((a: any) =>
+    String(a?.status || '').toUpperCase() === 'ACTIVE' &&
+    normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit
+  );
+  const resolvedAccountId = selectedId || (activeForToolkit.length === 1 ? String(activeForToolkit[0].id) : '');
+  const executed = await executeComposioToolRouter(
+    apiKey,
+    session.sessionId,
+    toolSlug,
+    generated.arguments,
+    resolvedAccountId || undefined
+  );
   return { ...executed, toolSlug, arguments: generated.arguments, sessionId: session.sessionId };
 }
 

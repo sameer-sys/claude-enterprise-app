@@ -294,7 +294,6 @@ export default function SettingsModal({
     {
       group: 'Customize',
       items: [
-        { id: 'connectors', label: 'Connectors', icon: Cpu, badge: `${activeCount} on` },
         { id: 'skills', label: 'Skills', icon: FileCode },
         { id: 'plugins', label: 'Plugins', icon: Zap },
       ],

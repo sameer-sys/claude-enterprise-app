@@ -4,7 +4,6 @@ import { fetchLatestEmails } from '@/lib/imapReader';
 import {
   listConnectedAccounts,
   executeComposioAction,
-  getComposioApiKey,
   searchComposioTools,
 } from '@/lib/composio';
 import {
@@ -1353,7 +1352,6 @@ export async function POST(req: NextRequest) {
     }
     const explicitConnectorRequest = detectExplicitConnectorRequest(lastText);
 
-    const explicitConnectorRequest = detectExplicitConnectorRequest(lastText);
 
     if (explicitConnectorRequest) {
       try {

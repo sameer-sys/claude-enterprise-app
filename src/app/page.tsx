@@ -367,10 +367,17 @@ export default function Home() {
   useEffect(() => {
     refreshConnectorConnections();
     const handleFocus = () => { refreshConnectorConnections(); };
+    const handleConnectorMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'sameer-connector-connected') return;
+      refreshConnectorConnections();
+    };
     window.addEventListener('focus', handleFocus);
+    window.addEventListener('message', handleConnectorMessage);
     const timer = window.setInterval(refreshConnectorConnections, 60_000);
     return () => {
       window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('message', handleConnectorMessage);
       window.clearInterval(timer);
     };
   }, []);

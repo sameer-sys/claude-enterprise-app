@@ -170,8 +170,19 @@ export function toolkitFromComposioToolSlug(toolSlug: string): string {
 }
 
 function enabledComposioToolkits(connectors: any[] = []): string[] {
+  const builtInComposioIds = new Set([
+    'conn-github', 'conn-gmail', 'conn-gdrive', 'conn-gcalendar', 'conn-m365',
+    'conn-youtube', 'conn-instagram', 'conn-facebook', 'conn-twitter',
+    'conn-linkedin', 'conn-tiktok', 'conn-slack', 'conn-notion', 'conn-linear',
+    'conn-asana', 'conn-canva', 'conn-hubspot', 'conn-salesforce', 'conn-shopify',
+    'conn-reddit', 'conn-discord', 'conn-telegram', 'conn-whatsapp',
+  ]);
   return Array.from(new Set(connectors
-    .filter((c: any) => c?.enabled !== false && !c?.isCustom)
+    .filter((c: any) => {
+      if (c?.enabled === false) return false;
+      if (String(c?.id || '') === 'conn-composio') return false;
+      return !c?.isCustom || builtInComposioIds.has(String(c?.id || ''));
+    })
     .map((c: any) => normalizeComposioToolkitSlug(String(c?.id || '')))
     .filter(Boolean)));
 }
@@ -189,7 +200,9 @@ export async function createComposioToolRouterSession(
   const connectedAccounts: Record<string, string[]> = {};
   for (const toolkit of toolkits) {
     const connector = connectors.find((c: any) =>
-      c?.enabled !== false && !c?.isCustom && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit
+      c?.enabled !== false &&
+      String(c?.id || '') !== 'conn-composio' &&
+      normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit
     );
     const selected = String(connector?.config?.connectedAccountId || '').trim();
     const active = accounts.filter((a) => String(a.appUniqueId || '').toLowerCase() === toolkit && a.status === 'ACTIVE');

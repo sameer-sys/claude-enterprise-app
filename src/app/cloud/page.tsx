@@ -96,7 +96,7 @@ exit
     },
     {
       q: 'Can each chat connect different email accounts and GitHub repos?',
-      a: 'Yes! Connectors are isolated per chat. When you switch or create a conversation, you can link unique Gmail accounts (e.g. work vs personal) or target different GitHub repositories without cross-contamination.',
+      a: 'Connector enablement is isolated per chat. A provider account authorized in the browser is shared by that browser session until you re-authorize or disconnect it, while repository/channel parameters remain configurable per chat.',
     },
     {
       q: 'What is the Model Context Protocol (MCP)?',

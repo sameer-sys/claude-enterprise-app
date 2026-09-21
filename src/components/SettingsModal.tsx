@@ -116,12 +116,6 @@ export default function SettingsModal({
   const [roomId, setRoomId] = useState(syncRoomId);
   const [subUrl, setSubUrl] = useState(supabaseUrl);
   const [subKey, setSubKey] = useState(supabaseKey);
-  const [composioKey, setComposioKey] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('composio_api_key') || '';
-    }
-    return '';
-  });
   const [saved, setSaved] = useState(false);
 
   // Official Preferences UI state (matching screenshot)
@@ -219,15 +213,6 @@ export default function SettingsModal({
     setTestResult(null);
     try {
       const connectorId = editingConnector?.id || '';
-      const toolkitAliases: Record<string, string> = {
-        'conn-gdrive': 'google_drive',
-        'conn-gcalendar': 'google_calendar',
-        'conn-m365': 'microsoft365',
-      };
-      const toolkit = toolkitAliases[connectorId] || connectorId.replace(/^conn-/i, '').toLowerCase();
-      const key =
-        composioKey.trim() ||
-        (typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || '' : '');
 
       if (connectorId === 'conn-omniroute') {
         const target = customServerUrl.trim() || 'http://127.0.0.1:20128/v1';
@@ -237,37 +222,18 @@ export default function SettingsModal({
         } catch (err: any) {
           setTestResult(`OmniRoute could not be reached at ${target}: ${err?.message || 'connection failed'}.`);
         }
-      } else if (key && !editingConnector?.isCustom) {
-        const userId = typeof window !== 'undefined'
-          ? localStorage.getItem('sameer_composio_user_id') || ''
-          : '';
-        const query = new URLSearchParams({ apiKey: key, entityId: userId || 'default' });
-        const res = await fetch(`/api/composio?${query.toString()}`, { cache: 'no-store' });
+      } else {
+        const res = await fetch('/api/connectors/status', { cache: 'no-store' });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !Array.isArray(data?.connectedAccounts)) {
-          setTestResult(data?.error || 'Composio account lookup failed.');
-        } else {
-          const accounts = data.connectedAccounts.filter((a: any) =>
-            String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit &&
-            a?.status === 'ACTIVE'
-          );
-          const selectedId = String(editingConnector?.config?.connectedAccountId || '').trim();
-          if (selectedId) {
-            const selected = accounts.find((a: any) => String(a.id) === selectedId);
-            setTestResult(
-              selected
-                ? `Live connection verified for ${selected.email || selected.accountIdentifier || toolkit}.`
-                : `The selected ${toolkit} account is not ACTIVE for this workspace user.`
-            );
-          } else {
-            setTestResult(
-              accounts.length
-                ? `Live Composio connection verified: ${accounts.length} active ${toolkit} account${accounts.length === 1 ? '' : 's'}.`
-                : `No ACTIVE ${toolkit} account is connected. Connect the app via Composio first.`
-            );
-          }
-        }
-      } else if (connectorId === 'conn-github') {
+        const connection = data?.connections?.[connectorId];
+
+        if (connection?.connected) {
+          const account = connection.account || {};
+          const label = account.email || account.username || account.name || account.label || 'authorized account';
+          setTestResult(`Direct first-party connection verified for ${label}.`);
+        } else if (data?.supportedOAuthConnectors?.includes?.(connectorId)) {
+          setTestResult('No direct first-party OAuth account is connected for this connector yet.');
+        } else if (connectorId === 'conn-github') {
         const target = customRepo || 'sameer-sys/claude-enterprise-app';
         const res = await fetch(`https://api.github.com/repos/${target}`, { cache: 'no-store' });
         if (res.ok) {
@@ -1459,42 +1425,6 @@ export default function SettingsModal({
                     onChange={(e) => setOrKey(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c]"
                   />
-                </div>
-
-                {/* Composio API Key */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-[#ece9e2] flex items-center gap-1.5">
-                      <span>Composio API Key</span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#cc785c]/15 text-[#cc785c] font-mono">
-                        Multi-App OAuth
-                      </span>
-                    </label>
-                    <a
-                      href="https://app.composio.dev/settings"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] text-[#cc785c] hover:underline flex items-center gap-0.5"
-                    >
-                      <span>app.composio.dev</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                  <input
-                    type="password"
-                    placeholder="Paste your Composio API key..."
-                    value={composioKey}
-                    onChange={(e) => {
-                      setComposioKey(e.target.value);
-                      if (typeof window !== 'undefined') {
-                        localStorage.setItem('composio_api_key', e.target.value);
-                      }
-                    }}
-                    className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c]"
-                  />
-                  <p className="text-[11px] text-[#9c978b]">
-                    Powers authentic OAuth integrations for Gmail, Google Drive, Calendar, GitHub, Slack & Notion.
-                  </p>
                 </div>
 
                 {/* OmniRoute Local Engine */}

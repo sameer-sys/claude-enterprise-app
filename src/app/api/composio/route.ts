@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       configured: true,
       connectedAccounts: accounts,
-      supportedApps: Object.keys(COMPOSIO_APP_MAP),
+      supportedApps: Array.from(new Set(Object.values(COMPOSIO_APP_MAP).filter((value) => value !== 'composio'))),
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

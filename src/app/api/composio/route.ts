@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const accounts = await listConnectedAccounts(apiKey);
+    const accounts = await listConnectedAccounts(apiKey, entityId !== 'default' ? entityId : undefined);
 
     return NextResponse.json({
       configured: true,
@@ -58,7 +58,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: 'appName is required' }, { status: 400 });
       }
 
-      const result = await initiateAppConnection(apiKey, appName, entityId, redirectUrl);
+      const callback = redirectUrl || (
+      new URL('/api/composio/callback', req.url).toString() +
+      '?user_id=' + encodeURIComponent(String(entityId || 'default'))
+    );
+    const result = await initiateAppConnection(apiKey, appName, entityId, callback);
       return NextResponse.json(result);
     }
 

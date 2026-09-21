@@ -10,6 +10,7 @@ import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
 import AgentsModal from '@/components/AgentsModal';
 import FeaturesModal from '@/components/FeaturesModal';
+import ManagerSquadView from '@/components/ManagerSquadView';
 import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton, OpenWorkAgent, ConnectorConfig } from '@/types/chat';
 
 const DEFAULT_CUSTOM_BUTTONS: CustomButton[] = [
@@ -86,6 +87,7 @@ export default function Home() {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isAgentsModalOpen, setIsAgentsModalOpen] = useState(false);
   const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
+  const [isSquadOpen, setIsSquadOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>(DEFAULT_CONNECTORS);
   const [geminiKey, setGeminiKey] = useState<string>('');
@@ -922,6 +924,17 @@ export default function Home() {
         onSelectAgent={handleSelectAgent}
       />
 
+      <ManagerSquadView
+        isOpen={isSquadOpen}
+        onClose={() => setIsSquadOpen(false)}
+        onSendPromptToSubAgent={(agentAlias, prompt) => {
+          handleSendMessage(`[${agentAlias}] ${prompt}`);
+        }}
+        onDeployToSession={(directive) => {
+          handleSendMessage(directive);
+        }}
+      />
+
       <FeaturesModal
         isOpen={isFeaturesOpen}
         onClose={() => setIsFeaturesOpen(false)}
@@ -933,6 +946,7 @@ export default function Home() {
           setIsSettingsOpen(true);
         }}
         onOpenDownload={() => setIsDownloadOpen(true)}
+        onOpenSquad={() => setIsSquadOpen(true)}
         onSelectThinkingBudget={(budget) => setThinkingBudget(budget as ThinkingBudget)}
       />
     </div>

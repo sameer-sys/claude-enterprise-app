@@ -386,7 +386,7 @@ export function createDefaultConnectors(): Connector[] {
       category: 'Code',
       section: 'custom',
       isVerified: true,
-      isCustom: true,
+      isCustom: false,
       capabilities: ['Code Search', 'Repo Inspection', 'Pull Requests', 'Issues'],
       config: {
         repo: 'sameer-sys/claude-enterprise-app',
@@ -1069,7 +1069,7 @@ export default function ConnectorsModal({
           const toolkit = toolkitForConnector(connectorId);
           const existingAccounts = Array.isArray(accountData?.connectedAccounts)
             ? accountData.connectedAccounts.filter((a: any) =>
-                String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit && a?.status === 'ACTIVE'
+                normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit && a?.status === 'ACTIVE'
               )
             : [];
           setComposioAccounts(existingAccounts.length ? accountData.connectedAccounts : []);
@@ -1164,7 +1164,7 @@ export default function ConnectorsModal({
               if (Array.isArray(checkData.connectedAccounts) && onUpdateConnectorConfig) {
                 const toolkit = toolkitForConnector(connectorId);
                 const candidates = checkData.connectedAccounts.filter((a: any) =>
-                  String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit &&
+                  normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit &&
                   a?.status === 'ACTIVE'
                 );
                 const matched = candidates.find((a: any) => !beforeIds.has(String(a.id))) ||
@@ -1990,7 +1990,7 @@ export default function ConnectorsModal({
               {!editingConnector.isCustom && (() => {
                 const toolkit = toolkitForConnector(editingConnector.id);
                 const options = composioAccounts.filter((a: any) =>
-                  String(a?.appUniqueId || a?.appName || '').toLowerCase() === toolkit && a?.status === 'ACTIVE'
+                  normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit && a?.status === 'ACTIVE'
                 );
                 return (
                   <div className="space-y-1.5">

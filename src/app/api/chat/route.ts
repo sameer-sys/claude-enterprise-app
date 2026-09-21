@@ -4,6 +4,7 @@ import { fetchLatestEmails } from '@/lib/imapReader';
 import {
   listConnectedAccounts,
   executeComposioAction,
+  executeComposioNaturalLanguage,
   getComposioApiKey,
 } from '@/lib/composio';
 
@@ -910,8 +911,54 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Explicit external actions are handled by the Composio agent tool loop below.
-    // This keeps the model, connector runtime, and live account state on one path.
+    // Deterministic Composio execution for explicit app actions. This is
+    // deliberately before model-provider routing so Gmail/GitHub/etc. actions
+    // still work when the selected model provider does not expose tool calling.
+    const explicitComposioAction =
+      /\b(list|show|find|search|read|get|create|open|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|unstar|close|merge)\b/i.test(lastText) &&
+      /\b(github|repo(?:sitory)?|pull request|issue|gmail|email|mail|google drive|drive|calendar|youtube|slack|notion|linear|asana|hubspot|instagram|facebook|linkedin|microsoft 365)\b/i.test(lastText);
+
+    if (explicitComposioAction && composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
+      try {
+        const liveAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+        const active = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
+        if (active.length) {
+          const executed = await executeComposioNaturalLanguage(
+            composioApiKey,
+            composioUserId,
+            lastText,
+            connectors,
+            liveAccounts,
+            modelId
+          );
+
+          if (executed.success) {
+            const payload = JSON.stringify({
+              success: true,
+              runtime: 'composio',
+              tool_slug: executed.toolSlug,
+              data: executed.data,
+            });
+            const stream = new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify({ content: '### Composio execution result\\n\\n' + payload }) + '\\n\\n'));
+                controller.enqueue(new TextEncoder().encode('data: [DONE]\\n\\n'));
+                controller.close();
+              },
+            });
+            return new Response(stream, {
+              headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                Connection: 'keep-alive',
+                'X-Claude-Skill': 'Composio Connector Execution',
+                'X-Claude-Router': 'composio-direct-runtime',
+              },
+            });
+          }
+        }
+      } catch {}
+    }
 
     // ========================================================
     // COMPOSIO CONNECTOR CONTEXT

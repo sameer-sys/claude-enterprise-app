@@ -1133,7 +1133,7 @@ export async function POST(req: NextRequest) {
           statusContent = '### Connector status\n\nNo directly authorized first-party connector accounts are active in this browser yet. Use **Connect** on a connector to authorize it with the provider.';
         } else {
           const directText = labels.length
-            ? labels.map(({ id, label }) => \`- **\${id.replace(/^conn-/, '')}** — \${label} (direct provider OAuth).\`).join('\n')
+            ? labels.map(({ id, label }) => `- **${id.replace(/^conn-/, '')}** — ${label} (direct provider OAuth).`).join('\n')
             : 'No direct provider OAuth accounts are connected.';
           statusContent = '### Connected apps\n\n' + directText;
 
@@ -1143,7 +1143,7 @@ export async function POST(req: NextRequest) {
               const activeAccounts = statusAccounts.filter((account: any) => account?.status === 'ACTIVE');
               const composioText = activeAccounts.map((account: any) => {
                 const slug = String(account?.appUniqueId || account?.appName || '').trim();
-                return slug ? \`- **\${slug}** — active (explicit Composio adapter).\` : '';
+                return slug ? `- **${slug}** — active (explicit Composio adapter).` : '';
               }).filter(Boolean).join('\n');
               if (composioText) statusContent += '\n\n### Explicit Composio adapters\n\n' + composioText;
             } catch (err: any) {
@@ -1342,20 +1342,20 @@ export async function POST(req: NextRequest) {
           if (directConnections[id]) {
             const account = directConnections[id]?.account || {};
             const label = account.email || account.username || account.name || account.label || 'authorized account';
-            connectorContext += \`- \${conn.name}: connected directly to \${label}; enabled for this chat.\n\`;
+            connectorContext += `- ${conn.name}: connected directly to ${label}; enabled for this chat.\n`;
           } else if (runtime === 'direct') {
-            connectorContext += \`- \${conn.name}: direct provider connector is enabled for this chat, but no first-party authorization is active in this browser. Do not claim it is connected.\n\`;
+            connectorContext += `- ${conn.name}: direct provider connector is enabled for this chat, but no first-party authorization is active in this browser. Do not claim it is connected.\n`;
           } else if (runtime === 'composio') {
-            connectorContext += \`- \${conn.name}: explicitly configured Composio adapter is enabled for this chat.\n\`;
+            connectorContext += `- ${conn.name}: explicitly configured Composio adapter is enabled for this chat.\n`;
           } else {
-            connectorContext += \`- \${conn.name}: \${runtime} runtime is configured; the provider URL may be opened, but remote execution is only available when that runtime is implemented and authenticated.\n\`;
+            connectorContext += `- ${conn.name}: ${runtime} runtime is configured; the provider URL may be opened, but remote execution is only available when that runtime is implemented and authenticated.\n`;
           }
         }
       }
 
       if (directLabels.length > 0 && activeConnectors.length === 0) {
         connectorContext += '- Direct provider accounts currently authorized in this browser: ' +
-          directLabels.map(({ id, label }) => \`\${id.replace(/^conn-/, '')} (\${label})\`).join(', ') + '.\n';
+          directLabels.map(({ id, label }) => `${id.replace(/^conn-/, '')} (${label})`).join(', ') + '.\n';
       }
 
       const explicitComposioConnectors = activeConnectors.filter((c: any) =>
@@ -1367,7 +1367,7 @@ export async function POST(req: NextRequest) {
             const composioAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
             const activeAccounts = composioAccounts.filter((a: any) => a?.status === 'ACTIVE');
             connectorContext += activeAccounts.length
-              ? \`- Explicit Composio runtime accounts active: \${activeAccounts.map((a: any) => a?.appUniqueId || a?.appName || a?.id).filter(Boolean).join(', ')}.\n\`
+              ? `- Explicit Composio runtime accounts active: ${activeAccounts.map((a: any) => a?.appUniqueId || a?.appName || a?.id).filter(Boolean).join(', ')}.\n`
               : '- Explicit Composio connectors are enabled, but no ACTIVE Composio account was found. Do not claim an action succeeded.\n';
           } catch (err: any) {
             connectorContext += '- Explicit Composio account lookup failed: ' + (err?.message || 'unknown error') + '.\n';

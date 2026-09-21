@@ -1378,6 +1378,7 @@ export default function ConnectorsModal({
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
                         onOpenConnector={handleOpenConnector}
                         onConnect={handleConnectConnector}
+                        isConnecting={connectingId === conn.id}
                       />
                     ))}
                   </div>
@@ -1408,6 +1409,8 @@ export default function ConnectorsModal({
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
                         onOpenConnector={handleOpenConnector}
+                        onConnect={handleConnectConnector}
+                        isConnecting={connectingId === conn.id}
                       />
                     ))}
                   </div>
@@ -1721,6 +1724,7 @@ function ConnectorCard({
   onOpenConfig: (e: React.MouseEvent) => void;
   onOpenConnector?: (connectorId: string) => void;
   onConnect: (connectorId: string) => void;
+  isConnecting?: boolean;
 }) {
   const isEnabled = connector.enabled;
   const isConnected = connector.status === 'connected';
@@ -1773,11 +1777,11 @@ function ConnectorCard({
         {isDirectOAuthConnector(connector) && !isConnected && (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); handleConnectConnector(connector.id); }}
+            onClick={(e) => { e.stopPropagation(); onConnect(connector.id); }}
             className="px-2.5 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-[10px] font-semibold text-black transition-colors"
             title="Start direct first-party OAuth"
           >
-            {connectingId === connector.id ? 'Opening…' : 'Connect'}
+            {isConnecting ? 'Opening…' : 'Connect'}
           </button>
         )}
         {launchUrl && (
@@ -1800,7 +1804,7 @@ function ConnectorCard({
             <Settings className="w-3.5 h-3.5" />
           </button>
         )}
-        <button type="button" onClick={(e) => { e.stopPropagation(); if (isConnected) onToggle(); else handleConnectConnector(connector.id); }}
+        <button type="button" onClick={(e) => { e.stopPropagation(); if (isConnected) onToggle(); else onConnect(connector.id); }}
           className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isEnabled ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25' : 'bg-[#26241f] border border-[#333028] text-[#dcd8ce] hover:text-white hover:bg-[#33302a]'}`}
           title={isConnected ? (isEnabled ? 'Enabled for this chat (Click to turn off)' : 'Enable this connected connector for this chat') : 'Connect this service'}>
           {isEnabled ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}

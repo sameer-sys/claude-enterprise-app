@@ -117,28 +117,29 @@ export async function getComposioApiKey(userKey?: string): Promise<string | null
 
 export async function listConnectedAccounts(
   apiKey: string,
-  entityId?: string
+  entityId?: string,
+  toolkitSlug?: string
 ): Promise<ComposioConnectedAccount[]> {
   try {
-    const endpoints = [
-      `${COMPOSIO_V3_BASE}/connected_accounts?account_type=ALL`,
-      `${COMPOSIO_V31_BASE}/connected_accounts?account_type=ALL`,
-      `${COMPOSIO_V1_BASE}/connectedAccounts`,
+    const params = new URLSearchParams();
+    params.set('account_type', 'ALL');
+    params.set('limit', '100');
+    if (entityId && entityId !== 'default') params.set('user_ids', entityId);
+    if (toolkitSlug) params.set('toolkit_slugs', toolkitSlug);
+
+    const urls = [
+      \`${COMPOSIO_V31_BASE}/connected_accounts?\${params.toString()}\`,
+      \`${COMPOSIO_V3_BASE}/connected_accounts?\${params.toString()}\`,
     ];
 
-    for (const url of endpoints) {
+    for (const url of urls) {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: {
-            'x-api-key': apiKey,
-            'Content-Type': 'application/json',
-          },
-          next: { revalidate: 0 },
+          headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+          cache: 'no-store',
         });
-
         if (!res.ok) continue;
-
         const data = await res.json();
         const rawList = Array.isArray(data.items)
           ? data.items
@@ -150,39 +151,42 @@ export async function listConnectedAccounts(
           ? data.data
           : [];
 
-        if (rawList.length >= 0) {
-          return rawList.map((item: any) => {
-            const appUid = (item.toolkit_slug || item.appUniqueId || item.appName || item.app?.name || '').toLowerCase();
-            const email =
-              item.params?.email ||
-              item.connectionParams?.email ||
-              item.connectionParams?.headers?.['user_email'] ||
-              item.connectionParams?.val?.email ||
-              item.user_email ||
-              item.data?.email ||
-              item.credentials?.email ||
-              (item.accountIdentifier && item.accountIdentifier.includes('@') ? item.accountIdentifier : undefined) ||
-              (item.userUuid && item.userUuid.includes('@') ? item.userUuid : undefined) ||
-              (item.user_id && item.user_id.includes('@') ? item.user_id : undefined) ||
-              (item.clientUniqueUserId && item.clientUniqueUserId.includes('@') ? item.clientUniqueUserId : undefined) ||
-              (typeof item.label === 'string' && item.label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/)?.[1]);
+        return rawList.map((item: any) => {
+          const appUid = String(
+            item.toolkit?.slug || item.toolkit_slug || item.appUniqueId ||
+            item.appName || item.app?.name || ''
+          ).toLowerCase();
 
-            return {
-              id: item.id || item.nanoid || `acc_${Date.now()}`,
-              appUniqueId: appUid,
-              appName: item.appName || item.toolkit_slug || item.appUniqueId || appUid,
-              status: (item.status === 'ACTIVE' || item.status === 'active' || item.status === 'CONNECTED') ? 'ACTIVE' : (item.status || 'ACTIVE'),
-              createdAt: item.createdAt || item.created_at || new Date().toISOString(),
-              updatedAt: item.updatedAt || item.updated_at || new Date().toISOString(),
-              userUuid: item.userUuid || item.user_id,
-              email,
-              accountIdentifier: item.accountIdentifier || item.label || email,
-            };
-          });
-        }
+          const email =
+            item.state?.val?.email ||
+            item.state?.val?.user_email ||
+            item.params?.email ||
+            item.connectionParams?.email ||
+            item.connectionParams?.headers?.['user_email'] ||
+            item.connectionParams?.val?.email ||
+            item.user_email ||
+            item.data?.email ||
+            item.credentials?.email ||
+            (item.accountIdentifier && String(item.accountIdentifier).includes('@') ? item.accountIdentifier : undefined) ||
+            (item.userUuid && String(item.userUuid).includes('@') ? item.userUuid : undefined) ||
+            (item.user_id && String(item.user_id).includes('@') ? item.user_id : undefined) ||
+            (item.clientUniqueUserId && String(item.clientUniqueUserId).includes('@') ? item.clientUniqueUserId : undefined) ||
+            (typeof item.label === 'string' && item.label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/)?.[1]);
+
+          return {
+            id: item.id || item.nanoid || \`acc_\${Date.now()}\`,
+            appUniqueId: appUid,
+            appName: item.toolkit?.name || item.appName || item.toolkit_slug || item.appUniqueId || appUid,
+            status: (item.status === 'ACTIVE' || item.status === 'active' || item.status === 'CONNECTED') ? 'ACTIVE' : (item.status || 'ACTIVE'),
+            createdAt: item.createdAt || item.created_at || new Date().toISOString(),
+            updatedAt: item.updatedAt || item.updated_at || new Date().toISOString(),
+            userUuid: item.user_id || item.userUuid,
+            email,
+            accountIdentifier: item.alias || item.accountIdentifier || item.label || email,
+          };
+        });
       } catch (err) {}
     }
-
     return [];
   } catch (err) {
     return [];
@@ -198,57 +202,66 @@ export async function initiateAppConnection(
   const composioAppName = COMPOSIO_APP_MAP[appName] || appName;
   const cbUrl = redirectUrl || 'https://claude-enterprise-app.vercel.app';
 
-  // 1. Try v3/v3.1 link endpoint
-  const v3Urls = [
-    `${COMPOSIO_V3_BASE}/connected_accounts/link`,
-    `${COMPOSIO_V31_BASE}/connected_accounts/link`,
-  ];
+  // Composio-managed OAuth now uses /connected_accounts/link.
+  // That endpoint requires an auth_config_id, not just a toolkit/app name.
+  try {
+    const authUrl = new URL(\`${COMPOSIO_V31_BASE}/auth_configs\`);
+    authUrl.searchParams.set('toolkit_slug', composioAppName);
+    authUrl.searchParams.set('is_composio_managed', 'true');
+    authUrl.searchParams.set('show_disabled', 'false');
+    authUrl.searchParams.set('limit', '50');
 
-  for (const url of v3Urls) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'x-api-key': apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          appName: composioAppName,
-          toolkit_slug: composioAppName,
-          user_id: entityId,
-          callback_url: cbUrl,
-        }),
-      });
+    const authRes = await fetch(authUrl.toString(), {
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      cache: 'no-store',
+    });
 
-      if (res.ok) {
-        const data = await res.json();
-        const link = data.redirect_url || data.redirectUrl || data.connectionUrl || data.url || data.link;
-        if (link) {
-          return {
-            success: true,
-            redirectUrl: link,
-            connectionId: data.id || data.connectionId || data.nanoid,
-          };
+    if (authRes.ok) {
+      const authData = await authRes.json();
+      const authConfig = (Array.isArray(authData.items) ? authData.items : []).find(
+        (a: any) => a?.status !== 'DISABLED'
+      );
+
+      if (authConfig?.id) {
+        const linkRes = await fetch(\`${COMPOSIO_V31_BASE}/connected_accounts/link\`, {
+          method: 'POST',
+          headers: {
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            auth_config_id: authConfig.id,
+            user_id: entityId,
+            callback_url: cbUrl,
+          }),
+        });
+
+        const linkData = await linkRes.json().catch(() => ({}));
+        if (linkRes.ok) {
+          const link = linkData.redirect_url || linkData.redirectUrl || linkData.connectionUrl || linkData.url;
+          if (link) {
+            return {
+              success: true,
+              redirectUrl: link,
+              connectionId: linkData.connected_account_id || linkData.connectionId || linkData.id || linkData.nanoid,
+            };
+          }
         }
       }
-    } catch (e) {}
-  }
+    }
+  } catch (e) {}
 
-  // 2. Fallback to v1 connectedAccounts
+  // Legacy fallback for custom/non-OAuth configurations.
   try {
-    const res = await fetch(`${COMPOSIO_V1_BASE}/connectedAccounts`, {
+    const res = await fetch(\`${COMPOSIO_V1_BASE}/connectedAccounts\`, {
       method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         appName: composioAppName,
         userUuid: entityId,
         redirectUrl: cbUrl,
       }),
     });
-
     const data = await res.json();
     if (res.ok && (data.redirectUrl || data.connectionUrl || data.url)) {
       return {
@@ -260,8 +273,8 @@ export async function initiateAppConnection(
   } catch (e) {}
 
   return {
-    success: true,
-    redirectUrl: `https://app.composio.dev/apps/${encodeURIComponent(composioAppName)}`,
+    success: false,
+    error: \`Could not create a Composio auth link for toolkit "\${composioAppName}". Check that the toolkit has an enabled auth config in your Composio project.\`,
   };
 }
 

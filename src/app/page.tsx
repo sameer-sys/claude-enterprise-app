@@ -18,6 +18,23 @@ const DEFAULT_CUSTOM_BUTTONS: CustomButton[] = [
   { id: 'btn_3', label: '🔍 Security Audit', prompt: 'Audit this implementation for OWASP security vulnerabilities.' },
 ];
 
+function getStableComposioUserId(): string {
+  if (typeof window === 'undefined') return 'default';
+  const storageKey = 'sameer_composio_user_id';
+  const existing = localStorage.getItem(storageKey);
+  if (existing && existing.trim()) return existing.trim();
+  let generated = '';
+  try {
+    generated = typeof crypto?.randomUUID === 'function'
+      ? 'sameer_' + crypto.randomUUID()
+      : 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  } catch {
+    generated = 'sameer_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  }
+  localStorage.setItem(storageKey, generated);
+  return generated;
+}
+
 const DEFAULT_SESSION: Session = {
   id: 'ses_default',
   title: 'New Conversation',
@@ -136,8 +153,23 @@ export default function Home() {
               return c;
             });
 
+            // Disable stale demo connectors that claim to be connected without a real
+            // Composio account bound to this chat. Real connections are restored
+            // by the connector sync/account picker.
+            const normalizedConns = sanitizedConns.map((c: any) => {
+              if (
+                !c?.isCustom &&
+                String(c?.id || '').startsWith('conn-') &&
+                c?.enabled === true &&
+                !c?.config?.connectedAccountId
+              ) {
+                return { ...c, enabled: false, status: 'ready' };
+              }
+              return c;
+            });
+
             // Ensure custom connectors are merged in
-            const mergedConns = [...sanitizedConns];
+            const mergedConns = [...normalizedConns];
             for (const cust of savedCustom) {
               if (!mergedConns.some((c: any) => c.id === cust.id)) {
                 mergedConns.unshift(cust);
@@ -547,6 +579,8 @@ export default function Home() {
           geminiKey: geminiKey || undefined,
           openRouterKey: openRouterKey || undefined,
           composioApiKey: composioKey,
+          composioUserId: getStableComposioUserId(),
+          sessionId: activeSession.id,
           thinkingBudget,
           agentPrompt: activeSession.agentPrompt,
           connectors: currentSessionConnectors,
@@ -566,6 +600,8 @@ export default function Home() {
             geminiKey: geminiKey || undefined,
             openRouterKey: openRouterKey || undefined,
             composioApiKey: composioKey,
+            composioUserId: getStableComposioUserId(),
+            sessionId: activeSession.id,
             thinkingBudget,
             agentPrompt: activeSession.agentPrompt,
             connectors: currentSessionConnectors,

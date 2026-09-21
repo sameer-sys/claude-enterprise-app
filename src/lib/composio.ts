@@ -128,8 +128,8 @@ export async function listConnectedAccounts(
     if (toolkitSlug) params.set('toolkit_slugs', toolkitSlug);
 
     const urls = [
-      \`${COMPOSIO_V31_BASE}/connected_accounts?\${params.toString()}\`,
-      \`${COMPOSIO_V3_BASE}/connected_accounts?\${params.toString()}\`,
+      `${COMPOSIO_V31_BASE}/connected_accounts?${params.toString()}`,
+      `${COMPOSIO_V3_BASE}/connected_accounts?${params.toString()}`,
     ];
 
     for (const url of urls) {
@@ -174,7 +174,7 @@ export async function listConnectedAccounts(
             (typeof item.label === 'string' && item.label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/)?.[1]);
 
           return {
-            id: item.id || item.nanoid || \`acc_\${Date.now()}\`,
+            id: item.id || item.nanoid || `acc_${Date.now()}`,
             appUniqueId: appUid,
             appName: item.toolkit?.name || item.appName || item.toolkit_slug || item.appUniqueId || appUid,
             status: (item.status === 'ACTIVE' || item.status === 'active' || item.status === 'CONNECTED') ? 'ACTIVE' : (item.status || 'ACTIVE'),
@@ -205,7 +205,7 @@ export async function initiateAppConnection(
   // Composio-managed OAuth now uses /connected_accounts/link.
   // That endpoint requires an auth_config_id, not just a toolkit/app name.
   try {
-    const authUrl = new URL(\`${COMPOSIO_V31_BASE}/auth_configs\`);
+    const authUrl = new URL(`${COMPOSIO_V31_BASE}/auth_configs`);
     authUrl.searchParams.set('toolkit_slug', composioAppName);
     authUrl.searchParams.set('is_composio_managed', 'true');
     authUrl.searchParams.set('show_disabled', 'false');
@@ -223,7 +223,7 @@ export async function initiateAppConnection(
       );
 
       if (authConfig?.id) {
-        const linkRes = await fetch(\`${COMPOSIO_V31_BASE}/connected_accounts/link\`, {
+        const linkRes = await fetch(`${COMPOSIO_V31_BASE}/connected_accounts/link`, {
           method: 'POST',
           headers: {
             'x-api-key': apiKey,
@@ -253,7 +253,7 @@ export async function initiateAppConnection(
 
   // Legacy fallback for custom/non-OAuth configurations.
   try {
-    const res = await fetch(\`${COMPOSIO_V1_BASE}/connectedAccounts\`, {
+    const res = await fetch(`${COMPOSIO_V1_BASE}/connectedAccounts`, {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -274,7 +274,7 @@ export async function initiateAppConnection(
 
   return {
     success: false,
-    error: \`Could not create a Composio auth link for toolkit "\${composioAppName}". Check that the toolkit has an enabled auth config in your Composio project.\`,
+    error: `Could not create a Composio auth link for toolkit "${composioAppName}". Check that the toolkit has an enabled auth config in your Composio project.`,
   };
 }
 

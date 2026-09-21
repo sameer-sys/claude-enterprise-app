@@ -2431,6 +2431,19 @@ function ConnectorCard({
           connector.id === 'conn-linkedin' ||
           connector.id === 'conn-reddit'
         ) && (
+          <>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onComposioConnect?.(connector.id);
+              }}
+              className="p-1.5 rounded-lg text-[#8a8579] hover:text-[#cc785c] hover:bg-[#282622] transition-colors"
+              title="Verify or reconnect this account"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+
           <button
             type="button"
             onClick={onOpenConfig}
@@ -2439,6 +2452,7 @@ function ConnectorCard({
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
+          </>
         )}
 
         {!isEnabled && (

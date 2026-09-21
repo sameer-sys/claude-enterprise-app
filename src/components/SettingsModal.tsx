@@ -1348,9 +1348,9 @@ export default function SettingsModal({
                               conn.status === 'connected' ? (
                                 <button
                                   onClick={() => onToggleConnector?.(conn.id)}
-                                  className={\`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center space-x-1.5 shrink-0 \${conn.enabled
+                                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center space-x-1.5 shrink-0 ${conn.enabled
                                     ? 'bg-[#cc785c] hover:bg-[#db8a6e] text-black shadow-md shadow-[#cc785c]/25'
-                                    : 'bg-[#292721] hover:bg-[#333129] text-[#ece9e2] border border-[#3d3b31]'}\`}
+                                    : 'bg-[#292721] hover:bg-[#333129] text-[#ece9e2] border border-[#3d3b31]'}`}
                                 >
                                   <Power className="w-3.5 h-3.5" />
                                   <span>{conn.enabled ? 'Enabled' : 'Enable'}</span>
@@ -1359,7 +1359,7 @@ export default function SettingsModal({
                                 <button
                                   onClick={() => {
                                     if (typeof window !== 'undefined') {
-                                      window.open(\`/api/connectors/oauth/start?connector=\${encodeURIComponent(conn.id)}\`, '_blank', 'noopener,noreferrer');
+                                      window.open(`/api/connectors/oauth/start?connector=${encodeURIComponent(conn.id)}`, '_blank', 'noopener,noreferrer');
                                     }
                                   }}
                                   className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#cc785c] hover:bg-[#db8a6e] text-black shadow-md shadow-[#cc785c]/25 flex items-center space-x-1.5 shrink-0"

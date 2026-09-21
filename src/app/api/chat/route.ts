@@ -97,6 +97,35 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'connector_search',
+      description: 'Search the live action catalog of enabled connected services. Use this to find the exact real action needed for GitHub, Gmail, Drive, Calendar, Slack, Notion, YouTube, and other connected services.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Describe the action needed, such as create a GitHub issue, update a repository file, list pull requests, send a Gmail message, or find a Drive file.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'connector_execute',
+      description: 'Execute a real action on a connected service. Use the exact tool_slug returned by connector_search and provide arguments matching its schema. Never claim success unless the tool returns success.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tool_slug: { type: 'string' },
+          arguments: { type: 'object' },
+        },
+        required: ['tool_slug', 'arguments'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'read_inbox',
       description: 'Read the most recent real emails from the connected inbox.',
       parameters: {
@@ -107,7 +136,11 @@ const AGENT_TOOLS = [
   },
 ];
 
-async function runAgentTool(name: string, args: any): Promise<string> {
+async function runAgentTool(
+  name: string,
+  args: any,
+  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[] } = {}
+): Promise<string> {
   try {
     if (name === 'web_search') {
       const queryClean = String(args?.query || '').slice(0, 150);
@@ -192,6 +225,57 @@ async function runAgentTool(name: string, args: any): Promise<string> {
       if (!inboxRes.success) return `Could not read inbox: ${inboxRes.error}`;
       if (!inboxRes.emails.length) return 'Inbox is empty or SMTP/IMAP is not configured.';
       return inboxRes.emails.map((e: any) => `From: ${e.fromName} <${e.from}>, Subject: "${e.subject}", Date: ${e.date}`).join('\n');
+    }
+
+    if (name === 'connector_search') {
+      if (!connectorContext.apiKey) return 'Composio is not configured. Add the Composio API key in connector settings first.';
+      const { searchComposioTools } = await import('@/lib/composio');
+      const toolkitSlugs = Array.from(new Set((connectorContext.connectors || [])
+        .filter((c: any) => c?.enabled !== false)
+        .map((c: any) => {
+          const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
+          return ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
+        })
+        .filter(Boolean)));
+      const found = await searchComposioTools(connectorContext.apiKey, String(args?.query || ''), toolkitSlugs);
+      if (!found.length) return 'No real connector action matched that request. Try describing the action more specifically.';
+      return JSON.stringify(found.slice(0, 12).map((t: any) => ({
+        tool_slug: t.slug,
+        toolkit: t.toolkit,
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema,
+      })));
+    }
+
+    if (name === 'connector_execute') {
+      if (!connectorContext.apiKey) return 'Composio is not configured.';
+      const slug = String(args?.tool_slug || '').trim();
+      if (!slug) return 'tool_slug is required.';
+      const accounts = connectorContext.accounts || [];
+      const toolkit = slug.split('_')[0].toLowerCase();
+      const aliases: Record<string,string> = { google: 'google_drive', googledrive: 'google_drive' };
+      const normalizedToolkit = aliases[toolkit] || toolkit;
+      const connector = (connectorContext.connectors || []).find((c: any) => {
+        const id = String(c?.id || '').replace(/^conn-/, '').toLowerCase();
+        const mapped = ({ gdrive: 'google_drive', gcalendar: 'google_calendar', m365: 'microsoft365' } as Record<string,string>)[id] || id;
+        return mapped === normalizedToolkit || String(c?.config?.connectedAccountId || '') === String(args?.connected_account_id || '');
+      });
+      const accountId =
+        connector?.config?.connectedAccountId ||
+        accounts.find((a: any) => {
+          const uid = String(a?.appUniqueId || '').toLowerCase();
+          return uid === normalizedToolkit && a?.status === 'ACTIVE';
+        })?.id;
+      const result = await executeComposioAction(
+        connectorContext.apiKey,
+        slug,
+        args?.arguments || {},
+        accountId,
+        'default'
+      );
+      if (!result.success) return JSON.stringify({ success: false, error: result.error || 'Connector action failed' });
+      return JSON.stringify({ success: true, tool_slug: slug, data: result.data });
     }
 
     return `Unknown tool: ${name}`;
@@ -1606,7 +1690,13 @@ Please verify your credentials or connected account in the Connectors modal.`;
       // eats into the final answer's share of the 60s Vercel function cap.
       if (activeOrKey) {
         const agentDeadline = requestStartTime + 40000; // leave time for the final streamed answer
-        const maxAgentTurns = 4;
+        const maxAgentTurns = 6;
+        let connectorAccounts: any[] = [];
+        if (composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.enabled !== false)) {
+          try {
+            connectorAccounts = await listConnectedAccounts(composioApiKey);
+          } catch {}
+        }
 
         for (let turn = 0; turn < maxAgentTurns; turn++) {
           if (Date.now() > agentDeadline) break;
@@ -1651,7 +1741,11 @@ Please verify your credentials or connected account in the Connectors modal.`;
                 toolArgs = JSON.parse(call.function?.arguments || '{}');
               } catch (e) {}
 
-              const result = await runAgentTool(toolName, toolArgs);
+              const result = await runAgentTool(toolName, toolArgs, {
+                apiKey: composioApiKey,
+                connectors,
+                accounts: connectorAccounts,
+              });
 
               fullMessages.push({
                 role: 'tool',

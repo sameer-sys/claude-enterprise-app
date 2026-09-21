@@ -1441,6 +1441,8 @@ export default function ConnectorsModal({
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
                         onOpenConnector={handleOpenConnector}
+                        onConnect={handleConnectConnector}
+                        isConnecting={connectingId === conn.id}
                       />
                     ))}
                   </div>
@@ -1718,6 +1720,8 @@ function ConnectorCard({
   onToggle,
   onOpenConfig,
   onOpenConnector,
+  onConnect,
+  isConnecting,
 }: {
   connector: Connector;
   onToggle: () => void;

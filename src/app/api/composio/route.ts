@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'connect') {
       if (!appName || !entityId) {
-        return NextResponse.json({ success: false, error: 'appName and entityId are required.' }, { status: 400 });
+        return NextResponse.json({ success: false, error: 'appName is required.' }, { status: 400 });
       }
       const result = await initiateAppConnection(
         apiKey,

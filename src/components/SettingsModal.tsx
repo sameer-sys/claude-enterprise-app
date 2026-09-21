@@ -410,7 +410,6 @@ export default function SettingsModal({
               {activeTab === 'desktop' && 'Desktop App'}
               {activeTab === 'developer' && 'Developer & Sync'}
               {activeTab === 'skills' && 'Skills'}
-              {activeTab === 'connectors' && 'Connectors & Model Context Protocol (MCP)'}
               {activeTab === 'plugins' && 'Plugins'}
               {(activeTab === 'apikeys' || activeTab === 'models') && 'API Keys & Quotas'}
             </h2>

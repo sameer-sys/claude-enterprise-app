@@ -10,7 +10,6 @@ import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
 import AgentsModal from '@/components/AgentsModal';
 import FeaturesModal from '@/components/FeaturesModal';
-import ManagerSquadView from '@/components/ManagerSquadView';
 import { Session, Message, ModelId, Artifact, Project, Attachment, ThinkingBudget, CustomButton, OpenWorkAgent, ConnectorConfig } from '@/types/chat';
 
 const DEFAULT_CUSTOM_BUTTONS: CustomButton[] = [
@@ -70,7 +69,6 @@ export default function Home() {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isAgentsModalOpen, setIsAgentsModalOpen] = useState(false);
   const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
-  const [isSquadOpen, setIsSquadOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>(DEFAULT_CONNECTORS);
   const [geminiKey, setGeminiKey] = useState<string>('');
@@ -138,20 +136,8 @@ export default function Home() {
               return c;
             });
 
-            // Direct first-party OAuth status is server-side and refreshed below.
-            // Do not disable a connector merely because the old Composio account id is absent.
-            const normalizedConns = sanitizedConns.map((c: any) => {
-              if (
-                String(c?.provider || '') === 'composio' ||
-                String(c?.config?.connectionType || '') === 'composio'
-              ) {
-                return { ...c, enabled: false, status: 'ready' };
-              }
-              return c;
-            });
-
             // Ensure custom connectors are merged in
-            const mergedConns = [...normalizedConns];
+            const mergedConns = [...sanitizedConns];
             for (const cust of savedCustom) {
               if (!mergedConns.some((c: any) => c.id === cust.id)) {
                 mergedConns.unshift(cust);
@@ -274,22 +260,7 @@ export default function Home() {
     const next = !isProactiveMode;
     setIsProactiveMode(next);
     localStorage.setItem('claude_proactive_mode', String(next));
-    try {
-      const electronAPI = typeof window !== 'undefined' ? (window as any).electronAPI : null;
-      if (next) electronAPI?.startAutomation?.();
-      else electronAPI?.stopAutomation?.();
-    } catch {}
   };
-
-  useEffect(() => {
-    try {
-      const electronAPI = typeof window !== 'undefined' ? (window as any).electronAPI : null;
-      if (electronAPI) {
-        if (isProactiveMode) electronAPI.startAutomation?.();
-        else electronAPI.stopAutomation?.();
-      }
-    } catch {}
-  }, [isProactiveMode]);
 
   const handleSaveGeminiKey = (key: string) => {
     setGeminiKey(key);
@@ -316,71 +287,6 @@ export default function Home() {
       ? activeSession.connectors
       : createDefaultConnectors();
   const activeConnectorsCount = currentSessionConnectors.filter((c) => c.enabled).length;
-
-  const refreshConnectorConnections = async () => {
-    try {
-      const response = await fetch('/api/connectors/status', { cache: 'no-store' });
-      if (!response.ok) return;
-      const data = await response.json().catch(() => ({}));
-      const connections = data?.connections && typeof data.connections === 'object' ? data.connections : {};
-
-      setSessions((prev) =>
-        prev.map((session) => {
-          const sessionConnectors = session.connectors || createDefaultConnectors();
-          const nextConnectors = sessionConnectors.map((connector) => {
-            const info = connections[connector.id];
-            const isDirectOAuth = Boolean(data?.supportedOAuthConnectors?.includes?.(connector.id));
-            if (info?.connected) {
-              const account = info.account || {};
-              const label = account.email || account.username || account.name || account.label || '';
-              return {
-                ...connector,
-                status: 'connected',
-                config: {
-                  ...connector.config,
-                  ...(account.email ? { email: account.email } : {}),
-                  ...(label ? { accountName: label } : {}),
-                },
-              };
-            }
-            if (isDirectOAuth) {
-              return {
-                ...connector,
-                status: 'ready',
-                config: {
-                  ...connector.config,
-                  email: undefined,
-                  accountName: undefined,
-                },
-              };
-            }
-            return connector;
-          });
-          return { ...session, connectors: nextConnectors };
-        })
-      );
-    } catch {
-      // Keep the existing local state when the status endpoint is temporarily unavailable.
-    }
-  };
-
-  useEffect(() => {
-    refreshConnectorConnections();
-    const handleFocus = () => { refreshConnectorConnections(); };
-    const handleConnectorMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type !== 'sameer-connector-connected') return;
-      refreshConnectorConnections();
-    };
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('message', handleConnectorMessage);
-    const timer = window.setInterval(refreshConnectorConnections, 60_000);
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('message', handleConnectorMessage);
-      window.clearInterval(timer);
-    };
-  }, []);
 
   const handleToggleConnector = (id: string) => {
     setSessions((prev) =>
@@ -598,6 +504,8 @@ export default function Home() {
       content: '',
       timestamp: Date.now(),
       modelId: activeModel,
+      thinking: 'Analyzing query intent, evaluating constraints, synthesizing optimal architectural path...',
+      thinkingDuration: 2,
       thinkingBudget,
     };
 
@@ -628,6 +536,8 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
+      const composioKey = typeof window !== 'undefined' ? localStorage.getItem('composio_api_key') || undefined : undefined;
+
       let response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -636,7 +546,7 @@ export default function Home() {
           modelId: activeModel,
           geminiKey: geminiKey || undefined,
           openRouterKey: openRouterKey || undefined,
-          sessionId: activeSession.id,
+          composioApiKey: composioKey,
           thinkingBudget,
           agentPrompt: activeSession.agentPrompt,
           connectors: currentSessionConnectors,
@@ -655,7 +565,7 @@ export default function Home() {
             modelId: activeModel,
             geminiKey: geminiKey || undefined,
             openRouterKey: openRouterKey || undefined,
-            sessionId: activeSession.id,
+            composioApiKey: composioKey,
             thinkingBudget,
             agentPrompt: activeSession.agentPrompt,
             connectors: currentSessionConnectors,
@@ -677,6 +587,7 @@ export default function Home() {
 
       const decoder = new TextDecoder();
       let accumulatedContent = '';
+      let accumulatedThinking = '';
       let sseBuffer = '';
 
       while (true) {
@@ -696,6 +607,10 @@ export default function Home() {
           try {
             const data = JSON.parse(dataStr);
             let hasUpdate = false;
+            if (data.thinking) {
+              accumulatedThinking += data.thinking;
+              hasUpdate = true;
+            }
             if (data.content) {
               accumulatedContent += data.content;
               hasUpdate = true;
@@ -714,6 +629,7 @@ export default function Home() {
                         ? {
                             ...m,
                             content: accumulatedContent,
+                            thinking: accumulatedThinking || m.thinking,
                             artifact,
                             skillActivated: activeSkill,
                           }
@@ -978,17 +894,6 @@ export default function Home() {
         onSelectAgent={handleSelectAgent}
       />
 
-      <ManagerSquadView
-        isOpen={isSquadOpen}
-        onClose={() => setIsSquadOpen(false)}
-        onSendPromptToSubAgent={(agentAlias, prompt) => {
-          handleSendMessage(`[${agentAlias}] ${prompt}`);
-        }}
-        onDeployToSession={(directive) => {
-          handleSendMessage(directive);
-        }}
-      />
-
       <FeaturesModal
         isOpen={isFeaturesOpen}
         onClose={() => setIsFeaturesOpen(false)}
@@ -1000,7 +905,6 @@ export default function Home() {
           setIsSettingsOpen(true);
         }}
         onOpenDownload={() => setIsDownloadOpen(true)}
-        onOpenSquad={() => setIsSquadOpen(true)}
         onSelectThinkingBudget={(budget) => setThinkingBudget(budget as ThinkingBudget)}
       />
     </div>

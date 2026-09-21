@@ -338,7 +338,16 @@ export default function Home() {
         if (s.id !== activeSession.id) return s;
         const curConns = s.connectors || createDefaultConnectors();
         const updatedConns = curConns.map((c) =>
-          c.id === id ? { ...c, config: { ...c.config, ...config } } : c
+          c.id === id
+            ? {
+                ...c,
+                status:
+                  id === 'conn-composio' && Number((config as any)?.composioAccountCount || 0) > 0
+                    ? 'connected'
+                    : c.status,
+                config: { ...c.config, ...config },
+              }
+            : c
         );
         return { ...s, connectors: updatedConns };
       })

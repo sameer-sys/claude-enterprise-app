@@ -7,6 +7,7 @@ import {
   fetchLiveYouTubePlaylists,
   fetchLiveDriveFiles,
   getComposioApiKey,
+  executeComposioNaturalLanguage,
 } from '@/lib/composio';
 
 export const runtime = 'nodejs';
@@ -333,6 +334,12 @@ const SYSTEM_PROMPTS = {
     'You are DeepSeek R1 Enterprise — state-of-the-art open reasoning engine built for complex mathematics, coding architectures, and autonomous multi-step execution.',
 };
 
+function detectExplicitConnectorRequest(text: string): boolean {
+  const lower = String(text || '').toLowerCase();
+  const platform = /(github|repo(?:sitory)?|gmail|email|mail|google drive|gdrive|drive|calendar|youtube|instagram|facebook|twitter|linkedin|tiktok|slack|notion|linear|asana|canva|hubspot|salesforce|shopify|reddit|discord|telegram|whatsapp)/i;
+  const action = /(list|count|show|get|check|read|find|search|look up|lookup|fetch|view|inspect|open|create|send|draft|reply|delete|remove|update|edit|change|post|publish|upload|download|schedule|book|move|archive|star|unstar|like|comment|follow|unfollow|sync|add|rename|close|merge)/i;
+  return platform.test(lower) && action.test(lower);
+}
 function detectSkill(lastMsg: string, hasImages: boolean): string {
   if (hasImages) return 'Multimodal Vision & Analysis';
   const lower = lastMsg.toLowerCase();
@@ -1104,8 +1111,10 @@ export async function POST(req: NextRequest) {
       thinkingBudget = 16000,
       agentPrompt,
       connectors = [],
+      composioUserId: requestComposioUserId,
     } = await req.json();
 
+    const composioUserId = String(requestComposioUserId || 'default').trim() || 'default';
     const composioApiKey = userComposioKey || process.env.COMPOSIO_API_KEY || process.env.NEXT_PUBLIC_COMPOSIO_API_KEY || '';
 
     const isOmniRouteModel =
@@ -1117,6 +1126,80 @@ export async function POST(req: NextRequest) {
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
 
+    // ========================================================
+    // DETERMINISTIC REAL CONNECTOR EXECUTION
+    // ========================================================
+    const explicitConnectorRequest = detectExplicitConnectorRequest(lastText);
+
+    if (explicitConnectorRequest && composioApiKey) {
+      try {
+        const enabledRealConnectors = Array.isArray(connectors)
+          ? connectors.filter((c: any) => c?.enabled && !c?.isCustom)
+          : [];
+
+        if (enabledRealConnectors.length > 0) {
+          const liveAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+          const execution = await executeComposioNaturalLanguage(
+            composioApiKey,
+            composioUserId,
+            lastText,
+            enabledRealConnectors,
+            liveAccounts,
+            'claude-3-7-sonnet'
+          );
+
+          const message = execution.success
+            ? '### Real connector action completed\n\n' +
+              '**Tool:** ' + (execution.toolSlug || 'Composio tool') + '\n\n' +
+              '**Live result:**\n\n' +
+              JSON.stringify(execution.data ?? {}, null, 2).slice(0, 14000) +
+              '\n\nThe action was executed through the selected connected account.'
+            : '### Real connector action was not completed\n\n' +
+              (execution.error || 'Composio could not execute this request.') +
+              '\n\nNothing is reported as completed unless Composio returned a successful execution result.';
+
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream({
+            start(controller) {
+              for (let pos = 0; pos < message.length; pos += 28) {
+                controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message.slice(pos, pos + 28) }) + '\n\n'));
+              }
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              controller.close();
+            },
+          });
+
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Claude-Skill': 'Real Connector Execution',
+              'X-Claude-Router': execution.success ? 'composio-tool-router' : 'composio-tool-router-error',
+            },
+          });
+        }
+      } catch (err: any) {
+        const message = '### Real connector execution error\n\n' + (err?.message || 'The connected service could not be reached.');
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message }) + '\n\n'));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'X-Claude-Skill': 'Real Connector Execution',
+            'X-Claude-Router': 'composio-tool-router-error',
+          },
+        });
+      }
+    }
     // ========================================================
     // REAL-TIME YOUTUBE PLAYLIST & CHANNEL QUERY INTERCEPTOR
     // ========================================================

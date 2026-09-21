@@ -426,6 +426,16 @@ async function synthesizeClaudeEnterpriseResponse(
   const p = (lastText || '').trim();
   const lower = p.toLowerCase();
 
+  // External-app requests must never fall through to synthetic/demo responses.
+  // If the live connector agent could not run (for example because the model
+  // provider is unavailable), fail honestly instead of fabricating an action.
+  if (detectExplicitConnectorRequest(p)) {
+    return [
+      'I could not complete that external-app action because no verified connector execution result was available.',
+      'Please check that the requested connector is enabled for this chat, its Composio account is connected/selected, and the AI provider is available, then retry.'
+    ].join(' ');
+  }
+
   // Extract multi-turn context from previous conversation messages
   let previousRecipient: string | null = null;
   let previousSubject: string | null = null;

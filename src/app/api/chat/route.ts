@@ -1233,7 +1233,10 @@ Please verify your credentials or connected account in the Connectors modal.`;
       // Salesforce, Microsoft 365 and the social platforms were connected
       // and had done something - none of that was real.
       try {
-        const composioKey = await getComposioApiKey();
+        // FIX: was ignoring the user's own key pasted into the Connectors
+        // panel (sent as composioApiKey in the request body) and only ever
+        // checking the server env var - now checks both, user key first.
+        const composioKey = await getComposioApiKey(composioApiKey);
 
         if (!composioKey) {
           connectorContext += `\n[CONNECTORS]: Composio is not configured yet (COMPOSIO_API_KEY is not set). Tell the user plainly that no third-party app connectors are wired up yet - do not claim any app (Notion, Linear, HubSpot, Shopify, Drive, etc.) is connected or that any action on those apps succeeded.\n`;

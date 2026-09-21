@@ -997,8 +997,13 @@ export default function ChatArea({
                             </span>
                           </button>
                           {expandedThinking[msg.id] && (
-                            <div className="px-3.5 py-2.5 border-t border-[#302e27] text-xs leading-relaxed text-[#b5b0a4] whitespace-pre-wrap font-mono bg-[#1a1915]/70 max-h-72 overflow-y-auto">
-                              {msg.thinking}
+                            <div className="px-3.5 py-2.5 border-t border-[#302e27] text-xs leading-relaxed text-[#b5b0a4] font-mono bg-[#1a1915]/70 max-h-72 overflow-y-auto">
+                              {/* Was raw {msg.thinking} text - markdown (*bold*, bullets)
+                                  showed as literal asterisks. Now parsed the same way
+                                  the main reply is. */}
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {msg.thinking}
+                              </ReactMarkdown>
                             </div>
                           )}
                         </div>

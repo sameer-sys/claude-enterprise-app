@@ -444,13 +444,11 @@ export async function initiateAppConnection(
   entityId: string = 'default',
   redirectUrl?: string
 ): Promise<{ success: boolean; redirectUrl?: string; connectionId?: string; error?: string }> {
-  const composioAppName = COMPOSIO_APP_MAP[appName] || appName;
-  const cbUrl = redirectUrl || 'https://claude-enterprise-app.vercel.app';
+  const composioAppName = normalizeComposioToolkitSlug(COMPOSIO_APP_MAP[appName] || appName);
+  const cbUrl = redirectUrl || 'https://claude-enterprise-app.vercel.app/api/composio/callback';
 
-  // Composio-managed OAuth now uses /connected_accounts/link.
-  // That endpoint requires an auth_config_id, not just a toolkit/app name.
   try {
-    const authUrl = new URL(`${COMPOSIO_V31_BASE}/auth_configs`);
+    const authUrl = new URL(COMPOSIO_V31_BASE + '/auth_configs');
     authUrl.searchParams.set('toolkit_slug', composioAppName);
     authUrl.searchParams.set('is_composio_managed', 'true');
     authUrl.searchParams.set('show_disabled', 'false');
@@ -459,69 +457,64 @@ export async function initiateAppConnection(
     const authRes = await fetch(authUrl.toString(), {
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       cache: 'no-store',
+      signal: AbortSignal.timeout(10000),
     });
+    const authData = await authRes.json().catch(() => ({}));
 
-    if (authRes.ok) {
-      const authData = await authRes.json();
-      const authConfig = (Array.isArray(authData.items) ? authData.items : []).find(
-        (a: any) => a?.status !== 'DISABLED'
-      );
-
-      if (authConfig?.id) {
-        const linkRes = await fetch(`${COMPOSIO_V31_BASE}/connected_accounts/link`, {
-          method: 'POST',
-          headers: {
-            'x-api-key': apiKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            auth_config_id: authConfig.id,
-            user_id: entityId,
-            callback_url: cbUrl,
-            allow_multiple: true,
-          }),
-        });
-
-        const linkData = await linkRes.json().catch(() => ({}));
-        if (linkRes.ok) {
-          const link = linkData.redirect_url || linkData.redirectUrl || linkData.connectionUrl || linkData.url;
-          if (link) {
-            return {
-              success: true,
-              redirectUrl: link,
-              connectionId: linkData.connected_account_id || linkData.connectionId || linkData.id || linkData.nanoid,
-            };
-          }
-        }
-      }
+    if (!authRes.ok) {
+      return {
+        success: false,
+        error: authData?.error?.message || authData?.message || 'Composio auth configuration lookup failed (' + authRes.status + ').',
+      };
     }
-  } catch (e) {}
 
-  // Legacy fallback for custom/non-OAuth configurations.
-  try {
-    const res = await fetch(`${COMPOSIO_V1_BASE}/connectedAccounts`, {
+    const authConfigs = Array.isArray(authData?.items) ? authData.items : [];
+    const authConfig = authConfigs.find((item: any) =>
+      item?.is_composio_managed === true &&
+      String(item?.status || '').toUpperCase() !== 'DISABLED'
+    );
+
+    if (!authConfig?.id) {
+      return {
+        success: false,
+        error: 'No enabled Composio-managed OAuth configuration exists for ' + composioAppName + '. Enable its managed auth config in your Composio project.',
+      };
+    }
+
+    const linkRes = await fetch(COMPOSIO_V31_BASE + '/connected_accounts/link', {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        appName: composioAppName,
-        userUuid: entityId,
-        redirectUrl: cbUrl,
+        auth_config_id: authConfig.id,
+        user_id: String(entityId),
+        callback_url: cbUrl,
+        allow_multiple: true,
       }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(12000),
     });
-    const data = await res.json();
-    if (res.ok && (data.redirectUrl || data.connectionUrl || data.url)) {
+    const linkData = await linkRes.json().catch(() => ({}));
+
+    if (!linkRes.ok) {
       return {
-        success: true,
-        redirectUrl: data.redirectUrl || data.connectionUrl || data.url,
-        connectionId: data.connectionId || data.id,
+        success: false,
+        error: linkData?.error?.message || linkData?.message || 'Composio could not create the OAuth link (' + linkRes.status + ').',
       };
     }
-  } catch (e) {}
 
-  return {
-    success: false,
-    error: `Could not create a Composio auth link for toolkit "${composioAppName}". Check that the toolkit has an enabled auth config in your Composio project.`,
-  };
+    const link = linkData?.redirect_url || linkData?.redirectUrl;
+    if (!link) {
+      return { success: false, error: 'Composio returned no OAuth redirect URL.' };
+    }
+
+    return {
+      success: true,
+      redirectUrl: String(link),
+      connectionId: linkData?.connected_account_id ? String(linkData.connected_account_id) : undefined,
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Composio OAuth link creation failed.' };
+  }
 }
 
 export async function executeComposioAction(

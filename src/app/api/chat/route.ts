@@ -1808,6 +1808,8 @@ Please verify your credentials or connected account in the Connectors modal.`;
       }),
     ];
 
+    let connectorAgentExecutionResult: string | null = null;
+
     if (activeOrKey) {
       const selectedTargetModel =
         OPENROUTER_MODELS[modelId as keyof typeof OPENROUTER_MODELS] ||
@@ -1827,7 +1829,6 @@ Please verify your credentials or connected account in the Connectors modal.`;
       // repeat, until the model gives a final answer with no more tool
       // calls, or we hit the turn/time limits. Time-budgeted so this never
       // eats into the final answer's share of the 60s Vercel function cap.
-      let connectorAgentExecutionResult: string | null = null;
       if (activeOrKey) {
         const agentDeadline = requestStartTime + 40000; // leave time for the final streamed answer
         const maxAgentTurns = 6;

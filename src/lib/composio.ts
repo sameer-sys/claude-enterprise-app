@@ -134,7 +134,39 @@ export function normalizeComposioToolkitSlug(value: string): string {
 }
 
 export function toolkitFromComposioToolSlug(toolSlug: string): string {
-  return normalizeComposioToolkitSlug(String(toolSlug || '').split('_')[0] || '');
+  const raw = String(toolSlug || '').trim().toUpperCase();
+  const prefix = raw.split('_')[0] || '';
+  const compactAliases: Record<string, string> = {
+    GOOGLEDRIVE: 'google_drive',
+    GOOGLECALENDAR: 'google_calendar',
+    MICROSOFT365: 'microsoft365',
+    M365: 'microsoft365',
+    OUTLOOK: 'microsoft365',
+    GMAIL: 'gmail',
+    GITHUB: 'github',
+    YOUTUBE: 'youtube',
+    INSTAGRAM: 'instagram',
+    FACEBOOK: 'facebook',
+    TWITTER: 'twitter',
+    LINKEDIN: 'linkedin',
+    TIKTOK: 'tiktok',
+    SLACK: 'slack',
+    NOTION: 'notion',
+    LINEAR: 'linear',
+    ASANA: 'asana',
+    CANVA: 'canva',
+    HUBSPOT: 'hubspot',
+    SALESFORCE: 'salesforce',
+    SHOPIFY: 'shopify',
+    REDDIT: 'reddit',
+    DISCORD: 'discord',
+    TELEGRAM: 'telegram',
+    WHATSAPP: 'whatsapp',
+  };
+  if (compactAliases[prefix]) return compactAliases[prefix];
+
+  const normalized = normalizeComposioToolkitSlug(prefix);
+  return normalized;
 }
 
 function enabledComposioToolkits(connectors: any[] = []): string[] {
@@ -176,7 +208,7 @@ export async function createComposioToolRouterSession(
         user_id: String(userId || 'default'),
         // Composio's create-session request uses "enable" for the toolkit
         // allowlist (the response normalizes this to "enabled").
-        toolkits: { enable: toolkits },
+        toolkits: { enabled: toolkits },
         ...(Object.keys(connectedAccounts).length ? { connected_accounts: connectedAccounts } : {}),
         multi_account: { enable: true, max_accounts_per_toolkit: 0, require_explicit_selection: true },
         search: { enable: true },

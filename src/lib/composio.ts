@@ -26,6 +26,82 @@ export const COMPOSIO_APP_MAP: Record<string, string> = {
   'conn-composio': 'composio',
 };
 
+export interface ComposioToolDefinition {
+  slug: string;
+  name?: string;
+  description?: string;
+  toolkit?: string;
+  inputSchema: Record<string, any>;
+  outputSchema?: Record<string, any>;
+}
+
+function normaliseComposioSchema(raw: any): Record<string, any> {
+  if (!raw || typeof raw !== 'object') return { type: 'object', properties: {}, additionalProperties: true };
+  if (raw.type === 'object' || raw.properties) {
+    return { type: 'object', properties: raw.properties || {}, ...(raw.required ? { required: raw.required } : {}) };
+  }
+  const properties: Record<string, any> = {};
+  const required: string[] = [];
+  for (const [key, value] of Object.entries(raw)) {
+    const v: any = value || {};
+    properties[key] = {
+      type: v.type || 'string',
+      ...(v.description ? { description: v.description } : {}),
+      ...(v.enum ? { enum: v.enum } : {}),
+      ...(v.items ? { items: v.items } : {}),
+    };
+    if (v.required === true) required.push(key);
+  }
+  return { type: 'object', properties, ...(required.length ? { required } : {}), additionalProperties: false };
+}
+
+function connectorToolkitSlug(connector: any): string {
+  const raw = String(connector?.id || '').replace(/^conn-/, '').toLowerCase();
+  const aliases: Record<string, string> = {
+    gdrive: 'google_drive',
+    gcalendar: 'google_calendar',
+    m365: 'microsoft365',
+  };
+  return aliases[raw] || raw;
+}
+
+export async function searchComposioTools(
+  apiKey: string,
+  query: string,
+  toolkitSlugs: string[] = []
+): Promise<ComposioToolDefinition[]> {
+  const results: ComposioToolDefinition[] = [];
+  const targets = Array.from(new Set(toolkitSlugs.filter(Boolean)));
+  for (const toolkit of (targets.length ? targets : ['github']).slice(0, 12)) {
+    try {
+      const url = new URL(`${COMPOSIO_V31_BASE}/tools`);
+      url.searchParams.set('toolkit_slug', toolkit);
+      url.searchParams.set('toolkit_versions', 'latest');
+      url.searchParams.set('limit', '12');
+      url.searchParams.set('query', String(query || '').slice(0, 180));
+      const res = await fetch(url.toString(), {
+        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const item of (Array.isArray(data.items) ? data.items : [])) {
+        if (!item.slug || item.is_deprecated) continue;
+        results.push({
+          slug: String(item.slug),
+          name: item.name,
+          description: item.human_description || item.description || item.name || item.slug,
+          toolkit: item.toolkit?.slug || toolkit,
+          inputSchema: normaliseComposioSchema(item.input_schema || item.inputSchema || item.input_parameters),
+          outputSchema: normaliseComposioSchema(item.output_schema || item.outputSchema || item.output_parameters),
+        });
+      }
+    } catch {}
+  }
+  return results;
+}
+
 const COMPOSIO_V3_BASE = 'https://backend.composio.dev/api/v3';
 const COMPOSIO_V31_BASE = 'https://backend.composio.dev/api/v3.1';
 const COMPOSIO_V1_BASE = 'https://backend.composio.dev/api/v1';
@@ -207,8 +283,10 @@ export async function executeComposioAction(
       },
       body: JSON.stringify({
         arguments: input,
+        connected_account_id: connectedAccountId,
         connectedAccountId,
         user_id: entityId,
+        version: 'latest',
       }),
     });
 

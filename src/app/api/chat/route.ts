@@ -1894,9 +1894,12 @@ export async function POST(req: NextRequest) {
         const agentDeadline = requestStartTime + 40000; // leave time for the final streamed answer
         const maxAgentTurns = 6;
         let connectorAccounts: any[] = [];
-        if (composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.enabled !== false)) {
+        const hasExplicitComposio = Array.isArray(connectors) && connectors.some((c: any) =>
+          c?.enabled && (c?.provider === 'composio' || c?.config?.connectionType === 'composio')
+        );
+        if (composioApiKey && hasExplicitComposio) {
           try {
-            connectorAccounts = await listConnectedAccounts(composioApiKey);
+            connectorAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
           } catch {}
         }
 
@@ -1947,6 +1950,7 @@ export async function POST(req: NextRequest) {
                 apiKey: composioApiKey,
                 connectors,
                 accounts: connectorAccounts,
+                cookieHeader,
               });
 
               fullMessages.push({

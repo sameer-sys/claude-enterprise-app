@@ -322,7 +322,6 @@ export async function listConnectedAccounts(
 ): Promise<ComposioConnectedAccount[]> {
   try {
     const params = new URLSearchParams();
-    params.set('account_type', 'ALL');
     params.set('limit', '100');
     // Composio v3.1 documents these filters as arrays. Append each value
     // so the API receives the same wire shape as the SDK (userIds/toolkitSlugs).

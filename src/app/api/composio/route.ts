@@ -25,12 +25,55 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const accounts = await listConnectedAccounts(apiKey, entityId !== 'default' ? entityId : undefined);
+    const userId = entityId !== 'default' ? entityId : undefined;
+    const accounts = await listConnectedAccounts(apiKey, userId);
+
+    let supportedApps = Array.from(
+      new Set(Object.values(COMPOSIO_APP_MAP).filter((value) => value !== 'composio'))
+    );
+
+    // Ask Composio for the current toolkit catalog so the single Composio
+    // connector can expose the real apps available to this project instead
+    // of a hard-coded short list.
+    try {
+      const toolkitSlugs: string[] = [];
+      let cursor = '';
+      for (let page = 0; page < 20; page += 1) {
+        const params = new URLSearchParams({ limit: '100' });
+        if (cursor) params.set('cursor', cursor);
+
+        const toolkitRes = await fetch(
+          'https://backend.composio.dev/api/v3.1/toolkits?' + params.toString(),
+          {
+            headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            signal: AbortSignal.timeout(10000),
+          }
+        );
+        if (!toolkitRes.ok) break;
+
+        const toolkitData = await toolkitRes.json().catch(() => ({}));
+        const items = Array.isArray(toolkitData?.items) ? toolkitData.items : [];
+
+        for (const item of items) {
+          const slug = String(item?.slug || item?.toolkit?.slug || '').trim().toLowerCase();
+          const deprecated = Boolean(item?.deprecated || item?.is_deprecated);
+          if (slug && !deprecated && slug !== 'composio') toolkitSlugs.push(slug);
+        }
+
+        cursor = String(toolkitData?.next_cursor || '').trim();
+        if (!cursor || items.length === 0) break;
+      }
+
+      supportedApps = Array.from(new Set([...toolkitSlugs, ...supportedApps])).sort();
+    } catch {
+      // Keep the known working map when the catalog endpoint is unavailable.
+    }
 
     return NextResponse.json({
       configured: true,
       connectedAccounts: accounts,
-      supportedApps: Array.from(new Set(Object.values(COMPOSIO_APP_MAP).filter((value) => value !== 'composio'))),
+      supportedApps,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

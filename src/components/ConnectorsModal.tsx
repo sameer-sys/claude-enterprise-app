@@ -900,8 +900,6 @@ export default function ConnectorsModal({
 
   // Config editor for active connector
   const [editingConnector, setEditingConnector] = useState<Connector | null>(null);
-  const [accountPickerConnector, setAccountPickerConnector] = useState<Connector | null>(null);
-  const [accountPickerAccounts, setAccountPickerAccounts] = useState<any[]>([]);
   const [configEmail, setConfigEmail] = useState('');
   const [configRepo, setConfigRepo] = useState('');
   const [configChannel, setConfigChannel] = useState('');
@@ -1247,15 +1245,7 @@ export default function ConnectorsModal({
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={fetchComposioAccounts}
-                disabled={isSyncingComposio}
-                className="p-2 bg-[#1c1b18] border border-[#2b2923] hover:border-[#38352d] text-[#8a8579] hover:text-[#f2eee6] rounded-xl transition-all cursor-pointer disabled:opacity-50"
-                title={composioSyncMessage || "Refresh connected accounts from Composio"}
-              >
-                <RefreshCw className={`w-4 h-4 ${isSyncingComposio ? 'animate-spin text-[#cc785c]' : ''}`} />
-              </button>
+
             </div>
           </div>
         )}
@@ -1376,8 +1366,7 @@ export default function ConnectorsModal({
                         connector={conn}
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
-                        onGoogleAuth={(c) => setGoogleOAuthConnector(c)}
-                        onComposioConnect={handleComposioConnect}
+                                                onOpenConnector={handleOpenConnector}
                       />
                     ))}
                   </div>
@@ -1413,8 +1402,7 @@ export default function ConnectorsModal({
                           }
                         }}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
-                        onGoogleAuth={(c) => handleComposioConnect(c.id)}
-                        onComposioConnect={handleComposioConnect}
+                                                onOpenConnector={handleOpenConnector}
                       />
                     ))}
                   </div>
@@ -1444,8 +1432,7 @@ export default function ConnectorsModal({
                         connector={conn}
                         onToggle={() => onToggleConnector(conn.id)}
                         onOpenConfig={(e) => handleOpenConfig(e, conn)}
-                        onGoogleAuth={(c) => setGoogleOAuthConnector(c)}
-                        onComposioConnect={handleComposioConnect}
+                                                onOpenConnector={handleOpenConnector}
                       />
                     ))}
                   </div>
@@ -1490,200 +1477,80 @@ export default function ConnectorsModal({
         </div>
 
         {/* ================================================================= */}
-        {/* POPUP: EXACT "ADD CUSTOM CONNECTOR" MODAL (Screenshot 4)          */}
+        {/* POPUP: PROVIDER-NEUTRAL ADD CONNECTOR                              */}
         {/* ================================================================= */}
         {isAddModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="w-full max-w-lg bg-[#1e1d1a] border border-[#333027] rounded-2xl p-6 space-y-5 shadow-2xl animate-in zoom-in-95 text-[#f2eee6]">
-              
-              {/* Header */}
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="text-lg font-semibold text-[#f2eee6]">
-                    {addStep === 'form' ? 'Add custom connector' : `Authenticate & Connect ${newConnName}`}
-                  </h3>
-                  {addStep === 'form' && (
-                    <p className="text-xs text-[#a39e91] mt-1 leading-relaxed">
-                      Connect Claude to your data and tools.{' '}
-                      <span className="text-[#3b82f6] hover:underline cursor-pointer">Learn more about connectors</span>{' '}
-                      or get started with{' '}
-                      <span className="text-[#3b82f6] hover:underline cursor-pointer">pre-built ones</span>.
-                    </p>
-                  )}
+                  <h3 className="text-lg font-semibold text-[#f2eee6]">Add connector</h3>
+                  <p className="text-xs text-[#a39e91] mt-1 leading-relaxed">
+                    Save a connector independently of its runtime. Use a direct app URL today, then attach MCP, Zapier, Composio, webhook, or custom API support later.
+                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="p-1 rounded-lg text-[#8a8579] hover:text-white transition-colors"
-                >
+                <button type="button" onClick={() => setIsAddModalOpen(false)} className="p-1 rounded-lg text-[#8a8579] hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* STEP 1: FORM INPUTS (Exact match to Screenshot 4) */}
-              {addStep === 'form' && (
-                <form onSubmit={handleContinueToAdd} className="space-y-4">
-                  {/* Field 1: Name */}
-                  <div className="space-y-1.5">
-                    <input
-                      type="text"
-                      required
-                      value={newConnName}
-                      onChange={(e) => setNewConnName(e.target.value)}
-                      placeholder="Name"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#141310] border border-[#2e2c24] text-xs text-[#f2eee6] placeholder-[#6d685e] focus:outline-none focus:border-[#4a463d]"
-                    />
-                    <p className="text-[11px] text-[#8a8579]">
-                      Shown in the connectors list.
-                    </p>
-                  </div>
+              <form onSubmit={handleContinueToAdd} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wide text-[#8a8579]">Name</label>
+                  <input type="text" required value={newConnName} onChange={(e) => setNewConnName(e.target.value)}
+                    placeholder="My CRM or Internal Tool"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#141310] border border-[#2e2c24] text-xs text-[#f2eee6] placeholder-[#6d685e] focus:outline-none focus:border-[#4a463d]" />
+                </div>
 
-                  {/* Field 2: MCP server URL */}
-                  <div className="space-y-1.5">
-                    <input
-                      type="text"
-                      required
-                      value={newConnUrl}
-                      onChange={(e) => setNewConnUrl(e.target.value)}
-                      placeholder="MCP server URL"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#141310] border border-[#2e2c24] text-xs text-[#f2eee6] placeholder-[#6d685e] focus:outline-none focus:border-[#4a463d]"
-                    />
-                    <p className="text-[11px] text-[#8a8579]">
-                      The HTTPS address where the server accepts MCP requests, for example https://mcp.example.com/mcp.
-                    </p>
-                  </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wide text-[#8a8579]">Connection type</label>
+                  <select value={newConnType} onChange={(e) => setNewConnType(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#141310] border border-[#2e2c24] text-xs text-[#f2eee6] focus:outline-none focus:border-[#4a463d]">
+                    <option value="direct">Direct app URL</option>
+                    <option value="mcp">MCP server</option>
+                    <option value="webhook">Webhook</option>
+                    <option value="zapier">Zapier endpoint (future adapter)</option>
+                    <option value="composio">Composio endpoint (future adapter)</option>
+                    <option value="custom-api">Custom API</option>
+                  </select>
+                </div>
 
-                  {/* Trust Disclaimer */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wide text-[#8a8579]">
+                    {newConnType === 'mcp' ? 'MCP server URL' : 'App / endpoint URL'}
+                  </label>
+                  <input type="url" required value={newConnUrl} onChange={(e) => setNewConnUrl(e.target.value)}
+                    placeholder={newConnType === 'mcp' ? 'https://mcp.example.com/mcp' : 'https://app.example.com/'}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#141310] border border-[#2e2c24] text-xs text-[#f2eee6] placeholder-[#6d685e] focus:outline-none focus:border-[#4a463d]" />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wide text-[#8a8579]">Login / authorization URL <span className="normal-case text-[#6d685e]">(optional)</span></label>
+                  <input type="url" value={newConnAuthUrl} onChange={(e) => setNewConnAuthUrl(e.target.value)}
+                    placeholder="https://provider.example.com/login"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#141310] border border-[#2e2c24] text-xs text-[#f2eee6] placeholder-[#6d685e] focus:outline-none focus:border-[#4a463d]" />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wide text-[#8a8579]">What this connector provides <span className="normal-case text-[#6d685e]">(optional)</span></label>
+                  <textarea value={newConnDescription} onChange={(e) => setNewConnDescription(e.target.value)} rows={3}
+                    placeholder="Example: search customer records, create tasks, or send updates"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#141310] border border-[#2e2c24] text-xs text-[#f2eee6] placeholder-[#6d685e] focus:outline-none focus:border-[#4a463d] resize-none" />
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#141310] border border-[#2b2923]">
                   <p className="text-[11px] text-[#8a8579] leading-relaxed">
-                    Only use connectors from developers you trust. Anthropic does not control which tools developers make available and cannot verify that they will work as intended or that they won't change.
+                    The saved connector does not claim that authentication or remote execution is active. It only stores the provider-neutral endpoint and metadata until a runtime adapter is attached.
                   </p>
-
-                  {/* Report Link */}
-                  <p className="text-[11px] text-[#8a8579]">
-                    Building an MCP server?{' '}
-                    <span className="text-[#3b82f6] hover:underline cursor-pointer">
-                      Report issues and subscribe to updates here
-                    </span>
-                  </p>
-
-                  {/* Buttons */}
-                  <div className="flex items-center justify-end space-x-2.5 pt-3">
-                    <button
-                      type="button"
-                      onClick={() => setIsAddModalOpen(false)}
-                      className="px-4 py-2 rounded-xl bg-[#282622] hover:bg-[#33302a] text-xs font-medium text-[#dcd8ce] hover:text-white transition-all"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-5 py-2 rounded-xl bg-[#3a3832] hover:bg-[#4a4740] text-xs font-medium text-white transition-all shadow-sm"
-                    >
-                      Continue
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* STEP 2: USER LOGIN / AUTH FLOW ("make me to login in that app first") */}
-              {addStep === 'login' && (
-                <div className="space-y-4 py-2">
-                  <div className="p-4 rounded-xl bg-[#141310] border border-[#2b2923] space-y-3">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 rounded-xl bg-[#21201c] border border-[#333028] flex items-center justify-center text-[#cc785c]">
-                        <Lock className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold text-[#f2eee6]">
-                          Authorize Claude for {newConnName}
-                        </div>
-                        <div className="text-[11px] text-[#8a8579] font-mono truncate max-w-xs">
-                          {newConnUrl}
-                        </div>
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-[#a39e91] leading-relaxed">
-                      To activate this connector for your chat, please authenticate your account with <strong className="text-white">{newConnName}</strong>. Claude will securely negotiate OAuth tokens for tool execution.
-                    </p>
-
-                    {authSuccess && (
-                      <div className="flex items-center space-x-2 text-xs text-emerald-400 font-medium animate-in fade-in">
-                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                        <span>Authentication verified! Adding connector to chat...</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setAddStep('form')}
-                      className="text-xs text-[#8a8579] hover:text-white"
-                    >
-                      ← Back
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleCompleteLogin}
-                      disabled={isAuthenticating || authSuccess}
-                      className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all shadow-md active:scale-95 disabled:opacity-50"
-                    >
-                      {isAuthenticating ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Logging in & verifying...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>Log in to {newConnName} & Connect</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </>
-                      )}
-                    </button>
-                  </div>
                 </div>
-              )}
 
-            </div>
-          </div>
-        )}
-
-        {/* POPUP: ACCOUNT PICKER FOR THIS CHAT */}
-        {accountPickerConnector && (
-          <div className="absolute inset-0 z-30 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-[#1e1d19] border border-[#333129] rounded-2xl p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-semibold text-[#f2eee6]">Choose the account for this chat</h4>
-                  <p className="text-xs text-[#8a8579] mt-1">{accountPickerConnector.name} has multiple authorized accounts.</p>
+                <div className="flex items-center justify-end space-x-2.5 pt-1">
+                  <button type="button" onClick={() => setIsAddModalOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-[#282622] hover:bg-[#33302a] text-xs font-medium text-[#dcd8ce] hover:text-white transition-all">Cancel</button>
+                  <button type="submit"
+                    className="px-5 py-2 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-xs font-semibold text-black transition-all shadow-sm">Add connector</button>
                 </div>
-                <button type="button" onClick={() => setAccountPickerConnector(null)} className="p-1 rounded-lg text-[#8a8579] hover:text-white"><X className="w-4 h-4" /></button>
-              </div>
-              <div className="space-y-2 max-h-72 overflow-y-auto">
-                {accountPickerAccounts.map((acc: any) => (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    onClick={() => {
-                      onUpdateConnectorConfig?.(accountPickerConnector.id, {
-                        connectedAccountId: acc.id,
-                        email: acc.email || acc.accountIdentifier || undefined,
-                      });
-                      if (!activeConnectors.find((c) => c.id === accountPickerConnector.id)?.enabled) onToggleConnector(accountPickerConnector.id);
-                      setAccountPickerConnector(null);
-                      setComposioSyncMessage('Account selected for this chat.');
-                      setTimeout(() => setComposioSyncMessage(null), 2500);
-                    }}
-                    className="w-full text-left px-3.5 py-3 rounded-xl bg-[#141310] border border-[#2b2923] hover:border-[#cc785c] hover:bg-[#1c1b18] transition-colors"
-                  >
-                    <div className="text-xs font-medium text-[#f2eee6]">{acc.email || acc.accountIdentifier || 'Connected account'}</div>
-                    <div className="text-[10px] text-[#6d685e] font-mono mt-1">{acc.id}</div>
-                  </button>
-                ))}
-              </div>
-              <button type="button" onClick={() => { const id = accountPickerConnector.id; setAccountPickerConnector(null); handleComposioConnect(id, true); }} className="w-full px-3 py-2 rounded-xl bg-[#282622] hover:bg-[#33302a] text-xs text-[#dcd8ce]">Connect a new account</button>
+              </form>
             </div>
           </div>
         )}

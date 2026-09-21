@@ -114,6 +114,172 @@ export async function getComposioApiKey(userKey?: string): Promise<string | null
     null
   );
 }
+export function normalizeComposioToolkitSlug(value: string): string {
+  const raw = String(value || '')
+    .replace(/^conn-/i, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+
+  const aliases: Record<string, string> = {
+    github: 'github', gmail: 'gmail', gdrive: 'google_drive', googledrive: 'google_drive',
+    google_drive: 'google_drive', gcalendar: 'google_calendar', googlecalendar: 'google_calendar',
+    google_calendar: 'google_calendar', m365: 'microsoft365', microsoft365: 'microsoft365',
+    youtube: 'youtube', instagram: 'instagram', facebook: 'facebook', twitter: 'twitter',
+    linkedin: 'linkedin', tiktok: 'tiktok', slack: 'slack', notion: 'notion', linear: 'linear',
+    asana: 'asana', canva: 'canva', hubspot: 'hubspot', salesforce: 'salesforce', shopify: 'shopify',
+    reddit: 'reddit', discord: 'discord', telegram: 'telegram', whatsapp: 'whatsapp',
+  };
+  return aliases[raw] || raw;
+}
+
+export function toolkitFromComposioToolSlug(toolSlug: string): string {
+  return normalizeComposioToolkitSlug(String(toolSlug || '').split('_')[0] || '');
+}
+
+function enabledComposioToolkits(connectors: any[] = []): string[] {
+  return Array.from(new Set(connectors
+    .filter((c: any) => c?.enabled !== false && !c?.isCustom)
+    .map((c: any) => normalizeComposioToolkitSlug(String(c?.id || '')))
+    .filter(Boolean)));
+}
+
+export async function createComposioToolRouterSession(
+  apiKey: string,
+  userId: string,
+  connectors: any[] = [],
+  accounts: ComposioConnectedAccount[] = []
+): Promise<{ success: boolean; sessionId?: string; error?: string }> {
+  const toolkits = enabledComposioToolkits(connectors);
+  if (!apiKey) return { success: false, error: 'Missing Composio API key.' };
+  if (!toolkits.length) return { success: false, error: 'No Composio-backed connectors are enabled for this chat.' };
+
+  const connectedAccounts: Record<string, string[]> = {};
+  for (const toolkit of toolkits) {
+    const connector = connectors.find((c: any) =>
+      c?.enabled !== false && !c?.isCustom && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit
+    );
+    const selected = String(connector?.config?.connectedAccountId || '').trim();
+    const active = accounts.filter((a) => String(a.appUniqueId || '').toLowerCase() === toolkit && a.status === 'ACTIVE');
+    if (selected && active.some((a) => String(a.id) === selected)) {
+      connectedAccounts[toolkit] = [selected];
+    } else if (active.length === 1) {
+      connectedAccounts[toolkit] = [String(active[0].id)];
+    }
+  }
+
+  try {
+    const res = await fetch(`${COMPOSIO_V31_BASE}/tool_router/session`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: String(userId || 'default'),
+        toolkits: { enabled: toolkits },
+        ...(Object.keys(connectedAccounts).length ? { connected_accounts: connectedAccounts } : {}),
+        multi_account: { enable: true, max_accounts_per_toolkit: 0, require_explicit_selection: true },
+        search: { enable: true },
+        execute: { enable_multi_execute: true },
+      }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.session_id) {
+      return { success: false, error: data?.error?.message || data?.message || `Composio Tool Router session failed (${res.status}).` };
+    }
+    return { success: true, sessionId: String(data.session_id) };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Composio Tool Router session failed.' };
+  }
+}
+
+export async function searchComposioToolRouter(
+  apiKey: string, sessionId: string, query: string, model: string = 'claude-3-7-sonnet'
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch(`${COMPOSIO_V31_BASE}/tool_router/session/${encodeURIComponent(sessionId)}/search`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ queries: [{ use_case: String(query || '').slice(0, 500) }], model, search_strategy: 'auto' }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(12000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data?.error?.message || data?.message || `Composio tool search failed (${res.status}).` };
+    return { success: true, data };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Composio tool search failed.' };
+  }
+}
+
+export async function generateComposioToolInput(
+  apiKey: string, toolSlug: string, text: string, model: string = 'claude-3-7-sonnet'
+): Promise<{ success: boolean; arguments?: Record<string, any>; error?: string }> {
+  try {
+    const res = await fetch(`${COMPOSIO_V31_BASE}/tools/execute/${encodeURIComponent(toolSlug)}/input`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: String(text || '').slice(0, 3000),
+        version: 'latest',
+        system_prompt: 'Translate the user request into exact tool arguments. Preserve explicit IDs, names, emails, repositories, dates, and requested values. Never invent missing required values.',
+        custom_description: `Execute only against the connected account selected for the current chat. Model: ${model}.`,
+      }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(12000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.arguments) return { success: false, error: data?.error?.message || data?.error || data?.message || `Argument generation failed (${res.status}).` };
+    return { success: true, arguments: data.arguments };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Argument generation failed.' };
+  }
+}
+
+export async function executeComposioToolRouter(
+  apiKey: string, sessionId: string, toolSlug: string, args: Record<string, any> = {}, accountId?: string
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const body: Record<string, any> = { tool_slug: toolSlug, arguments: args };
+    if (accountId) body.account = accountId;
+    const res = await fetch(`${COMPOSIO_V31_BASE}/tool_router/session/${encodeURIComponent(sessionId)}/execute`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.successful === false) return { success: false, error: data?.error?.message || data?.error || data?.message || `Composio execution failed (${res.status}).`, data };
+    return { success: true, data: data?.data ?? data?.response_data ?? data };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Composio execution failed.' };
+  }
+}
+
+export async function executeComposioNaturalLanguage(
+  apiKey: string, userId: string, requestText: string, connectors: any[] = [], accounts: ComposioConnectedAccount[] = [], model: string = 'claude-3-7-sonnet'
+): Promise<{ success: boolean; toolSlug?: string; arguments?: Record<string, any>; data?: any; error?: string; sessionId?: string }> {
+  const session = await createComposioToolRouterSession(apiKey, userId, connectors, accounts);
+  if (!session.success || !session.sessionId) return { success: false, error: session.error || 'Unable to create Composio session.' };
+  const search = await searchComposioToolRouter(apiKey, session.sessionId, requestText, model);
+  if (!search.success) return { success: false, sessionId: session.sessionId, error: search.error };
+  const result = Array.isArray(search.data?.results) ? search.data.results[0] : null;
+  const schemas = search.data?.tool_schemas || {};
+  const toolSlug = result?.primary_tool_slugs?.[0] || result?.tool_slugs?.[0] || Object.keys(schemas)[0];
+  if (!toolSlug) return { success: false, sessionId: session.sessionId, error: 'Composio could not find an executable tool for that request.' };
+  const toolkit = toolkitFromComposioToolSlug(toolSlug);
+  const status = Array.isArray(search.data?.toolkit_connection_statuses)
+    ? search.data.toolkit_connection_statuses.find((s: any) => String(s?.toolkit || '').toLowerCase() === toolkit)
+    : null;
+  if (status?.has_active_connection === false) return { success: false, sessionId: session.sessionId, toolSlug, error: status.status_message || `No active connection is available for ${toolkit}.` };
+  const generated = await generateComposioToolInput(apiKey, toolSlug, requestText, model);
+  if (!generated.success || !generated.arguments) return { success: false, sessionId: session.sessionId, toolSlug, error: generated.error || `Could not generate arguments for ${toolSlug}.` };
+  const connector = connectors.find((c: any) => c?.enabled !== false && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit);
+  const selectedId = String(connector?.config?.connectedAccountId || '').trim();
+  const executed = await executeComposioToolRouter(apiKey, session.sessionId, toolSlug, generated.arguments, selectedId || undefined);
+  return { ...executed, toolSlug, arguments: generated.arguments, sessionId: session.sessionId };
+}
 
 export async function listConnectedAccounts(
   apiKey: string,

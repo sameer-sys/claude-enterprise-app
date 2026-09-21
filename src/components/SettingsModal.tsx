@@ -800,7 +800,7 @@ export default function SettingsModal({
                     <div>
                       <div className="text-sm font-semibold text-[#f4efe6]">Sameer Shaik</div>
                       <div className="text-xs text-[#8a8579]">
-                        {activeConnectors.find((c) => c.id === 'conn-gmail')?.config?.email || 'Composio OAuth Active'}
+                        {activeConnectors.find((c) => c.id === 'conn-gmail')?.config?.email || 'No direct account connected'}
                       </div>
                       <div className="text-[10px] font-mono text-emerald-400 mt-0.5">Tier: Claude Pro Max Unlimited ($0 Free Forever)</div>
                     </div>

@@ -1503,60 +1503,59 @@ export async function POST(req: NextRequest) {
     const isSocialQuery = lowerText.includes('youtube') || lowerText.includes('yt') || lowerText.includes('instagram') || lowerText.includes('ig') || lowerText.includes('facebook') || lowerText.includes('fb') || lowerText.includes('twitter') || lowerText.includes('tweet') || lowerText.includes('tiktok') || lowerText.includes('whatsapp') || lowerText.includes('telegram') || lowerText.includes('reddit') || lowerText.includes('linkedin') || lowerText.includes('channel') || lowerText.includes('upload') || lowerText.includes('social');
 
     if (activeConnectors.length > 0 || isGmailQuery || isGithubQuery || isSearchQuery || isDriveQuery || isSlackQuery || isNotionQuery || isFigmaQuery || isFilesystemQuery || isSocialQuery) {
-      connectorContext += '\n\n[CLAUDE CONNECTORS & MODEL CONTEXT PROTOCOL (MCP) ACTIVE]:\n';
-      for (const conn of activeConnectors) {
-        connectorContext += `- ${conn.name} (${conn.category}): Active and ready.\n`;
-      }
+      connectorContext += '\n\n[CONNECTORS & RUNTIME CONTEXT]:\n';
 
-      // Gmail / GitHub / Web Search are now handled by the agent tool loop
-      // below (send_email, read_inbox, github_lookup, web_search tools) instead
-      // of regex-triggered blocks - avoids duplicate actions and lets the model
-      // decide when a tool is actually needed.
+      const directConnections = getAllConnectionsFromCookieHeader(cookieHeader);
+      const directLabels = Object.entries(directConnections).map(([id, connection]: [string, any]) => {
+        const account = connection?.account || {};
+        const label = account.email || account.username || account.name || account.label || 'authorized account';
+        return { id, label };
+      });
 
-      // 4. REAL CONNECTED APPS (Composio) - uses the existing composio.ts
-      // helpers instead of fabricating text. Everything below used to be
-      // template strings pretending Drive, Slack, Notion, Figma,
-      // Filesystem, Calendar, Linear, Canva, Asana, HubSpot, Shopify,
-      // Salesforce, Microsoft 365 and the social platforms were connected
-      // and had done something - none of that was real.
-      try {
-        // FIX: was ignoring the user's own key pasted into the Connectors
-        // panel (sent as composioApiKey in the request body) and only ever
-        // checking the server env var - now checks both, user key first.
-        const composioKey = await getComposioApiKey(composioApiKey);
+      if (activeConnectors.length > 0) {
+        for (const conn of activeConnectors) {
+          const id = String(conn?.id || '');
+          const runtime = String(conn?.config?.connectionType || conn?.provider || 'direct');
 
-        if (!composioKey) {
-          connectorContext += `\n[CONNECTORS]: Composio is not configured yet (COMPOSIO_API_KEY is not set). Tell the user plainly that no third-party app connectors are wired up yet - do not claim any app (Notion, Linear, HubSpot, Shopify, Drive, etc.) is connected or that any action on those apps succeeded.\n`;
-        } else {
-          const realAccounts = await listConnectedAccounts(composioKey);
-          const activeApps = realAccounts.filter((a) => a.status === 'ACTIVE').map((a) => a.appUniqueId);
-
-          if (activeApps.length === 0) {
-            connectorContext += `\n[CONNECTORS]: Composio is configured, but no apps are actively connected yet for this user. Tell the user plainly they need to connect an app first before you can use it - do not claim any app is connected or that an action succeeded.\n`;
+          if (directConnections[id]) {
+            const account = directConnections[id]?.account || {};
+            const label = account.email || account.username || account.name || account.label || 'authorized account';
+            connectorContext += \`- \${conn.name}: connected directly to \${label}; enabled for this chat.\n\`;
+          } else if (runtime === 'direct') {
+            connectorContext += \`- \${conn.name}: direct provider connector is enabled for this chat, but no first-party authorization is active in this browser. Do not claim it is connected.\n\`;
+          } else if (runtime === 'composio') {
+            connectorContext += \`- \${conn.name}: explicitly configured Composio adapter is enabled for this chat.\n\`;
           } else {
-            connectorContext += `\n[CONNECTORS]: Really connected right now: ${activeApps.join(', ')}.\n` +
-              `- INSTRUCTIONS: Only report an action as done if a real result is shown below. If the user asks about an app not in this list, say plainly it is not connected yet - do not invent a status, a link, or a result for it.\n`;
-
-            if (activeApps.includes('youtube') && (isSocialQuery || lowerText.includes('playlist'))) {
-              const ytAcct = realAccounts.find((a) => a.appUniqueId === 'youtube');
-              const ytRes = await fetchLiveYouTubePlaylists(composioKey, ytAcct?.id);
-              connectorContext += ytRes.success
-                ? `\n[⚡ YOUTUBE - REAL DATA]: ${JSON.stringify(ytRes.playlists).slice(0, 1200)}\n`
-                : `\n[⚡ YOUTUBE]: Connected, but the live fetch failed (${ytRes.error}). Report this plainly, do not invent playlist data.\n`;
-            }
-
-            if (activeApps.includes('google_drive') && isDriveQuery) {
-              const driveAcct = realAccounts.find((a) => a.appUniqueId === 'google_drive');
-              const driveRes = await fetchLiveDriveFiles(composioKey, driveAcct?.id);
-              connectorContext += driveRes.success
-                ? `\n[⚡ GOOGLE DRIVE - REAL DATA]: ${JSON.stringify(driveRes.files).slice(0, 1200)}\n`
-                : `\n[⚡ GOOGLE DRIVE]: Connected, but the live fetch failed (${driveRes.error}). Report this plainly, do not invent file data.\n`;
-            }
+            connectorContext += \`- \${conn.name}: \${runtime} runtime is configured; the provider URL may be opened, but remote execution is only available when that runtime is implemented and authenticated.\n\`;
           }
         }
-      } catch (err: any) {
-        connectorContext += `\n[CONNECTORS]: Real connector lookup failed (${err?.message || 'unknown error'}). Tell the user this plainly instead of pretending it worked.\n`;
       }
+
+      if (directLabels.length > 0 && activeConnectors.length === 0) {
+        connectorContext += '- Direct provider accounts currently authorized in this browser: ' +
+          directLabels.map(({ id, label }) => \`\${id.replace(/^conn-/, '')} (\${label})\`).join(', ') + '.\n';
+      }
+
+      const explicitComposioConnectors = activeConnectors.filter((c: any) =>
+        c?.provider === 'composio' || c?.config?.connectionType === 'composio'
+      );
+      if (explicitComposioConnectors.length > 0) {
+        if (composioApiKey) {
+          try {
+            const composioAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+            const activeAccounts = composioAccounts.filter((a: any) => a?.status === 'ACTIVE');
+            connectorContext += activeAccounts.length
+              ? \`- Explicit Composio runtime accounts active: \${activeAccounts.map((a: any) => a?.appUniqueId || a?.appName || a?.id).filter(Boolean).join(', ')}.\n\`
+              : '- Explicit Composio connectors are enabled, but no ACTIVE Composio account was found. Do not claim an action succeeded.\n';
+          } catch (err: any) {
+            connectorContext += '- Explicit Composio account lookup failed: ' + (err?.message || 'unknown error') + '.\n';
+          }
+        } else {
+          connectorContext += '- Explicit Composio connectors are enabled, but no Composio API key is configured. Do not claim remote execution.\n';
+        }
+      }
+
+      connectorContext += '- Rule: a provider URL, account label, or enabled toggle is not proof of remote execution. Report only real API/tool results as completed.\n';
     }
 
     // URL fetching is now the web_fetch agent tool below, instead of a

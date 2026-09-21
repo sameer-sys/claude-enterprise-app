@@ -76,7 +76,17 @@ export async function POST(req: NextRequest) {
         String(entityId),
         redirectUrl || new URL('/api/composio/callback', req.url).toString()
       );
-      return NextResponse.json(result, { status: result.success ? 200 : 502 });
+      const response = NextResponse.json(result, { status: result.success ? 200 : 502 });
+      if (result.success) {
+        response.cookies.set('sameer_composio_user_id', String(entityId), {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 60 * 60,
+        });
+      }
+      return response;
     }
 
     if (action === 'disconnect') {

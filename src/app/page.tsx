@@ -323,10 +323,7 @@ export default function Home() {
   useEffect(() => {
     const refreshComposioCount = async () => {
       try {
-        const userId = getStableComposioUserId();
-        const key = localStorage.getItem('composio_api_key') || '';
-        const q = new URLSearchParams({ entityId: userId });
-        if (key) q.set('apiKey', key);
+        const q = new URLSearchParams();
         const res = await fetch('/api/composio?' + q.toString(), { cache: 'no-store' });
         const data = await res.json().catch(() => ({}));
         const accounts = Array.isArray(data?.connectedAccounts) ? data.connectedAccounts : [];
@@ -339,7 +336,7 @@ export default function Home() {
             status: active.length ? 'connected' : 'ready',
             config: {
               ...conn.config,
-              composioUserId: userId,
+
               composioAccountCount: active.length,
               connectedAccountIds: active.map((a: any) => a.id),
             },
@@ -618,18 +615,11 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      const composioKey =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('composio_api_key') || undefined
-          : undefined;
-
       const chatBody = {
         messages: [...activeSession.messages.slice(-30), userMessage],
         modelId: activeModel,
         geminiKey: geminiKey || undefined,
         openRouterKey: openRouterKey || undefined,
-        composioApiKey: composioKey,
-        composioUserId: getStableComposioUserId(),
         thinkingBudget,
         agentPrompt: activeSession.agentPrompt,
         connectors: currentSessionConnectors,

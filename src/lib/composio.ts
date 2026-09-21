@@ -346,6 +346,7 @@ export async function listConnectedAccounts(
       `${COMPOSIO_V3_BASE}/connected_accounts?${params.toString()}`,
     ];
 
+    let lastError = '';
     for (const url of urls) {
       try {
         const res = await fetch(url, {
@@ -353,7 +354,10 @@ export async function listConnectedAccounts(
           headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
           cache: 'no-store',
         });
-        if (!res.ok) continue;
+        if (!res.ok) {
+          lastError = `Composio connected-account lookup failed (${res.status}).`;
+          continue;
+        }
         const data = await res.json();
         const rawList = Array.isArray(data.items)
           ? data.items
@@ -391,7 +395,12 @@ export async function listConnectedAccounts(
             id: item.id || item.nanoid || `acc_${Date.now()}`,
             appUniqueId: appUid,
             appName: item.toolkit?.name || item.appName || item.toolkit_slug || item.appUniqueId || appUid,
-            status: (item.status === 'ACTIVE' || item.status === 'active' || item.status === 'CONNECTED') ? 'ACTIVE' : (item.status || 'ACTIVE'),
+            status:
+              item.status === 'ACTIVE' || item.status === 'active' || item.status === 'CONNECTED'
+                ? 'ACTIVE'
+                : item.status === 'INITIALIZING' || item.status === 'init'
+                ? 'idle'
+                : 'idle',
             createdAt: item.createdAt || item.created_at || new Date().toISOString(),
             updatedAt: item.updatedAt || item.updated_at || new Date().toISOString(),
             userUuid: item.user_id || item.userUuid,
@@ -401,9 +410,10 @@ export async function listConnectedAccounts(
         });
       } catch (err) {}
     }
+    if (lastError) throw new Error(lastError);
     return [];
   } catch (err) {
-    return [];
+    throw err;
   }
 }
 
@@ -446,7 +456,6 @@ export async function initiateAppConnection(
           body: JSON.stringify({
             auth_config_id: authConfig.id,
             user_id: entityId,
-            alias: String(composioAppName + '-' + entityId).slice(0, 120),
             callback_url: cbUrl,
           }),
         });

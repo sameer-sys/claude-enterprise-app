@@ -595,6 +595,30 @@ export async function executeComposioAction(
   entityId?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
+    let resolvedUserId = entityId && entityId !== 'default' && entityId !== 'sameer-web-user' ? entityId : undefined;
+
+    if (connectedAccountId && !resolvedUserId) {
+      try {
+        const accRes = await fetch(COMPOSIO_V31_BASE + '/connected_accounts/' + encodeURIComponent(connectedAccountId), {
+          headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          signal: AbortSignal.timeout(6000),
+        });
+        if (accRes.ok) {
+          const accData = await accRes.json();
+          resolvedUserId = accData?.user_id || accData?.userUuid || accData?.clientUniqueUserId || accData?.data?.user_id || undefined;
+        }
+      } catch {}
+
+      if (!resolvedUserId) {
+        try {
+          const all = await listConnectedAccounts(apiKey);
+          const found = all.find((a: any) => String(a.id) === String(connectedAccountId));
+          if (found?.userUuid) resolvedUserId = found.userUuid;
+        } catch {}
+      }
+    }
+
     const url = COMPOSIO_V31_BASE + '/tools/execute/' + encodeURIComponent(actionName);
     const body: Record<string, any> = {
       arguments: input,
@@ -603,9 +627,8 @@ export async function executeComposioAction(
     if (connectedAccountId) {
       body.connected_account_id = connectedAccountId;
     }
-    // Only pass user_id if connectedAccountId is NOT provided to prevent "connected account does not match provided user ID"
-    if (!connectedAccountId && entityId && entityId !== 'default') {
-      body.user_id = entityId;
+    if (resolvedUserId) {
+      body.user_id = resolvedUserId;
     }
 
     const res = await fetch(url, {

@@ -36,3 +36,5 @@ jobs:
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN" --yes
 
       # Force a fresh production deployment after environment variable changes.
+
+# Fresh production deployment trigger after environment variable update.

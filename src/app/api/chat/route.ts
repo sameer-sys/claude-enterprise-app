@@ -395,40 +395,28 @@ async function runAgentTool(
           if (activeGmail.length >= 1) {
             const result = await executeComposioAction(
               connectorContext.apiKey,
+              'GMAIL_LIST_THREADS',
+              { maxResults: count },
+              String(activeGmail[0].id)
+            );
+            if (result.success && result.data) {
+              const threads = result.data.threads || result.data.items || (Array.isArray(result.data) ? result.data : []);
+              if (Array.isArray(threads) && threads.length > 0) {
+                const summaries = threads.slice(0, count).map((t: any, idx: number) => {
+                  return `${idx + 1}. [Thread ID: ${t.id}] ${t.snippet ? `Snippet: "${t.snippet}"` : 'Recent email thread'}`;
+                });
+                return `Recent emails from your connected Gmail account:\n${summaries.join('\n')}`;
+              }
+            }
+            // Fallback to GMAIL_LIST_MESSAGES
+            const msgResult = await executeComposioAction(
+              connectorContext.apiKey,
               'GMAIL_LIST_MESSAGES',
               { maxResults: count },
               String(activeGmail[0].id)
             );
-            if (result.success) {
-              const data = result.data;
-              const rawMsgs = data?.messages || data?.items || data?.response_data?.messages || (Array.isArray(data) ? data : []);
-              if (Array.isArray(rawMsgs) && rawMsgs.length > 0) {
-                const summaries: string[] = [];
-                for (const m of rawMsgs.slice(0, 3)) {
-                  if (m?.snippet || m?.subject) {
-                    summaries.push(`- From: ${m.from || 'unknown'}, Subject: "${m.subject || 'No Subject'}", Date: ${m.date || ''}, Snippet: ${m.snippet || ''}`);
-                  } else if (m?.id) {
-                    try {
-                      const msgDetail = await executeComposioAction(
-                        connectorContext.apiKey,
-                        'GMAIL_FETCH_MESSAGE_BY_ID',
-                        { message_id: m.id },
-                        String(activeGmail[0].id)
-                      );
-                      if (msgDetail.success && msgDetail.data) {
-                        const md = msgDetail.data;
-                        summaries.push(`- From: ${md.from || md.sender || 'unknown'}, Subject: "${md.subject || 'No Subject'}", Date: ${md.date || ''}, Snippet: ${md.snippet || md.bodySnippet || ''}`);
-                        continue;
-                      }
-                    } catch {}
-                    summaries.push(`- Message ID: ${m.id}`);
-                  }
-                }
-                if (summaries.length > 0) {
-                  return `Recent emails found in Gmail inbox:\n${summaries.join('\n')}`;
-                }
-              }
-              return JSON.stringify({ success: true, runtime: 'composio', data: result.data });
+            if (msgResult.success && msgResult.data) {
+              return JSON.stringify(msgResult.data);
             }
           }
         } catch {}

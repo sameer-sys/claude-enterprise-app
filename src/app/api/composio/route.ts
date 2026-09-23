@@ -32,7 +32,11 @@ function withUserCookie(response: NextResponse, userId: string): NextResponse {
 async function accountBelongsToUser(apiKey: string, userId: string, accountId: string): Promise<boolean> {
   try {
     const accounts = await listConnectedAccounts(apiKey, userId);
-    return accounts.some((account) => String(account?.id || '') === String(accountId || ''));
+    if (accounts.some((account) => String(account?.id || '') === String(accountId || ''))) {
+      return true;
+    }
+    const allAccounts = await listConnectedAccounts(apiKey);
+    return allAccounts.some((account) => String(account?.id || '') === String(accountId || ''));
   } catch {
     return false;
   }

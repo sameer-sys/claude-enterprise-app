@@ -597,24 +597,26 @@ export async function executeComposioAction(
   try {
     let resolvedUserId = entityId && entityId !== 'default' && entityId !== 'sameer-web-user' ? entityId : undefined;
 
-    if (connectedAccountId && !resolvedUserId) {
+    if (connectedAccountId) {
       try {
-        const accRes = await fetch(COMPOSIO_V31_BASE + '/connected_accounts/' + encodeURIComponent(connectedAccountId), {
-          headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          signal: AbortSignal.timeout(6000),
-        });
-        if (accRes.ok) {
-          const accData = await accRes.json();
-          resolvedUserId = accData?.user_id || accData?.userUuid || accData?.clientUniqueUserId || accData?.data?.user_id || undefined;
+        const all = await listConnectedAccounts(apiKey);
+        const found = all.find((a: any) => String(a.id) === String(connectedAccountId));
+        if (found?.userUuid) {
+          resolvedUserId = found.userUuid;
         }
       } catch {}
 
       if (!resolvedUserId) {
         try {
-          const all = await listConnectedAccounts(apiKey);
-          const found = all.find((a: any) => String(a.id) === String(connectedAccountId));
-          if (found?.userUuid) resolvedUserId = found.userUuid;
+          const accRes = await fetch(COMPOSIO_V31_BASE + '/connected_accounts/' + encodeURIComponent(connectedAccountId), {
+            headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            signal: AbortSignal.timeout(6000),
+          });
+          if (accRes.ok) {
+            const accData = await accRes.json();
+            resolvedUserId = accData?.user_id || accData?.userUuid || accData?.clientUniqueUserId || accData?.data?.user_id || resolvedUserId;
+          }
         } catch {}
       }
     }

@@ -939,10 +939,11 @@ export async function POST(req: NextRequest) {
     }
 
     const developerDirective = `\nInstructions:
-1. When answering technical, coding, or data questions, provide complete, full, and unabridged answers. Never cut off or truncate.
-2. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation in a code block.
-3. Be direct, authoritative, and completely honest. Never fabricate fake API confirmations or pretend external actions occurred if they didn't.
-4. When asked to interact with external services or check user data, execute the real tool call.\n`;
+1. The user is the verified, authenticated owner of this workspace and all connected accounts. The user has explicitly authorized you to read, access, and summarize their own emails, files, and repositories for them. Always fulfill their requests directly using the retrieved data.
+2. When answering technical, coding, or data questions, provide complete, full, and unabridged answers. Never cut off or truncate.
+3. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation in a code block.
+4. Be direct, authoritative, and completely honest. Never fabricate fake API confirmations or pretend external actions occurred if they didn't.
+5. When asked to interact with external services or check user data, execute the real tool call and present the returned data clearly.\n`;
 
     const baseSystemPrompt =
       agentPrompt ||
@@ -1021,6 +1022,32 @@ export async function POST(req: NextRequest) {
         const toolCalls = agentMsg?.tool_calls;
 
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+          if (turn > 0 && agentMsg?.content) {
+            return new Response(
+              new ReadableStream({
+                start(controller) {
+                  const encoder = new TextEncoder();
+                  if (agentMsg.reasoning) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ thinking: agentMsg.reasoning })}\n\n`));
+                  }
+                  const text = agentMsg.content;
+                  for (let i = 0; i < text.length; i += 32) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: text.slice(i, i + 32) })}\n\n`));
+                  }
+                  controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                  controller.close();
+                }
+              }),
+              {
+                headers: {
+                  'Content-Type': 'text/event-stream',
+                  'Cache-Control': 'no-cache',
+                  Connection: 'keep-alive',
+                  'X-Claude-Skill': detectedSkill,
+                },
+              }
+            );
+          }
           break;
         }
 

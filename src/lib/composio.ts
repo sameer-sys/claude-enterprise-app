@@ -502,6 +502,43 @@ export async function createComposioConnectionLink(
     return { success: false, sessionId: session.sessionId, error: err?.message || 'Composio connection link failed.' };
   }
 }
+async function ensureManagedAuthConfig(apiKey: string, toolkit: string): Promise<{ id?: string; error?: string }> {
+  const normalizedToolkit = normalizeComposioToolkitSlug(toolkit);
+  try {
+    const url = new URL(COMPOSIO_V31_BASE + '/auth_configs');
+    url.searchParams.set('toolkit_slug', normalizedToolkit);
+    url.searchParams.set('is_composio_managed', 'true');
+    url.searchParams.set('show_disabled', 'false');
+    url.searchParams.set('limit', '50');
+    const res = await fetch(url.toString(), {
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data?.error?.message || data?.message || ('Auth config lookup failed (' + res.status + ').') };
+    const existing = Array.isArray(data?.items) ? data.items.find((item: any) =>
+      item?.is_composio_managed === true && String(item?.status || '').toUpperCase() !== 'DISABLED'
+    ) : null;
+    if (existing?.id) return { id: String(existing.id) };
+
+    const createRes = await fetch(COMPOSIO_V31_BASE + '/auth_configs', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toolkit: { slug: normalizedToolkit } }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10000),
+    });
+    const createData = await createRes.json().catch(() => ({}));
+    if (!createRes.ok || !createData?.auth_config?.id) {
+      return { error: createData?.error?.message || createData?.message || ('Managed auth config creation failed (' + createRes.status + ').') };
+    }
+    return { id: String(createData.auth_config.id) };
+  } catch (err: any) {
+    return { error: err?.message || 'Managed auth configuration failed.' };
+  }
+}
+
 export async function initiateAppConnection(
   apiKey: string,
   appName: string,

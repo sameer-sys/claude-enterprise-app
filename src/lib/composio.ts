@@ -471,6 +471,7 @@ export async function createComposioConnectionLink(
   callbackUrl?: string,
   alias?: string
 ): Promise<{ success: boolean; redirectUrl?: string; sessionId?: string; error?: string }> {
+  void alias;
   const result = await initiateAppConnection(apiKey, toolkit, userId, callbackUrl);
   return {
     success: result.success,
@@ -478,30 +479,8 @@ export async function createComposioConnectionLink(
     sessionId: result.connectionId,
     error: result.error,
   };
-  try {
-    const res = await fetch(
-      COMPOSIO_V31_BASE + '/tool_router/session/' + encodeURIComponent(session.sessionId) + '/link',
-      {
-        method: 'POST',
-        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          toolkit: normalizedToolkit,
-          ...(alias ? { alias } : {}),
-          ...(callbackUrl ? { callback_url: callbackUrl } : {}),
-        }),
-        cache: 'no-store',
-        signal: AbortSignal.timeout(12000),
-      }
-    );
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.redirect_url) {
-      return { success: false, sessionId: session.sessionId, error: data?.error?.message || data?.message || ('Composio connection link failed (' + res.status + ').') };
-    }
-    return { success: true, sessionId: session.sessionId, redirectUrl: String(data.redirect_url) };
-  } catch (err: any) {
-    return { success: false, sessionId: session.sessionId, error: err?.message || 'Composio connection link failed.' };
-  }
 }
+
 async function ensureManagedAuthConfig(apiKey: string, toolkit: string): Promise<{ id?: string; error?: string }> {
   const normalizedToolkit = normalizeComposioToolkitSlug(toolkit);
   try {

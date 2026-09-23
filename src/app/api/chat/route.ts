@@ -153,6 +153,59 @@ const AGENT_TOOLS = [
   },
 ];
 
+function getSafeHttpUrl(raw: string): URL | null {
+  try {
+    const url = new URL(String(raw || '').trim());
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.local') ||
+      host === 'metadata.google.internal' ||
+      host === 'metadata' ||
+      host === 'host.docker.internal' ||
+      host === 'kubernetes.default.svc'
+    ) {
+      return null;
+    }
+
+    const ipv4 = host.match(/^\d{1,3}(?:\.\d{1,3}){3}$/);
+    if (ipv4) {
+      const octets = host.split('.').map(Number);
+      if (octets.some((n) => n < 0 || n > 255)) return null;
+      const [a, b] = octets;
+      const blocked =
+        a === 0 ||
+        a === 10 ||
+        a === 127 ||
+        (a === 100 && b >= 64 && b <= 127) ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) ||
+        a >= 224;
+      if (blocked) return null;
+    }
+
+    if (
+      host === '::1' ||
+      host.startsWith('fe80:') ||
+      host.startsWith('fc') ||
+      host.startsWith('fd') ||
+      host.startsWith('::ffff:127.') ||
+      host.startsWith('::ffff:10.') ||
+      host.startsWith('::ffff:192.168.')
+    ) {
+      return null;
+    }
+
+    return url;
+  } catch {
+    return null;
+  }
+}
+
 async function runAgentTool(
   name: string,
   args: any,
@@ -183,7 +236,9 @@ async function runAgentTool(
     if (name === 'web_fetch') {
       const targetUrl = String(args?.url || '').replace(/[.,;:)]+$/, '');
       if (!targetUrl) return 'No URL provided.';
-      const res = await fetch(targetUrl, {
+      const safeUrl = getSafeHttpUrl(targetUrl);
+      if (!safeUrl) return 'Fetch blocked: only public HTTP(S) URLs are allowed.';
+      const res = await fetch(safeUrl.toString(), {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',

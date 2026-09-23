@@ -696,7 +696,9 @@ export default function Home() {
 
       // Safeguard: Ensure assistant response is never left blank
       if (!accumulatedContent.trim()) {
-        const fallbackText = 'No response was returned. Please try again.';
+        const fallbackText = accumulatedThinking.trim()
+          ? accumulatedThinking.trim()
+          : 'No response was returned. Please try again.';
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== activeSession.id) return s;

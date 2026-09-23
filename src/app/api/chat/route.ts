@@ -366,8 +366,7 @@ async function runAgentTool(
               connectorContext.apiKey,
               'GMAIL_SEND_EMAIL',
               { to, subject, body },
-              String(activeGmail[0].id),
-              connectorContext.composioUserId
+              String(activeGmail[0].id)
             );
             return sent.success
               ? JSON.stringify({ success: true, runtime: 'composio', data: sent.data })
@@ -398,12 +397,39 @@ async function runAgentTool(
               connectorContext.apiKey,
               'GMAIL_LIST_MESSAGES',
               { maxResults: count },
-              String(activeGmail[0].id),
-              connectorContext.composioUserId
+              String(activeGmail[0].id)
             );
-            return result.success
-              ? JSON.stringify({ success: true, runtime: 'composio', data: result.data })
-              : JSON.stringify({ success: false, runtime: 'composio', error: result.error || 'Gmail inbox read failed.' });
+            if (result.success) {
+              const data = result.data;
+              const rawMsgs = data?.messages || data?.items || data?.response_data?.messages || (Array.isArray(data) ? data : []);
+              if (Array.isArray(rawMsgs) && rawMsgs.length > 0) {
+                const summaries: string[] = [];
+                for (const m of rawMsgs.slice(0, 3)) {
+                  if (m?.snippet || m?.subject) {
+                    summaries.push(`- From: ${m.from || 'unknown'}, Subject: "${m.subject || 'No Subject'}", Date: ${m.date || ''}, Snippet: ${m.snippet || ''}`);
+                  } else if (m?.id) {
+                    try {
+                      const msgDetail = await executeComposioAction(
+                        connectorContext.apiKey,
+                        'GMAIL_FETCH_MESSAGE_BY_ID',
+                        { message_id: m.id },
+                        String(activeGmail[0].id)
+                      );
+                      if (msgDetail.success && msgDetail.data) {
+                        const md = msgDetail.data;
+                        summaries.push(`- From: ${md.from || md.sender || 'unknown'}, Subject: "${md.subject || 'No Subject'}", Date: ${md.date || ''}, Snippet: ${md.snippet || md.bodySnippet || ''}`);
+                        continue;
+                      }
+                    } catch {}
+                    summaries.push(`- Message ID: ${m.id}`);
+                  }
+                }
+                if (summaries.length > 0) {
+                  return `Recent emails found in Gmail inbox:\n${summaries.join('\n')}`;
+                }
+              }
+              return JSON.stringify({ success: true, runtime: 'composio', data: result.data });
+            }
           }
         } catch {}
       }
@@ -431,8 +457,7 @@ async function runAgentTool(
               connectorContext.apiKey,
               'GOOGLEDRIVE_SEARCH_FILES',
               { query: query || undefined },
-              String(activeDrive[0].id),
-              connectorContext.composioUserId
+              String(activeDrive[0].id)
             );
             if (result.success) return JSON.stringify({ success: true, runtime: 'composio', data: result.data });
           }
@@ -605,8 +630,7 @@ async function runAgentTool(
         connectorContext.apiKey,
         slug,
         args?.arguments || {},
-        accountId,
-        connectorContext.composioUserId
+        accountId
       );
 
       return result.success
@@ -1106,7 +1130,11 @@ export async function POST(req: NextRequest) {
                 if (!trimmed || !trimmed.startsWith('data: ')) continue;
                 const dataStr = trimmed.replace('data: ', '');
                 if (dataStr === '[DONE]') {
-                  if (accumulatedContent.trim().length < 60 && accumulatedReasoning.trim().length > 30) {
+                  if (accumulatedContent.trim().length === 0 && accumulatedReasoning.trim().length > 0) {
+                    controller.enqueue(
+                      encoder.encode(`data: ${JSON.stringify({ content: accumulatedReasoning })}\n\n`)
+                    );
+                  } else if (accumulatedContent.trim().length < 60 && accumulatedReasoning.trim().length > 30) {
                     controller.enqueue(
                       encoder.encode(`data: ${JSON.stringify({ content: '\n\n' + accumulatedReasoning })}\n\n`)
                     );
@@ -1139,7 +1167,11 @@ export async function POST(req: NextRequest) {
               }
             },
             flush(controller) {
-              if (accumulatedContent.trim().length < 60 && accumulatedReasoning.trim().length > 30) {
+              if (accumulatedContent.trim().length === 0 && accumulatedReasoning.trim().length > 0) {
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ content: accumulatedReasoning })}\n\n`)
+                );
+              } else if (accumulatedContent.trim().length < 60 && accumulatedReasoning.trim().length > 30) {
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ content: '\n\n' + accumulatedReasoning })}\n\n`)
                 );

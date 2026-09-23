@@ -592,16 +592,21 @@ export async function executeComposioAction(
   actionName: string,
   input: Record<string, any> = {},
   connectedAccountId?: string,
-  entityId: string = 'default'
+  entityId?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
     const url = COMPOSIO_V31_BASE + '/tools/execute/' + encodeURIComponent(actionName);
     const body: Record<string, any> = {
       arguments: input,
-      user_id: entityId,
       version: 'latest',
     };
-    if (connectedAccountId) body.connected_account_id = connectedAccountId;
+    if (connectedAccountId) {
+      body.connected_account_id = connectedAccountId;
+    }
+    // Only pass user_id if connectedAccountId is NOT provided to prevent "connected account does not match provided user ID"
+    if (!connectedAccountId && entityId && entityId !== 'default') {
+      body.user_id = entityId;
+    }
 
     const res = await fetch(url, {
       method: 'POST',

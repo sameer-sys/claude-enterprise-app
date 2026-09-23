@@ -213,24 +213,48 @@ async function runAgentTool(
 ): Promise<string> {
   try {
     if (name === 'web_search') {
-      const queryClean = String(args?.query || '').slice(0, 150);
+      const queryClean = String(args?.query || '').trim();
       if (!queryClean) return 'No query provided.';
       let out = '';
+      try {
+        const ddgHtmlRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(queryClean)}`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ddgHtmlRes.ok) {
+          const html = await ddgHtmlRes.text();
+          const regex = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+          let match;
+          const snippets: string[] = [];
+          while ((match = regex.exec(html)) !== null && snippets.length < 6) {
+            const clean = match[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+            if (clean) snippets.push(clean);
+          }
+          if (snippets.length > 0) {
+            out += 'Search Results:\n' + snippets.map((s, idx) => `${idx + 1}. ${s}`).join('\n') + '\n';
+          }
+        }
+      } catch (e) {}
+
       try {
         const ddgRes = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(queryClean)}&format=json&no_html=1&skip_disambig=1`, { signal: AbortSignal.timeout(6000) });
         if (ddgRes.ok) {
           const d = await ddgRes.json();
-          if (d.AbstractText) out += `DuckDuckGo: ${d.AbstractText} (Source: ${d.AbstractURL || 'Web'})\n`;
+          if (d.AbstractText) out += `Summary: ${d.AbstractText} (Source: ${d.AbstractURL || 'Web'})\n`;
         }
       } catch (e) {}
+
       try {
         const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(queryClean)}`, { headers: { 'User-Agent': 'Claude-Enterprise-App' }, signal: AbortSignal.timeout(6000) });
         if (wikiRes.ok) {
           const d = await wikiRes.json();
-          if (d.extract) out += `Wikipedia: ${d.extract} (Source: ${d.content_urls?.desktop?.page || 'Wikipedia'})\n`;
+          if (d.extract) out += `Wikipedia: ${d.extract}\n`;
         }
       } catch (e) {}
-      return out || 'No results found for this query - report this honestly rather than guessing an answer.';
+
+      return out || 'No search results found.';
     }
 
     if (name === 'web_fetch') {

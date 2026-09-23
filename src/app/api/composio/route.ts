@@ -29,6 +29,16 @@ function withUserCookie(response: NextResponse, userId: string): NextResponse {
   return response;
 }
 
+async function accountBelongsToUser(apiKey: string, userId: string, accountId: string): Promise<boolean> {
+  try {
+    const accounts = await listConnectedAccounts(apiKey, userId);
+    return accounts.some((account) => String(account?.id || '') === String(accountId || ''));
+  } catch {
+    return false;
+  }
+}
+
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -96,6 +106,9 @@ export async function POST(req: NextRequest) {
       if (!connectedAccountId) {
         return NextResponse.json({ success: false, error: 'connectedAccountId is required.' }, { status: 400 });
       }
+      if (!(await accountBelongsToUser(apiKey, entityId, String(connectedAccountId)))) {
+        return NextResponse.json({ success: false, error: 'Connected account is not owned by this app user.' }, { status: 403 });
+      }
       const res = await fetch(
         'https://backend.composio.dev/api/v3.1/connected_accounts/' + encodeURIComponent(String(connectedAccountId)),
         {
@@ -114,6 +127,9 @@ export async function POST(req: NextRequest) {
     if (action === 'execute') {
       if (!actionName) {
         return NextResponse.json({ success: false, error: 'actionName is required.' }, { status: 400 });
+      }
+      if (connectedAccountId && !(await accountBelongsToUser(apiKey, entityId, String(connectedAccountId)))) {
+        return NextResponse.json({ success: false, error: 'Connected account is not owned by this app user.' }, { status: 403 });
       }
       const result = await executeComposioAction(
         apiKey,

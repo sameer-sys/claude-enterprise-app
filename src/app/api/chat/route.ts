@@ -492,15 +492,18 @@ const SYSTEM_PROMPTS = {
 function isConnectorRelatedRequest(text: string): boolean {
   const lower = String(text || '').toLowerCase();
   const appTerms = [
-    'github','gmail','google drive','drive','google calendar','calendar','youtube','slack','notion',
+    'gmail','google drive','drive','google calendar','calendar','youtube','slack','notion',
     'microsoft 365','instagram','facebook','linkedin','linear','asana','canva','hubspot'
   ];
+  const mentionsGitHub = /\b(?:github|git)\b/i.test(lower);
+  const mentionsOtherApp = appTerms.some((term) => lower.includes(term));
   const connectorTerms = ['connector','connected app','connected account','authorize','authorization','oauth','linked account','access'];
   const actionTerms = ['repository','repositories','repo','pull request','issue','email','message','calendar event','file','folder','document','spreadsheet','channel','page','post','task','contact'];
-  return appTerms.some((term) => lower.includes(term)) && (
-    /\b(can you|could you|tell me|show me|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|how many|total|count)\b/i.test(lower)
-    || connectorTerms.some((term) => lower.includes(term))
-    || actionTerms.some((term) => lower.includes(term))
+  const looksLikeAction = /\b(can you|could you|tell me|show me|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|how many|total|count)\b/i.test(lower);
+  return (mentionsGitHub || mentionsOtherApp) && (
+    looksLikeAction ||
+    connectorTerms.some((term) => lower.includes(term)) ||
+    actionTerms.some((term) => lower.includes(term))
   );
 }
 

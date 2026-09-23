@@ -5,7 +5,7 @@ import * as path from 'path';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const DEFAULT_WORKSPACE = process.env.USER_WORKSPACE || 'C:\\Users\\Master\\sameer workspace';
+const DEFAULT_WORKSPACE = process.env.USER_WORKSPACE || path.join(process.cwd(), '.workspace');
 
 // SECURITY: this endpoint reads, writes, and deletes files. It was
 // previously reachable by anyone on the internet with no auth check at all.

@@ -550,7 +550,7 @@ function isConnectorRelatedRequest(text: string): boolean {
     'gmail','google drive','drive','google calendar','calendar','youtube','slack','notion',
     'microsoft 365','instagram','facebook','linkedin','linear','asana','canva','hubspot'
   ];
-  const mentionsGitHub = /\b(?:github|git)\b/i.test(lower);
+  const mentionsGitHub = /\b(?:github|git|repo|repos|repository|repositories|pull request|pull requests|commit|commits|branch|branches)\b/i.test(lower);
   const mentionsOtherApp = appTerms.some((term) => lower.includes(term));
   const connectorTerms = ['connector','connected app','connected account','authorize','authorization','oauth','linked account','access'];
   const actionTerms = ['repository','repositories','repo','pull request','issue','email','message','calendar event','file','folder','document','spreadsheet','channel','page','post','task','contact'];

@@ -489,6 +489,53 @@ const SYSTEM_PROMPTS = {
     'You are DeepSeek R1 Enterprise — state-of-the-art open reasoning engine built for complex mathematics, coding architectures, and autonomous multi-step execution.',
 };
 
+function isConnectorRelatedRequest(text: string): boolean {
+  const lower = String(text || '').toLowerCase();
+  const appTerms = [
+    'github','gmail','google drive','drive','google calendar','calendar','youtube','slack','notion',
+    'microsoft 365','instagram','facebook','linkedin','linear','asana','canva','hubspot'
+  ];
+  const connectorTerms = ['connector','connected app','connected account','authorize','authorization','oauth','linked account','access'];
+  const actionTerms = ['repository','repositories','repo','pull request','issue','email','message','calendar event','file','folder','document','spreadsheet','channel','page','post','task','contact'];
+  return appTerms.some((term) => lower.includes(term)) && (
+    /\b(can you|could you|tell me|show me|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|how many|total|count)\b/i.test(lower)
+    || connectorTerms.some((term) => lower.includes(term))
+    || actionTerms.some((term) => lower.includes(term))
+  );
+}
+
+function formatConnectorResult(requestText: string, result: any): string {
+  const data = result?.data ?? result;
+  const lower = String(requestText || '').toLowerCase();
+  if (data == null) return 'Done.';
+  if (typeof data === 'string' || typeof data === 'number' || typeof data === 'boolean') return String(data);
+  if (typeof data !== 'object') return String(data);
+
+  const directCount = data.total_count ?? data.totalCount ?? data.repository_count ?? data.repositoryCount ?? data.count;
+  if (directCount != null && /\b(how many|total|count|number of)\b/i.test(lower)) {
+    const noun = lower.includes('repositor') ? 'repositories' : lower.includes('email') ? 'emails' : 'items';
+    return 'You have ' + String(directCount) + ' ' + noun + '.';
+  }
+
+  const candidates = [data.items, data.repositories, data.repos, data.results, data.data];
+  const list = candidates.find((value: any) => Array.isArray(value));
+  if (Array.isArray(list)) {
+    if (/\b(how many|total|count|number of)\b/i.test(lower)) {
+      const noun = lower.includes('repositor') ? 'repositories' : lower.includes('email') ? 'emails' : 'items';
+      return 'You have ' + String(list.length) + ' ' + noun + '.';
+    }
+    const labels = list.slice(0, 5).map((item: any) => String(item?.name || item?.title || item?.full_name || item?.subject || item?.path || item?.id || '')).filter(Boolean);
+    return labels.length ? labels.join('\n') + (list.length > labels.length ? '\n…and ' + String(list.length - labels.length) + ' more.' : '') : 'Found ' + String(list.length) + ' items.';
+  }
+
+  const compact = Object.entries(data)
+    .filter(([key]) => !['access_token','refresh_token','token','credentials','connectionParams'].includes(key))
+    .slice(0, 8)
+    .map(([key, value]) => key + ': ' + (typeof value === 'object' ? JSON.stringify(value) : String(value)))
+    .join('\n');
+  return compact || 'Action completed successfully.';
+}
+
 function detectSkill(lastMsg: string, hasImages: boolean): string {
   if (hasImages) return 'Multimodal Vision & Analysis';
   const lower = lastMsg.toLowerCase();
@@ -550,325 +597,12 @@ async function synthesizeClaudeEnterpriseResponse(
   activeConnectors: any[] = [],
   messages: any[] = []
 ): Promise<string> {
-  const p = (lastText || '').trim();
-  const lower = p.toLowerCase();
-
-  // Extract multi-turn context from previous conversation messages
-  let previousRecipient: string | null = null;
-  let previousSubject: string | null = null;
-  let previousTopic: string | null = null;
-
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msgText = messages[i]?.content || '';
-    if (!previousRecipient) {
-      const m = msgText.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-      if (
-        m &&
-        m[1] &&
-        !m[1].includes('example') &&
-        !m[1].includes('sameer.workspace')
-      ) {
-        previousRecipient = m[1];
-      }
-    }
-    if (!previousSubject && /subject:\s*([^\n\r]+)/i.test(msgText)) {
-      const subMatch = msgText.match(/subject:\s*([^\n\r]+)/i);
-      if (subMatch && subMatch[1]) {
-        previousSubject = subMatch[1].trim();
-      }
-    }
-    if (!previousTopic && messages[i]?.role === 'user' && msgText.length > 5 && msgText !== p) {
-      previousTopic = msgText.slice(0, 100);
-    }
-  }
-
-  // 1. GREETINGS & IDENTITY
-  if (/^(hi|hello|hey|greetings|who are you|what can you do|what models)/i.test(lower)) {
-    return `Hello! I am **Claude 3.7 Sonnet Enterprise** — Anthropic’s flagship hybrid reasoning model with an autonomous doer engine.
-
-I am ready to execute your work end-to-end:
-- **Autonomous Tool Execution** (Gmail, Google Drive, Calendar, Canva, Linear, Slack, GitHub)
-- **Self-Synthesizing Skills & Doers** (Powered by Open Interpreter & Hermes protocols)
-- **Production Code Engineering & Generative UI** (React, TypeScript, Next.js 14)
-- **Real-Time Data Extraction & Web Operations**
-
-What task should I execute for you right now?`;
-  }
-
-  // 1.5 MULTI-TURN CHAT HISTORY INSPECTION
-  if (
-    lower.includes('recent chat') ||
-    lower.includes('recent message') ||
-    lower.includes('what did i just ask') ||
-    lower.includes('what did i ask') ||
-    lower.includes('conversation history') ||
-    lower.includes('remember')
-  ) {
-    const recentTurns = messages
-      .filter((m: any) => m.content && m.content.trim())
-      .slice(-6)
-      .map((m: any, idx: number) => {
-        const roleLabel = m.role === 'user' ? 'User' : 'Claude';
-        const cleanPreview = (m.content || '').replace(/###+/g, '').slice(0, 180).trim();
-        return `**Turn ${idx + 1} (${roleLabel}):**\n> ${cleanPreview}...`;
-      })
-      .join('\n\n');
-
-    return `### 📜 Multi-Turn Chat Continuity & Memory
-
-I have complete, unbroken memory of our recent conversation:
-
-${recentTurns || '*Previous turns loaded in memory context.*'}
-
-All previous parameters (including emails, subjects, and instructions) are preserved and active. What would you like me to do with this context?`;
-  }
-
-  // 1.7 AI VIRAL REELS FACE-SWAP & SOCIAL SYNDICATION PIPELINE
-  if (
-    lower.includes('face swap') ||
-    lower.includes('face clone') ||
-    lower.includes('trending reel') ||
-    lower.includes('reels') ||
-    lower.includes('shorts') ||
-    lower.includes('make money') ||
-    lower.includes('yt,fb,ig') ||
-    lower.includes('clone') ||
-    lower.includes('ai generated image model')
-  ) {
-    return `### 🎬 AI Viral Persona Studio · Face-Swap & Social Syndication Pipeline
-
-I have configured the complete **Autonomous Face-Swap & Viral Reels Pipeline** on your system. This combines **yt-dlp HD Ingestion**, **AI Face Swap (Fal.ai / Replicate / InsightFace)**, and **Multi-Platform Auto-Syndication (YouTube Shorts, Instagram Reels, Facebook Reels)**.
-
-#### ⚡ Direct Execution Script:
-Below is the ready-to-execute Python automation script. You can click **"Run"** right in the code block below to execute it immediately via our live **Open Interpreter** engine:
-
-\`\`\`python
-import os
-import json
-import requests
-
-def automate_viral_reel(video_url, persona_image_path):
-    print("🚀 [Step 1/4] Ingesting Trending Reel...")
-    print(f"   Downloading 1080p source: {video_url}")
-    
-    print("\n🧠 [Step 2/4] Engaging AI Face-Swap Engine...")
-    print(f"   Target Persona Face: {persona_image_path}")
-    print("   Mapping facial landmarks, eye gaze, and temporal coherence...")
-    
-    print("\n✨ [Step 3/4] Applying Viral Shielding & Auto-Captions...")
-    print("   - Applying 2% dynamic crop to bypass duplicate detection")
-    print("   - Generating animated Alex Hormozi-style subtitles")
-    print("   - Normalizing 60 FPS output")
-    
-    print("\n📡 [Step 4/4] Multi-Platform Social Syndication...")
-    platforms = ["YouTube Shorts", "Instagram Reels", "Facebook Reels"]
-    for p in platforms:
-        print(f"   ✅ Successfully staged to {p} (Ready to publish)")
-        
-    print("\n🎉 Pipeline Complete! Video rendered and queued for viral distribution.")
-
-# Test Execution
-if __name__ == "__main__":
-    automate_viral_reel(
-        video_url="https://www.instagram.com/reels/trending_example",
-        persona_image_path="persona_model_face.png"
-    )
-\`\`\`
-
-#### 🛠️ Available Endpoints & Controls:
-- **API Endpoint:** \`POST /api/video\` (Actions: \`download_reel\`, \`face_swap\`, \`syndicate\`)
-- **Open Interpreter Engine:** \`POST /api/execute\` (Direct terminal execution on host PC)
-- **Workspace Manager:** \`GET/POST /api/workspace\` (Read/write project files in your workspace)
-
-Would you like me to run this script right now, connect your YouTube or Meta API keys, or scrape specific trending hashtags?`;
-  }
-
-  // 1.8 AUTONOMOUS SUPER-ENGINE (CLAUDE + OPENWORK + ANTIGRAVITY + OPEN INTERPRETER + HERMES + MINIMAX)
-  if (
-    lower.includes('upgrade') ||
-    lower.includes('openwork') ||
-    lower.includes('antigravity') ||
-    lower.includes('openinterpreter') ||
-    lower.includes('open interpreter') ||
-    lower.includes('hermes') ||
-    lower.includes('minimax') ||
-    lower.includes('level')
-  ) {
-    return `### ⚡ Master Autonomous System Upgraded & Online
-
-Your system has been upgraded to a unified super-agent combining the core architectures of:
-
-1. **Claude 3.7 Sonnet Enterprise**: Extended hybrid reasoning, live interactive artifacts, and production-grade code generation.
-2. **OpenWork Autonomous Desktop Agent**: Direct workspace file access (\`C:\\Users\\Master\\sameer workspace\`), background execution without nagging, and native scripts.
-3. **Google Antigravity Engine**: Multi-agent squad orchestration (Architect, Coder, Reviewer, Debugger) and specialized modular skills.
-4. **Open Interpreter Live Execution**: Direct terminal code runner (\`POST /api/execute\`). Every code block in the chat now has a **"▶ Run"** button that executes Python, Node.js, and PowerShell live on your machine!
-5. **Hermes Agent Protocol**: Function-calling tool execution loop, state persistence, and native tool progress.
-6. **MiniMax-01 & DeepSeek R1**: High-throughput 1M context model pool with zero dropped requests.
-
-#### 🧪 Test Code Execution with Open Interpreter:
-Click **"Run"** on the block below to verify that code executes directly on your machine:
-
-\`\`\`python
-import sys
-import platform
-
-print("🔥 Open Interpreter Engine Active!")
-print(f"OS: {platform.system()} {platform.release()}")
-print(f"Python Version: {sys.version.split()[0]}")
-print("Status: Ready to execute any script, build projects, or automate video pipelines.")
-\`\`\`
-
-What task, project, or video pipeline should we execute right now?`;
-  }
-
-  // 1.8 END-TO-END PROJECT & IDEA ARCHITECT ENGINE
-  if (
-    lower.includes('project') ||
-    lower.includes('small idea') ||
-    lower.includes('big project') ||
-    lower.includes('end to end') ||
-    lower.includes('build') ||
-    lower.includes('develop') ||
-    lower.includes('create an app') ||
-    lower.includes('saas') ||
-    lower.includes('anything thats matter') ||
-    lower.includes('ideas') ||
-    lower.includes('start a project')
-  ) {
-    const projectTitle = p.replace(/^(i will give it|i want to do|let's do|build|create|develop|a)\s+/i, '').slice(0, 60).trim() || 'Enterprise Autonomous Solution';
-
-    return `### 🏗️ Autonomous End-to-End Project Execution Blueprint
-> **Project Scope:** \`${projectTitle}\`  
-> **Execution Engine:** Principal Architect & Autonomous Doer Runtime  
-> **Autonomous Mode:** Active (Continuous Delivery, Zero Placeholders, Obstacle Bypassing)
-
----
-
-#### 📐 Phase 1: Architecture & Technical Contract
-- **Core Philosophy:** Treat every requirement as a production-grade system — from small automation scripts to high-concurrency enterprise applications.
-- **Architecture Pattern:** Modular Micro-Kernel with Event Bus & Connector Integration.
-- **Data Layer:** SQLite / PostgreSQL (Supabase) with ACID compliance and local file caching.
-- **Security & Network:** End-to-end TLS 1.3 encryption, zero hardcoded credentials, scoped OAuth/App tokens.
-
----
-
-#### 💻 Phase 2: Production-Grade Implementation
-Here is the robust, modular foundation implemented for this project:
-
-\`\`\`typescript
-// [Autonomous Core Kernel: ${projectTitle.replace(/[^\w]/g, '')}Engine.ts]
-import EventEmitter from 'events';
-
-export interface ProjectTask {
-  id: string;
-  name: string;
-  phase: 'init' | 'execute' | 'verify' | 'deploy';
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  retries: number;
-  payload: Record<string, any>;
-}
-
-export class AutonomousProjectManager extends EventEmitter {
-  private queue: ProjectTask[] = [];
-  private isProcessing = false;
-
-  constructor(public readonly projectName: string) {
-    super();
-  }
-
-  public registerTask(task: Omit<ProjectTask, 'status' | 'retries'>): void {
-    this.queue.push({ ...task, status: 'pending', retries: 0 });
-    this.emit('task:registered', task.id);
-  }
-
-  public async executePipeline(): Promise<{ completed: number; failed: number }> {
-    if (this.isProcessing) return { completed: 0, failed: 0 };
-    this.isProcessing = true;
-    let completed = 0;
-    let failed = 0;
-
-    for (const task of this.queue) {
-      task.status = 'running';
-      this.emit('task:start', task);
-
-      try {
-        // Execute task step with bypass and retry rules
-        await this.runTaskWithBypass(task);
-        task.status = 'completed';
-        completed++;
-        this.emit('task:success', task);
-      } catch (err: any) {
-        task.status = 'failed';
-        failed++;
-        this.emit('task:error', { task, error: err.message });
-      }
-    }
-
-    this.isProcessing = false;
-    return { completed, failed };
-  }
-
-  private async runTaskWithBypass(task: ProjectTask): Promise<void> {
-    // Autonomous self-correcting logic: bypasses timeouts and format errors
-    return new Promise((resolve) => setTimeout(resolve, 80));
-  }
-}
-\`\`\`
-
----
-
-#### 🔌 Phase 3: Active Connector Orchestration
-1. **GitHub (\`sameer-sys/claude-enterprise-app\`):** Staging branch, automated PR creation, semantic commit log.
-2. **Google Drive & Notion:** Project PRD, system diagrams, and data trackers auto-persisted.
-3. **Google Mail / SMTP Server:** Automated notification triggers for critical milestones.
-4. **Slack / Discord:** Real-time progress broadcasts streamed to your squad channel.
-
----
-
-#### 🚀 Autonomous Execution Next Steps:
-1. **[Ready to Ship]:** I can build the next module, create the full database migration, write unit tests, or deploy to Vercel/Electron immediately.
-2. **Your Command:** What is the exact first module or specification you want me to write code for right now?`;
-  }
-
-  // 14. COMPREHENSIVE INTELLIGENT EXECUTIVE RESPONSE ENGINE
-  // Provides rigorous, detailed, production-grade answers to any user project, idea, or inquiry
-  const taskTitle = p.slice(0, 90).trim() || 'Executive Objective';
-
-  return `### 🧠 Claude 3.7 Sonnet Enterprise · Technical Analysis & Execution Plan
-
-I have analyzed your objective: **"${taskTitle}"**.
-
-Here is the complete, rigorous breakdown and actionable execution architecture:
-
----
-
-#### 1. Core Architecture & Strategic Approach
-- **Objective:** Deliver an end-to-end, zero-compromise solution for "${taskTitle}".
-- **Execution Standards:** Clean separation of concerns, defensive error handling, end-to-end type safety, and real-time connector synchronization.
-- **Autonomous Posture:** Self-healing pipelines that bypass transient failures, parse untrusted inputs safely, and persist deliverables directly to your workspace.
-
----
-
-#### 2. Key Components & Implementation Design
-1. **Domain Engine:**
-   - Encapsulates core business rules, validation criteria, and state transitions.
-   - Decoupled from external I/O so components can be unit tested and scaled independently.
-
-2. **Integration & Connectors Layer:**
-   - Bridges your active workspace tools (Gmail, Google Drive, Calendar, Canva, GitHub, Slack, Notion) into automated event pipelines.
-   - Runs background workers with non-blocking concurrency and zero manual friction.
-
-3. **Data Integrity & Persistence:**
-   - Implements atomic transactions, local storage snapshots, and continuous cloud relay.
-
----
-
-#### 3. Execution Roadmap:
-- [x] **Requirements & Scope:** Ingested from prompt and preserved in multi-turn continuity.
-- [x] **System Design:** Architectural boundaries and integration contracts validated.
-- [ ] **Next Step:** Ready to generate specific module code, configure API endpoints, or run direct dispatch.
-
-What specific aspect, module, or code file would you like me to construct or execute next?`;
+  void modelId;
+  void skill;
+  void activeConnectors;
+  void messages;
+  const text = String(lastText || '').trim();
+  return text ? 'I could not reach an AI response provider for that request.' : 'Please enter a message.';
 }
 
 export async function GET(req: NextRequest) {
@@ -905,7 +639,7 @@ export async function POST(req: NextRequest) {
     // such as "is GitHub connected?" are answered from the real account store
     // instead of from model memory or stale UI state.
     const connectorStatusQuestion =
-      /\b(?:is|are)\s+(?:my\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connected|authorized|linked)\b/i.test(lastText) ||
+      /\b(?:is|are)\s+(?:my\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365|instagram|facebook|linkedin|linear|asana|canva|hubspot)\s+(?:connected|authorized|linked)\b/i.test(lastText) ||
       /\bdo\s+you\s+have\s+(?:a\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connection|access)\b/i.test(lastText) ||
       /\b(?:list|show|what)\s+(?:my\s+)?(?:connected|authorized|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lastText) ||
       /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lastText);
@@ -967,14 +701,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Deterministic Composio execution for explicit app actions. This is
-    // deliberately before model-provider routing so Gmail/GitHub/etc. actions
-    // still work when the selected model provider does not expose tool calling.
-    const explicitComposioAction =
-      /\b(list|show|find|search|read|get|create|open|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|unstar|close|merge)\b/i.test(lastText) &&
-      /\b(github|repo(?:sitory)?|pull request|issue|gmail|email|mail|google drive|drive|calendar|youtube|slack|notion|linear|asana|hubspot|instagram|facebook|linkedin|microsoft 365)\b/i.test(lastText);
-
-    if (explicitComposioAction && composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
+    // Connector-first execution: connected-app requests go directly to Composio
+    // before model-provider routing, so connector work does not depend on a
+    // particular model's tool-calling support.
+    const connectorFirstRequest = isConnectorRelatedRequest(lastText);
+    if (connectorFirstRequest && composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
       try {
         const liveAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
         const active = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
@@ -985,20 +716,18 @@ export async function POST(req: NextRequest) {
             lastText,
             connectors,
             liveAccounts,
-            modelId
+            modelId,
+            new URL('/api/composio/callback', req.url).toString()
           );
-
           if (executed.success) {
-            const payload = JSON.stringify({
-              success: true,
-              runtime: 'composio',
-              tool_slug: executed.toolSlug,
-              data: executed.data,
-            });
+            const content = formatConnectorResult(lastText, executed);
             const stream = new ReadableStream({
               start(controller) {
-                controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify({ content: '### Composio execution result\\n\\n' + payload }) + '\\n\\n'));
-                controller.enqueue(new TextEncoder().encode('data: [DONE]\\n\\n'));
+                const encoder = new TextEncoder();
+                for (let pos = 0; pos < content.length; pos += 32) {
+                  controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: content.slice(pos, pos + 32) }) + '\n\n'));
+                }
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                 controller.close();
               },
             });
@@ -1015,7 +744,6 @@ export async function POST(req: NextRequest) {
         }
       } catch {}
     }
-
     // ========================================================
     // COMPOSIO CONNECTOR CONTEXT
     // ========================================================
@@ -1051,11 +779,11 @@ export async function POST(req: NextRequest) {
     // regex-triggered block here.
 
     const developerDirective = `\nInstructions:
-1. Provide complete, comprehensive, and high-quality responses. Write full production-grade code with zero placeholders, dummy comments, or omissions.
+1. Be concise by default: answer in 1-4 sentences unless the user asks for detail, code, or a step-by-step explanation. Never add unrelated project plans or canned introductions.
 2. When answering technical or coding questions, provide ready-to-use implementations, architecture design, and step-by-step guidance.
 2b. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation, list, or prose answer in a code block just because it is long or structured - write it as normal markdown (headings, **bold**, bullet lists) so it wraps and formats correctly instead of showing as a scrollable code box.
 3. Be direct, helpful, and completely honest. Never fabricate fake API confirmations, fake dispatch cards, or pretend external actions occurred if they didn't.
-4. Answer the user thoroughly with complete clarity and depth.\n`;
+4. Stay focused on the user's exact request. Do not invent tasks, claims, completed actions, or unrelated capabilities.\n`;
 
     const baseSystemPrompt =
       agentPrompt ||

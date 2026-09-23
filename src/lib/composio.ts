@@ -348,12 +348,19 @@ export async function executeComposioNaturalLanguage(
     : null;
   if (status?.has_active_connection === false) {
     const link = await createComposioConnectionLink(apiKey, userId, toolkit, callbackUrl);
+    if (!link.success || !link.redirectUrl) {
+      return {
+        success: false,
+        sessionId: session.sessionId,
+        toolSlug,
+        error: link.error || status.status_message || ('No active connection is available for ' + toolkit + '.'),
+      };
+    }
     return {
-      success: false,
+      success: true,
       sessionId: session.sessionId,
       toolSlug,
-      error: status.status_message || ('No active connection is available for ' + toolkit + '.'),
-      ...(link.redirectUrl ? { connectUrl: link.redirectUrl } : {}),
+      data: 'Authorization required for ' + toolkit + '. Open this link to connect your account: ' + link.redirectUrl,
     };
   }
   const generated = await generateComposioToolInput(apiKey, toolSlug, requestText, model);

@@ -430,7 +430,10 @@ export async function listConnectedAccounts(
 
         if (rawList.length === 0 && entityId && entityId !== 'default') {
           try {
-            const fbRes = await fetch(`${COMPOSIO_V31_BASE}/connected_accounts?limit=100`, {
+            const fallbackUrl = toolkitSlug
+              ? `${COMPOSIO_V31_BASE}/connected_accounts?limit=100&toolkit_slugs=${encodeURIComponent(toolkitSlug)}`
+              : `${COMPOSIO_V31_BASE}/connected_accounts?limit=100`;
+            const fbRes = await fetch(fallbackUrl, {
               method: 'GET',
               headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
               cache: 'no-store',

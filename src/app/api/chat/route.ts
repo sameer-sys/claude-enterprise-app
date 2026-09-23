@@ -309,14 +309,13 @@ async function runAgentTool(
       if (connectorContext.apiKey) {
         try {
           const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
-          const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'github'));
           if (activeGh.length >= 1) {
             const result = await executeComposioAction(
               connectorContext.apiKey,
               'GITHUB_LIST_USER_REPOSITORIES',
               {},
-              String(activeGh[0].id),
-              connectorContext.composioUserId
+              String(activeGh[0].id)
             );
             if (result.success) return JSON.stringify({ success: true, runtime: 'composio', data: result.data });
           }
@@ -360,7 +359,7 @@ async function runAgentTool(
             connectorContext.composioUserId,
             'gmail'
           );
-          const activeGmail = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          const activeGmail = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'gmail'));
           if (activeGmail.length >= 1) {
             const sent = await executeComposioAction(
               connectorContext.apiKey,
@@ -391,7 +390,7 @@ async function runAgentTool(
             connectorContext.composioUserId,
             'gmail'
           );
-          const activeGmail = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          const activeGmail = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'gmail'));
           if (activeGmail.length >= 1) {
             const result = await executeComposioAction(
               connectorContext.apiKey,
@@ -439,7 +438,7 @@ async function runAgentTool(
             connectorContext.composioUserId,
             'google_drive'
           );
-          const activeDrive = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          const activeDrive = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('drive')));
           if (activeDrive.length >= 1) {
             const result = await executeComposioAction(
               connectorContext.apiKey,

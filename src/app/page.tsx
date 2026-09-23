@@ -696,7 +696,7 @@ export default function Home() {
 
       // Safeguard: Ensure assistant response is never left blank
       if (!accumulatedContent.trim()) {
-        const fallbackText = 'I have analyzed your objective and your workspace connectors are ready. Please tell me what specific module, code, or workflow you would like me to execute end-to-end!';
+        const fallbackText = 'No response was returned. Please try again.';
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== activeSession.id) return s;

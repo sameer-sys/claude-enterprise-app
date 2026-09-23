@@ -1,15 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const VIDEO_CACHE_DIR = path.join(process.cwd(), 'public', 'generated_videos');
+
+function isAllowedSource(rawUrl: string): boolean {
+  try {
+    const url = new URL(String(rawUrl || '').trim());
+    if (url.protocol !== 'https:') return false;
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    return new Set([
+      'youtube.com',
+      'youtu.be',
+      'youtube-nocookie.com',
+      'instagram.com',
+      'facebook.com',
+      'fb.watch',
+    ]).has(host) || host.endsWith('.youtube.com') || host.endsWith('.instagram.com') || host.endsWith('.facebook.com');
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,14 +44,38 @@ export async function POST(req: NextRequest) {
       if (!videoUrl) {
         return NextResponse.json({ error: 'videoUrl is required' }, { status: 400 });
       }
+      if (!isAllowedSource(String(videoUrl))) {
+        return NextResponse.json(
+          { success: false, error: 'Only HTTPS URLs from YouTube, Instagram, or Facebook are permitted for reel downloads.' },
+          { status: 400 }
+        );
+      }
+      if (process.env.VERCEL) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Reel download is not available in this serverless deployment.',
+            hint: 'Use a dedicated media worker/object-storage backend for persistent video downloads.'
+          },
+          { status: 503 }
+        );
+      }
 
       const videoId = `reel_${Date.now()}`;
       const outputPath = path.join(VIDEO_CACHE_DIR, `${videoId}.mp4`);
 
       // Attempt download with yt-dlp if available
       try {
-        await execAsync(`yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --no-warnings -o "${outputPath}" "${videoUrl}"`, {
+        await execFileAsync('yt-dlp', [
+          '-f',
+          'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+          '--no-warnings',
+          '-o',
+          outputPath,
+          String(videoUrl),
+        ], {
           timeout: 30000,
+          maxBuffer: 1024 * 1024 * 4,
         });
 
         return NextResponse.json({

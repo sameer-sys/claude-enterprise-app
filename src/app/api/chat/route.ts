@@ -10,10 +10,10 @@ import {
 } from '@/lib/composio';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const BOSS_TARGET_MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'];
-const DEFAULT_MAX_TOKENS = 8192;
+const DEFAULT_MAX_TOKENS = 32768;
 
 // Real agent tools - each one wraps an existing, genuinely working function.
 // No fabricated results: every tool returns real data or a real error string.
@@ -51,6 +51,19 @@ const AGENT_TOOLS = [
         type: 'object',
         properties: { repo: { type: 'string', description: 'owner/repo, e.g. sameer-sys/claude-enterprise-app' } },
         required: ['repo'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'github_list_repos',
+      description: 'List repositories for a GitHub user/organization or the connected GitHub account. Use this when the user asks to see, check, or list their repositories.',
+      parameters: {
+        type: 'object',
+        properties: {
+          username: { type: 'string', description: 'GitHub username (optional, defaults to connected user or sameer-sys)' },
+        },
       },
     },
   },
@@ -124,6 +137,17 @@ const AGENT_TOOLS = [
       parameters: {
         type: 'object',
         properties: { count: { type: 'number', description: 'How many recent emails to fetch (default 3, max 10)' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'drive_search_files',
+      description: 'Search or list files from the connected Google Drive account. Use this when the user asks to find, list, or check files in Google Drive.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'Search term or query for Google Drive files (optional)' } },
       },
     },
   },
@@ -256,13 +280,56 @@ async function runAgentTool(
       return out;
     }
 
+    if (name === 'github_list_repos') {
+      const username = String(args?.username || '').trim();
+      if (connectorContext.apiKey) {
+        try {
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
+          const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          if (activeGh.length >= 1) {
+            const result = await executeComposioAction(
+              connectorContext.apiKey,
+              'GITHUB_LIST_USER_REPOSITORIES',
+              {},
+              String(activeGh[0].id),
+              connectorContext.composioUserId
+            );
+            if (result.success) return JSON.stringify({ success: true, runtime: 'composio', data: result.data });
+          }
+        } catch {}
+      }
+
+      const targetUser = username || 'sameer-sys';
+      try {
+        const ghRes = await fetch(`https://api.github.com/users/${encodeURIComponent(targetUser)}/repos?sort=updated&per_page=15`, {
+          headers: { 'User-Agent': 'Claude-Enterprise-App' },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (ghRes.ok) {
+          const repos = await ghRes.json();
+          if (Array.isArray(repos) && repos.length > 0) {
+            return JSON.stringify(repos.map((r: any) => ({
+              name: r.name,
+              full_name: r.full_name,
+              description: r.description,
+              stars: r.stargazers_count,
+              forks: r.forks_count,
+              url: r.html_url,
+              updated_at: r.updated_at,
+            })));
+          }
+        }
+      } catch {}
+      return `Could not find repositories for GitHub user "${targetUser}".`;
+    }
+
     if (name === 'send_email') {
       const to = String(args?.to || '');
       const subject = String(args?.subject || '');
       const body = String(args?.body || '');
       if (!to || !subject || !body) return 'Missing to/subject/body - cannot send.';
 
-      if (connectorContext.apiKey && connectorContext.composioUserId && connectorContext.connectors?.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
+      if (connectorContext.apiKey) {
         try {
           const liveAccounts = await listConnectedAccounts(
             connectorContext.apiKey,
@@ -270,7 +337,7 @@ async function runAgentTool(
             'gmail'
           );
           const activeGmail = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
-          if (activeGmail.length === 1) {
+          if (activeGmail.length >= 1) {
             const sent = await executeComposioAction(
               connectorContext.apiKey,
               'GMAIL_SEND_EMAIL',
@@ -292,9 +359,9 @@ async function runAgentTool(
     }
 
     if (name === 'read_inbox') {
-      const count = Math.min(Number(args?.count) || 3, 10);
+      const count = Math.min(Number(args?.count) || 5, 20);
 
-      if (connectorContext.apiKey && connectorContext.composioUserId && connectorContext.connectors?.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
+      if (connectorContext.apiKey) {
         try {
           const liveAccounts = await listConnectedAccounts(
             connectorContext.apiKey,
@@ -302,7 +369,7 @@ async function runAgentTool(
             'gmail'
           );
           const activeGmail = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
-          if (activeGmail.length === 1) {
+          if (activeGmail.length >= 1) {
             const result = await executeComposioAction(
               connectorContext.apiKey,
               'GMAIL_LIST_MESSAGES',
@@ -323,6 +390,33 @@ async function runAgentTool(
       return inboxRes.emails.map((e: any) =>
         'From: ' + e.fromName + ' <' + e.from + '>, Subject: "' + e.subject + '", Date: ' + e.date
       ).join('\n');
+    }
+
+    if (name === 'drive_search_files') {
+      const query = String(args?.query || '').trim();
+      if (connectorContext.apiKey) {
+        try {
+          const liveAccounts = await listConnectedAccounts(
+            connectorContext.apiKey,
+            connectorContext.composioUserId,
+            'google_drive'
+          );
+          const activeDrive = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
+          if (activeDrive.length >= 1) {
+            const result = await executeComposioAction(
+              connectorContext.apiKey,
+              'GOOGLEDRIVE_SEARCH_FILES',
+              { query: query || undefined },
+              String(activeDrive[0].id),
+              connectorContext.composioUserId
+            );
+            if (result.success) return JSON.stringify({ success: true, runtime: 'composio', data: result.data });
+          }
+        } catch (e: any) {
+          return `Google Drive lookup error: ${e.message}`;
+        }
+      }
+      return 'Google Drive account is not connected yet. Open Connectors to connect your Google Drive.';
     }
 
     if (name === 'connector_search') {
@@ -504,7 +598,26 @@ async function runAgentTool(
 
 
 const SYSTEM_PROMPTS: Record<string, string> = {
-  boss: 'You are Boss — the autonomous enterprise AI engine powered by OmniRoute Cloud. You are exceptionally intelligent, fast, decisive, and capable. You solve complex problems, write complete production-ready code, execute real tools when needed, and provide brilliant, direct answers.',
+  boss: `You are Boss — the autonomous enterprise AI engine with live execution capabilities powered by OmniRoute Cloud.
+
+CORE CAPABILITIES & LIVE HANDS:
+You have real execution tools connected to the live web and external services:
+- web_search: Search the live web for facts, news, and current information.
+- web_fetch: Fetch readable content from any URL.
+- github_lookup: Inspect repository stats and recent commits.
+- github_list_repos: List real GitHub repositories for the user or organization.
+- read_inbox: Read recent real emails from the connected Gmail/inbox.
+- send_email: Send real emails with recipient, subject, and body.
+- drive_search_files: Search files in Google Drive.
+- connector_search: Search available Composio actions across all connected apps (Slack, Notion, Calendar, Drive, etc.).
+- connector_execute: Execute any action on connected services.
+- connector_manage_connections: List connected accounts or generate OAuth connection links.
+
+STRICT EXECUTION DIRECTIVE:
+1. When the user asks you to perform an action, check data, list items, search, or fetch information from their connected apps (GitHub, Gmail, Google Drive, Calendar, Slack, Notion, etc.):
+   YOU MUST ALWAYS CALL THE CORRESPONDING TOOL.
+2. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
+3. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {
@@ -723,28 +836,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Connector-first execution is authoritative. A connector request never
-    // falls through to a generic model response.
+    // Connector-first execution is authoritative when successful.
     const connectorFirstRequest = isConnectorRelatedRequest(lastText);
-    if (connectorFirstRequest) {
-      const encoder = new TextEncoder();
-      const connectorStream = (content: string) => new ReadableStream({
-        start(controller) {
-          const safe = String(content || '').trim() || 'No connector result returned.';
-          for (let pos = 0; pos < safe.length; pos += 32) {
-            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: safe.slice(pos, pos + 32) }) + '\n\n'));
-          }
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-          controller.close();
-        },
-      });
-
-      if (!composioApiKey) {
-        return new Response(connectorStream('Composio is not configured on the server.'), {
-          headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector', 'X-Claude-Router': 'composio-config-error' },
-        });
-      }
-
+    if (connectorFirstRequest && composioApiKey) {
       try {
         const liveAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
         const result = await executeComposioNaturalLanguage(
@@ -756,6 +850,18 @@ export async function POST(req: NextRequest) {
           modelId,
           new URL('/api/composio/callback', req.url).toString()
         );
+
+        const encoder = new TextEncoder();
+        const connectorStream = (content: string) => new ReadableStream({
+          start(controller) {
+            const safe = String(content || '').trim() || 'No connector result returned.';
+            for (let pos = 0; pos < safe.length; pos += 32) {
+              controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: safe.slice(pos, pos + 32) }) + '\n\n'));
+            }
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        });
 
         if (result.success) {
           return new Response(connectorStream(formatConnectorResult(lastText, result)), {
@@ -769,14 +875,9 @@ export async function POST(req: NextRequest) {
             headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Authentication', 'X-Claude-Router': 'composio-auth-required' },
           });
         }
-
-        return new Response(connectorStream(result.error || 'Composio could not complete that request.'), {
-          headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector', 'X-Claude-Router': 'composio-error' },
-        });
+        // If Composio natural language router did not find a match, fall through to Boss Engine tool loop!
       } catch (err: any) {
-        return new Response(connectorStream(err?.message || 'Composio connector request failed.'), {
-          headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector', 'X-Claude-Router': 'composio-error' },
-        });
+        // Fall through to Boss Engine tool loop!
       }
     }
 
@@ -784,42 +885,29 @@ export async function POST(req: NextRequest) {
     // COMPOSIO CONNECTOR CONTEXT
     // ========================================================
     let connectorContext = '';
-    const activeConnectors = Array.isArray(connectors) ? connectors.filter((c: any) => c?.enabled) : [];
-    const composioHubEnabled = activeConnectors.some((c: any) => c?.id === 'conn-composio');
-
-    if (composioHubEnabled && composioApiKey) {
+    if (composioApiKey) {
       try {
         const realAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
         const activeAccounts = realAccounts.filter((a: any) => a?.status === 'ACTIVE');
-        connectorContext += '\n\n[COMPOSIO LIVE ACCOUNTS]\n';
-
-        if (!activeAccounts.length) {
-          connectorContext += '- No ACTIVE Composio app accounts are connected for this user.\n';
-        } else {
+        if (activeAccounts.length > 0) {
+          connectorContext += '\n\n[LIVE CONNECTED APP ACCOUNTS]\n';
           connectorContext += activeAccounts.map((account: any) => {
             const toolkit = String(account?.appUniqueId || account?.appName || 'unknown');
             const label = String(account?.email || account?.accountIdentifier || account?.alias || account?.id || 'connected account');
             return '- ' + toolkit + ' — ' + label + ' (ACTIVE)';
           }).join('\n') + '\n';
+          connectorContext += 'You have live access to these accounts. When asked to inspect, check, or do anything on them, CALL the corresponding tool.\n';
         }
-
-        connectorContext += '- The model must use connector_search before connector_execute and report only real tool results.\n';
       } catch (err: any) {
-        connectorContext += '\n[COMPOSIO LIVE ACCOUNTS]\n- Lookup failed: ' + (err?.message || 'unknown error') + '.\n';
+        // pass
       }
-    } else if (composioHubEnabled) {
-      connectorContext += '\n\n[COMPOSIO LIVE ACCOUNTS]\n- Composio project API key is not configured on the server. No external app action is available.\n';
     }
 
-    // URL fetching is now the web_fetch agent tool below, instead of a
-    // regex-triggered block here.
-
     const developerDirective = `\nInstructions:
-1. Be concise by default: answer in 1-4 sentences unless the user asks for detail, code, or a step-by-step explanation. Never add unrelated project plans or canned introductions.
-2. When answering technical or coding questions, provide ready-to-use implementations, architecture design, and step-by-step guidance.
-2b. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation, list, or prose answer in a code block just because it is long or structured - write it as normal markdown (headings, **bold**, bullet lists) so it wraps and formats correctly instead of showing as a scrollable code box.
-3. Be direct, helpful, and completely honest. Never fabricate fake API confirmations, fake dispatch cards, or pretend external actions occurred if they didn't.
-4. Stay focused on the user's exact request. Do not invent tasks, claims, completed actions, or unrelated capabilities.\n`;
+1. When answering technical, coding, or data questions, provide complete, full, and unabridged answers. Never cut off or truncate.
+2. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation in a code block.
+3. Be direct, authoritative, and completely honest. Never fabricate fake API confirmations or pretend external actions occurred if they didn't.
+4. When asked to interact with external services or check user data, execute the real tool call.\n`;
 
     const baseSystemPrompt =
       agentPrompt ||
@@ -835,10 +923,10 @@ export async function POST(req: NextRequest) {
     // ========================================================
     // BOSS ENGINE: MULTI-STEP TOOL EXECUTION & HIGH-SPEED STREAM
     // ========================================================
-    const recentMessages = messages.slice(-10);
+    // No message truncation: pass full conversation history
     const fullMessages: any[] = [
       { role: 'system', content: systemPrompt },
-      ...recentMessages.map((m: any) => {
+      ...messages.map((m: any) => {
         let content = m.content || '';
         if (m.attachments && Array.isArray(m.attachments)) {
           for (const att of m.attachments) {
@@ -862,10 +950,10 @@ export async function POST(req: NextRequest) {
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');
 
     // 1. Tool execution loop: check if request needs web search, git, email, or Composio tools
-    const agentDeadline = requestStartTime + 40000;
-    const maxAgentTurns = 6;
+    const agentDeadline = requestStartTime + 120000;
+    const maxAgentTurns = 8;
     let connectorAccounts: any[] = [];
-    if (composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
+    if (composioApiKey) {
       try {
         connectorAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
       } catch {}
@@ -886,9 +974,9 @@ export async function POST(req: NextRequest) {
             messages: fullMessages,
             tools: AGENT_TOOLS,
             tool_choice: 'auto',
-            max_tokens: 2048,
+            max_tokens: 8192,
           }),
-          signal: AbortSignal.timeout(Math.max(3000, agentDeadline - Date.now())),
+          signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
         });
 
         if (!agentResp.ok) break;
@@ -1271,7 +1359,7 @@ export async function POST(req: NextRequest) {
     // ========================================================
     // AUTONOMOUS END-TO-END WORK & CONNECTOR EXECUTION (HERMES / OPEN INTERPRETER)
     // ========================================================
-    const fallbackContent = await synthesizeClaudeEnterpriseResponse(lastText, modelId, detectedSkill, activeConnectors, messages);
+    const fallbackContent = await synthesizeClaudeEnterpriseResponse(lastText, modelId, detectedSkill, connectors, messages);
     const encoder = new TextEncoder();
     const chunkSize = 28;
     const stream = new ReadableStream({

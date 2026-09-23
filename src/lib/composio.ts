@@ -272,15 +272,15 @@ export async function createComposioToolRouterSession(
 }
 
 export async function searchComposioToolRouter(
-  apiKey: string, sessionId: string, query: string, model: string = 'boss'
+  apiKey: string, sessionId: string, query: string, model: string = 'claude-3-7-sonnet'
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
     const res = await fetch(`${COMPOSIO_V31_BASE}/tool_router/session/${encodeURIComponent(sessionId)}/search`, {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ queries: [{ use_case: String(query || '').slice(0, 500) }], model, search_strategy: 'auto' }),
+      body: JSON.stringify({ queries: [{ use_case: String(query || '') }], model, search_strategy: 'auto' }),
       cache: 'no-store',
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(15000),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { success: false, error: data?.error?.message || data?.message || `Composio tool search failed (${res.status}).` };
@@ -291,20 +291,20 @@ export async function searchComposioToolRouter(
 }
 
 export async function generateComposioToolInput(
-  apiKey: string, toolSlug: string, text: string, model: string = 'boss'
+  apiKey: string, toolSlug: string, text: string, model: string = 'claude-3-7-sonnet'
 ): Promise<{ success: boolean; arguments?: Record<string, any>; error?: string }> {
   try {
     const res = await fetch(`${COMPOSIO_V31_BASE}/tools/execute/${encodeURIComponent(toolSlug)}/input`, {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        text: String(text || '').slice(0, 3000),
+        text: String(text || ''),
         version: 'latest',
         system_prompt: 'Translate the user request into exact tool arguments. Preserve explicit IDs, names, emails, repositories, dates, and requested values. Never invent missing required values.',
-        custom_description: `Execute only against the connected account selected for the current chat. Model: ${model}.`,
+        custom_description: `Execute only against the connected account selected for the current chat.`,
       }),
       cache: 'no-store',
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(15000),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data?.arguments) return { success: false, error: data?.error?.message || data?.error || data?.message || `Argument generation failed (${res.status}).` };
@@ -336,7 +336,7 @@ export async function executeComposioToolRouter(
 }
 
 export async function executeComposioNaturalLanguage(
-  apiKey: string, userId: string, requestText: string, connectors: any[] = [], accounts: ComposioConnectedAccount[] = [], model: string = 'boss', callbackUrl?: string
+  apiKey: string, userId: string, requestText: string, connectors: any[] = [], accounts: ComposioConnectedAccount[] = [], model: string = 'claude-3-7-sonnet', callbackUrl?: string
 ): Promise<{ success: boolean; toolSlug?: string; arguments?: Record<string, any>; data?: any; error?: string; sessionId?: string; connectUrl?: string }> {
   const session = await createComposioToolRouterSession(apiKey, userId, connectors, accounts);
   if (!session.success || !session.sessionId) return { success: false, error: session.error || 'Unable to create Composio session.' };
@@ -418,7 +418,7 @@ export async function listConnectedAccounts(
           continue;
         }
         const data = await res.json();
-        const rawList = Array.isArray(data.items)
+        let rawList = Array.isArray(data.items)
           ? data.items
           : Array.isArray(data)
           ? data
@@ -427,6 +427,23 @@ export async function listConnectedAccounts(
           : Array.isArray(data.data)
           ? data.data
           : [];
+
+        if (rawList.length === 0 && entityId && entityId !== 'default') {
+          try {
+            const fbRes = await fetch(`${COMPOSIO_V31_BASE}/connected_accounts?limit=100`, {
+              method: 'GET',
+              headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+              cache: 'no-store',
+            });
+            if (fbRes.ok) {
+              const fbData = await fbRes.json();
+              const fbItems = Array.isArray(fbData.items) ? fbData.items : (Array.isArray(fbData.data) ? fbData.data : []);
+              if (fbItems.length > 0) {
+                rawList = fbItems;
+              }
+            }
+          } catch {}
+        }
 
         return rawList.map((item: any) => {
           const appUid = String(

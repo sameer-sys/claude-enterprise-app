@@ -597,7 +597,7 @@ export default function Home() {
 
     try {
       const chatBody = {
-        messages: [...activeSession.messages.slice(-30), userMessage],
+        messages: [...activeSession.messages, userMessage],
         modelId: activeModel,
         geminiKey: geminiKey || undefined,
         openRouterKey: openRouterKey || undefined,

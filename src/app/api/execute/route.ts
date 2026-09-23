@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { code, language = 'python', command, cwd } = body;
 
-    const workingDir = cwd || process.env.USER_WORKSPACE || 'C:\\Users\\Master\\sameer workspace';
+    const workingDir = cwd || process.env.USER_WORKSPACE || path.join(process.cwd(), '.workspace');
 
     // Ensure working directory exists
     if (!fs.existsSync(workingDir)) {

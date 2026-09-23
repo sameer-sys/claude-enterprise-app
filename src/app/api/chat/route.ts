@@ -555,7 +555,11 @@ function isConnectorRelatedRequest(text: string): boolean {
   const connectorTerms = ['connector','connected app','connected account','authorize','authorization','oauth','linked account','access'];
   const actionTerms = ['repository','repositories','repo','pull request','issue','email','message','calendar event','file','folder','document','spreadsheet','channel','page','post','task','contact'];
   const looksLikeAction = /\b(can you|could you|tell me|show me|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|how many|total|count)\b/i.test(lower);
-  return (mentionsGitHub || mentionsOtherApp) && (
+  const implicitGitHubRepoRequest =
+    /\b(?:my|i\s+have|do\s+i\s+have)\b/i.test(lower) &&
+    /\b(?:repositories|repos|pull\s+requests|issues)\b/i.test(lower) &&
+    /\b(?:how many|list|show|what|which)\b/i.test(lower);
+  return (mentionsGitHub || mentionsOtherApp || implicitGitHubRepoRequest) && (
     looksLikeAction ||
     connectorTerms.some((term) => lower.includes(term)) ||
     actionTerms.some((term) => lower.includes(term))

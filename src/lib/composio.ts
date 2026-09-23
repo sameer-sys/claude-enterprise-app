@@ -545,73 +545,33 @@ export async function initiateAppConnection(
   entityId: string = 'default',
   redirectUrl?: string
 ): Promise<{ success: boolean; redirectUrl?: string; connectionId?: string; error?: string }> {
-  const composioAppName = normalizeComposioToolkitSlug(COMPOSIO_APP_MAP[appName] || appName);
-  const cbUrl = redirectUrl || 'https://claude-enterprise-app.vercel.app/api/composio/callback';
+  const toolkit = normalizeComposioToolkitSlug(COMPOSIO_APP_MAP[appName] || appName);
+  const auth = await ensureManagedAuthConfig(apiKey, toolkit);
+  if (!auth.id) return { success: false, error: auth.error || ('No managed auth configuration is available for ' + toolkit + '.') };
 
   try {
-    const authUrl = new URL(COMPOSIO_V31_BASE + '/auth_configs');
-    authUrl.searchParams.set('toolkit_slug', composioAppName);
-    authUrl.searchParams.set('is_composio_managed', 'true');
-    authUrl.searchParams.set('show_disabled', 'false');
-    authUrl.searchParams.set('limit', '50');
-
-    const authRes = await fetch(authUrl.toString(), {
-      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(10000),
-    });
-    const authData = await authRes.json().catch(() => ({}));
-
-    if (!authRes.ok) {
-      return {
-        success: false,
-        error: authData?.error?.message || authData?.message || 'Composio auth configuration lookup failed (' + authRes.status + ').',
-      };
-    }
-
-    const authConfigs = Array.isArray(authData?.items) ? authData.items : [];
-    const authConfig = authConfigs.find((item: any) =>
-      item?.is_composio_managed === true &&
-      String(item?.status || '').toUpperCase() !== 'DISABLED'
-    );
-
-    if (!authConfig?.id) {
-      return {
-        success: false,
-        error: 'No enabled Composio-managed OAuth configuration exists for ' + composioAppName + '. Enable its managed auth config in your Composio project.',
-      };
-    }
-
-    const linkRes = await fetch(COMPOSIO_V31_BASE + '/connected_accounts/link', {
+    const res = await fetch(COMPOSIO_V31_BASE + '/connected_accounts/link', {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        auth_config_id: authConfig.id,
+        auth_config_id: auth.id,
         user_id: String(entityId),
-        callback_url: cbUrl,
+        callback_url: redirectUrl || 'https://claude-enterprise-app.vercel.app/api/composio/callback',
         allow_multiple: true,
       }),
       cache: 'no-store',
       signal: AbortSignal.timeout(12000),
     });
-    const linkData = await linkRes.json().catch(() => ({}));
-
-    if (!linkRes.ok) {
-      return {
-        success: false,
-        error: linkData?.error?.message || linkData?.message || 'Composio could not create the OAuth link (' + linkRes.status + ').',
-      };
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data?.error?.message || data?.message || ('Composio OAuth link failed (' + res.status + ').') };
     }
-
-    const link = linkData?.redirect_url || linkData?.redirectUrl;
-    if (!link) {
-      return { success: false, error: 'Composio returned no OAuth redirect URL.' };
-    }
-
+    const link = data?.redirect_url || data?.redirectUrl;
+    if (!link) return { success: false, error: 'Composio returned no OAuth redirect URL.' };
     return {
       success: true,
       redirectUrl: String(link),
-      connectionId: linkData?.connected_account_id ? String(linkData.connected_account_id) : undefined,
+      connectionId: data?.connected_account_id ? String(data.connected_account_id) : undefined,
     };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Composio OAuth link creation failed.' };

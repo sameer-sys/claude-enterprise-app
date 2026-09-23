@@ -705,6 +705,35 @@ export async function POST(req: NextRequest) {
     // before model-provider routing, so connector work does not depend on a
     // particular model's tool-calling support.
     const connectorFirstRequest = isConnectorRelatedRequest(lastText);
+
+    // When no app account is connected yet, ask Composio for the real hosted
+    // authorization link before any model fallback can answer incorrectly.
+    if (connectorFirstRequest && composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
+      try {
+        const existing = await listConnectedAccounts(composioApiKey, composioUserId);
+        if (!existing.some((a: any) => a?.status === 'ACTIVE')) {
+          const pending = await executeComposioNaturalLanguage(
+            composioApiKey,
+            composioUserId,
+            lastText,
+            connectors,
+            existing,
+            modelId,
+            new URL('/api/composio/callback', req.url).toString()
+          );
+          if (pending.connectUrl) {
+            const message = 'Connect your account to continue: [' + String(pending.toolSlug || 'Open connection') + '](' + String(pending.connectUrl) + ').';
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream({ start(controller) {
+              controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message }) + '\n\n'));
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              controller.close();
+            }});
+            return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector Authentication', 'X-Claude-Router': 'composio-auth-required' } });
+          }
+        }
+      } catch {}
+    }
     if (connectorFirstRequest && composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
       try {
         const liveAccounts = await listConnectedAccounts(composioApiKey, composioUserId);

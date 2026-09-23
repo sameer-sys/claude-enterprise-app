@@ -471,13 +471,13 @@ export async function createComposioConnectionLink(
   callbackUrl?: string,
   alias?: string
 ): Promise<{ success: boolean; redirectUrl?: string; sessionId?: string; error?: string }> {
-  const normalizedToolkit = normalizeComposioToolkitSlug(toolkit);
-  const session = await createComposioToolRouterSession(apiKey, userId, [
-    { id: 'conn-composio', enabled: true },
-  ], []);
-  if (!session.success || !session.sessionId) {
-    return { success: false, error: session.error || 'Unable to create Composio session.' };
-  }
+  const result = await initiateAppConnection(apiKey, toolkit, userId, callbackUrl);
+  return {
+    success: result.success,
+    redirectUrl: result.redirectUrl,
+    sessionId: result.connectionId,
+    error: result.error,
+  };
   try {
     const res = await fetch(
       COMPOSIO_V31_BASE + '/tool_router/session/' + encodeURIComponent(session.sessionId) + '/link',

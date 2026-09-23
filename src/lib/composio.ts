@@ -8,6 +8,7 @@ export interface ComposioConnectedAccount {
   email?: string;
   userUuid?: string;
   accountIdentifier?: string;
+  isDefault?: boolean;
 }
 
 export const COMPOSIO_SUPPORTED_TOOLKITS = [
@@ -233,8 +234,11 @@ export async function createComposioToolRouterSession(
     );
     const selected = String(connector?.config?.connectedAccountId || '').trim();
     const active = accounts.filter((a) => String(a.appUniqueId || '').toLowerCase() === toolkit && a.status === 'ACTIVE');
+    const defaultAccount = active.find((a: any) => a?.isDefault === true);
     if (selected && active.some((a) => String(a.id) === selected)) {
       connectedAccounts[toolkit] = [selected];
+    } else if (defaultAccount) {
+      connectedAccounts[toolkit] = [String(defaultAccount.id)];
     } else if (active.length === 1) {
       connectedAccounts[toolkit] = [String(active[0].id)];
     }
@@ -371,7 +375,8 @@ export async function executeComposioNaturalLanguage(
     String(a?.status || '').toUpperCase() === 'ACTIVE' &&
     normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit
   );
-  const resolvedAccountId = selectedId || (activeForToolkit.length === 1 ? String(activeForToolkit[0].id) : '');
+  const defaultAccount = activeForToolkit.find((a: any) => a?.isDefault === true);
+  const resolvedAccountId = selectedId || (defaultAccount ? String(defaultAccount.id) : '') || (activeForToolkit.length === 1 ? String(activeForToolkit[0].id) : '');
   const executed = await executeComposioToolRouter(
     apiKey,
     session.sessionId,
@@ -455,6 +460,7 @@ export async function listConnectedAccounts(
                 : item.status === 'INITIALIZING' || item.status === 'init'
                 ? 'idle'
                 : 'idle',
+            isDefault: Boolean(item.is_default ?? item.isDefault ?? false),
             createdAt: item.createdAt || item.created_at || new Date().toISOString(),
             updatedAt: item.updatedAt || item.updated_at || new Date().toISOString(),
             userUuid: item.user_id || item.userUuid,

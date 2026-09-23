@@ -24,7 +24,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false,
+      webSecurity: true,
     },
   });
 
@@ -37,11 +37,20 @@ function createWindow() {
 
   // Open external links in real browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith(APP_URL) && !url.startsWith("http://localhost")) {
-      shell.openExternal(url);
+    try {
+      const target = new URL(url);
+      const appOrigin = new URL(APP_URL).origin;
+      const localhostAllowed = isDev && target.origin === "http://localhost:3000";
+      if (target.origin === appOrigin || localhostAllowed) {
+        return { action: "allow" };
+      }
+      if (target.protocol === "https:" || target.protocol === "http:") {
+        shell.openExternal(target.toString());
+      }
+      return { action: "deny" };
+    } catch {
       return { action: "deny" };
     }
-    return { action: "allow" };
   });
 
   mainWindow.on("close", (e) => {

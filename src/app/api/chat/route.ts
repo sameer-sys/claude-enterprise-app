@@ -701,78 +701,63 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Connector-first execution: connected-app requests go directly to Composio
-    // before model-provider routing, so connector work does not depend on a
-    // particular model's tool-calling support.
+    // Connector-first execution is authoritative. A connector request never
+    // falls through to a generic model response.
     const connectorFirstRequest = isConnectorRelatedRequest(lastText);
-
-    // When no app account is connected yet, ask Composio for the real hosted
-    // authorization link before any model fallback can answer incorrectly.
-    if (connectorFirstRequest && composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
-      try {
-        const existing = await listConnectedAccounts(composioApiKey, composioUserId);
-        if (!existing.some((a: any) => a?.status === 'ACTIVE')) {
-          const pending = await executeComposioNaturalLanguage(
-            composioApiKey,
-            composioUserId,
-            lastText,
-            connectors,
-            existing,
-            modelId,
-            new URL('/api/composio/callback', req.url).toString()
-          );
-          if (pending.connectUrl) {
-            const message = 'Connect your account to continue: [' + String(pending.toolSlug || 'Open connection') + '](' + String(pending.connectUrl) + ').';
-            const encoder = new TextEncoder();
-            const stream = new ReadableStream({ start(controller) {
-              controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message }) + '\n\n'));
-              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-              controller.close();
-            }});
-            return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector Authentication', 'X-Claude-Router': 'composio-auth-required' } });
+    if (connectorFirstRequest) {
+      const encoder = new TextEncoder();
+      const connectorStream = (content: string) => new ReadableStream({
+        start(controller) {
+          const safe = String(content || '').trim() || 'No connector result returned.';
+          for (let pos = 0; pos < safe.length; pos += 32) {
+            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: safe.slice(pos, pos + 32) }) + '\n\n'));
           }
-        }
-      } catch {}
-    }
-    if (connectorFirstRequest && composioApiKey && Array.isArray(connectors) && connectors.some((c: any) => c?.id === 'conn-composio' && c?.enabled !== false)) {
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+
+      if (!composioApiKey) {
+        return new Response(connectorStream('Composio is not configured on the server.'), {
+          headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector', 'X-Claude-Router': 'composio-config-error' },
+        });
+      }
+
       try {
         const liveAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
-        const active = liveAccounts.filter((a: any) => a?.status === 'ACTIVE');
-        if (active.length) {
-          const executed = await executeComposioNaturalLanguage(
-            composioApiKey,
-            composioUserId,
-            lastText,
-            connectors,
-            liveAccounts,
-            modelId,
-            new URL('/api/composio/callback', req.url).toString()
-          );
-          if (executed.success) {
-            const content = formatConnectorResult(lastText, executed);
-            const stream = new ReadableStream({
-              start(controller) {
-                const encoder = new TextEncoder();
-                for (let pos = 0; pos < content.length; pos += 32) {
-                  controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: content.slice(pos, pos + 32) }) + '\n\n'));
-                }
-                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-                controller.close();
-              },
-            });
-            return new Response(stream, {
-              headers: {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                Connection: 'keep-alive',
-                'X-Claude-Skill': 'Composio Connector Execution',
-                'X-Claude-Router': 'composio-direct-runtime',
-              },
-            });
-          }
+        const result = await executeComposioNaturalLanguage(
+          composioApiKey,
+          composioUserId,
+          lastText,
+          [{ id: 'conn-composio', enabled: true }],
+          liveAccounts,
+          modelId,
+          new URL('/api/composio/callback', req.url).toString()
+        );
+
+        if (result.success) {
+          return new Response(connectorStream(formatConnectorResult(lastText, result)), {
+            headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector', 'X-Claude-Router': 'composio-direct' },
+          });
         }
-      } catch {}
+
+        if (result.connectUrl) {
+          const message = 'Connect your account: ' + result.connectUrl;
+          return new Response(connectorStream(message), {
+            headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Authentication', 'X-Claude-Router': 'composio-auth-required' },
+          });
+        }
+
+        return new Response(connectorStream(result.error || 'Composio could not complete that request.'), {
+          headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector', 'X-Claude-Router': 'composio-error' },
+        });
+      } catch (err: any) {
+        return new Response(connectorStream(err?.message || 'Composio connector request failed.'), {
+          headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector', 'X-Claude-Router': 'composio-error' },
+        });
+      }
     }
+
     // ========================================================
     // COMPOSIO CONNECTOR CONTEXT
     // ========================================================

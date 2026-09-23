@@ -6,84 +6,12 @@ import { ModelId, ModelOption, ThinkingBudget } from '@/types/chat';
 
 export const PRO_CLAUDE_MODELS: ModelOption[] = [
   {
-    id: 'claude-3-7-sonnet',
-    name: 'Claude 3.7 Sonnet',
-    tag: 'Hybrid Reasoning',
-    description: 'Anthropic’s most powerful model. Dynamically shifts between instant responses and extended reasoning.',
-    speed: 'Thinking + Speed',
-    badge: 'Pro Reasoning',
-    contextWindow: '200K tokens',
-  },
-  {
-    id: 'claude-3-5-sonnet',
-    name: 'Claude 3.5 Sonnet',
-    tag: 'Highest Intelligence',
-    description: 'Gold standard for complex coding, vision analysis, reasoning, and production workflows.',
-    speed: '~1.2s response',
-    badge: 'Pro Tier',
-    contextWindow: '200K tokens',
-  },
-  {
-    id: 'claude-3-5-haiku',
-    name: 'Claude 3.5 Haiku',
-    tag: 'Ultra-Fast',
-    description: 'Fastest model with exceptional speed and intelligence for immediate answers and rapid tasks.',
-    speed: '0.6s response',
-    badge: 'Ultra Fast',
-    contextWindow: '200K tokens',
-  },
-  {
-    id: 'claude-3-opus',
-    name: 'Claude 3 Opus',
-    tag: 'Deep Synthesis',
-    description: 'Excels at open-ended creative writing, dense scholarly analysis, and long-form document synthesis.',
-    speed: 'High Depth',
-    badge: 'Flagship',
-    contextWindow: '200K tokens',
-  },
-  {
-    id: 'minimax-01',
-    name: 'MiniMax-01 Flagship',
-    tag: '1M Context Deep Reasoning',
-    description: 'MiniMax’s ultra-powerful 456B parameter reasoning model with native tool-use and massive 1M context window.',
-    speed: 'High Throughput',
-    badge: 'MiniMax ⚡',
-    contextWindow: '1M tokens',
-  },
-  {
-    id: 'deepseek-r1',
-    name: 'DeepSeek R1 Autonomous',
-    tag: 'Open Weights SOTA',
-    description: 'State-of-the-art open reasoning model rivaling OpenAI o1, built for complex mathematics, code, and systems.',
-    speed: 'Deep Extended Reasoning',
-    badge: 'DeepSeek R1',
-    contextWindow: '128K tokens',
-  },
-  {
-    id: 'the-boss-chat',
-    name: 'Sameer Instant Chat ⚡',
-    tag: 'OmniRoute Instant',
-    description: 'Ultra-fast conversational AI from OmniRoute. 1-second instant answers, brainstorming, and planning.',
-    speed: '0.4s instant',
-    badge: 'Sameer ⚡',
-    contextWindow: '1M tokens',
-  },
-  {
-    id: 'the-boss-build',
-    name: 'Sameer Build Engine 🛠️',
-    tag: 'Big Pickle Engine',
-    description: 'Heavy coding, complex refactoring, file generation, and deep debugging powered by Big Pickle.',
-    speed: 'High Throughput',
-    badge: 'Sameer Build 🛠️',
-    contextWindow: '1M tokens',
-  },
-  {
-    id: 'omniroute-auto',
-    name: 'OmniRoute Auto Router',
-    tag: '2,269 Model Pool',
-    description: 'Dynamic multi-model failover engine routing across 2,269 local and cloud models with zero drops.',
-    speed: 'Auto Optimized',
-    badge: '2,269 Models',
+    id: 'boss',
+    name: 'Boss',
+    tag: 'OmniRoute Cloud Engine',
+    description: 'Autonomous AI engine with real tool execution, zero rate limits, and sub-second intelligence.',
+    speed: '50ms Ultra-Fast',
+    badge: 'Boss ⚡',
     contextWindow: '1M tokens',
   },
 ];
@@ -114,7 +42,7 @@ export default function ModelSelector({
       >
         <span className="w-2 h-2 rounded-full bg-[#cc785c] animate-pulse" />
         <span className="font-semibold text-[#f2eee6]">{active.name}</span>
-        {active.id === 'claude-3-7-sonnet' && isThinkingEnabled && (
+        {isThinkingEnabled && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#cc785c]/20 text-[#cc785c] font-mono border border-[#cc785c]/40 flex items-center gap-1">
             <Brain className="w-3 h-3" />
             <span>{(thinkingBudget / 1000).toFixed(0)}k thinking</span>
@@ -130,9 +58,9 @@ export default function ModelSelector({
             <div className="px-3 py-1.5 flex items-center justify-between text-[11px] font-semibold text-[#9c978b] uppercase tracking-wider border-b border-[#2d2b25]">
               <span className="flex items-center gap-1 text-[#cc785c]">
                 <Crown className="w-3.5 h-3.5" />
-                <span>Claude Enterprise Tier Models</span>
+                <span>Boss Autonomous AI Engine</span>
               </span>
-              <span className="text-[10px] text-[#baa898] font-mono">Priority Queue Active</span>
+              <span className="text-[10px] text-[#baa898] font-mono">OmniRoute Priority</span>
             </div>
 
             {PRO_CLAUDE_MODELS.map((model) => {
@@ -142,9 +70,6 @@ export default function ModelSelector({
                   key={model.id}
                   onClick={() => {
                     onSelectModel(model.id);
-                    if (model.id !== 'claude-3-7-sonnet') {
-                      setIsOpen(false);
-                    }
                   }}
                   className={`w-full p-3 rounded-xl transition-all cursor-pointer ${
                     isSelected
@@ -154,10 +79,7 @@ export default function ModelSelector({
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-2">
-                      {model.id === 'claude-3-7-sonnet' && <Brain className="w-4 h-4 text-[#cc785c]" />}
-                      {model.id === 'claude-3-5-sonnet' && <Sparkles className="w-4 h-4 text-[#cc785c]" />}
-                      {model.id === 'claude-3-5-haiku' && <Zap className="w-4 h-4 text-amber-400" />}
-                      {model.id === 'claude-3-opus' && <BookOpen className="w-4 h-4 text-purple-400" />}
+                      <Sparkles className="w-4 h-4 text-[#cc785c]" />
                       <span className="text-sm font-semibold text-[#f2eee6]">{model.name}</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
@@ -169,8 +91,8 @@ export default function ModelSelector({
                   </div>
                   <p className="text-xs text-[#9c978b] mt-1 leading-relaxed pl-6">{model.description}</p>
 
-                  {/* Thinking Budget Slider for Claude 3.7 Sonnet */}
-                  {model.id === 'claude-3-7-sonnet' && isSelected && isThinkingEnabled && (
+                  {/* Thinking Budget Slider for Boss */}
+                  {isSelected && isThinkingEnabled && (
                     <div className="mt-3 pt-2.5 border-t border-[#36342c] pl-6" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-between text-[11px] text-[#dcd8ce] mb-1.5">
                         <span className="font-semibold text-[#cc785c] flex items-center gap-1">

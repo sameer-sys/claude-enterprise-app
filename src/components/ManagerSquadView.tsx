@@ -38,7 +38,7 @@ const DEFAULT_SUB_AGENTS: ManagedSubAgent[] = [
     status: 'idle',
     currentTask: 'Ready for a directive',
     lastProgress: 'No live task is running yet.',
-    modelId: 'claude-3-7-sonnet',
+    modelId: 'boss',
     assignedBy: 'Executive Manager',
     outputLog: [
       '[PM1] Squad member initialized.',
@@ -52,7 +52,7 @@ const DEFAULT_SUB_AGENTS: ManagedSubAgent[] = [
     status: 'idle',
     currentTask: 'Ready for a directive',
     lastProgress: 'No live task is running yet.',
-    modelId: 'the-boss-chat',
+    modelId: 'boss',
     assignedBy: 'Executive Manager',
     outputLog: [
       '[PM2] Squad member initialized.',
@@ -66,7 +66,7 @@ const DEFAULT_SUB_AGENTS: ManagedSubAgent[] = [
     status: 'idle',
     currentTask: 'Ready for a directive',
     lastProgress: 'No live task is running yet.',
-    modelId: 'the-boss-build',
+    modelId: 'boss',
     assignedBy: 'Executive Manager',
     outputLog: [
       '[PM3] Squad member initialized.',

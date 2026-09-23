@@ -272,7 +272,7 @@ export async function createComposioToolRouterSession(
 }
 
 export async function searchComposioToolRouter(
-  apiKey: string, sessionId: string, query: string, model: string = 'claude-3-7-sonnet'
+  apiKey: string, sessionId: string, query: string, model: string = 'boss'
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
     const res = await fetch(`${COMPOSIO_V31_BASE}/tool_router/session/${encodeURIComponent(sessionId)}/search`, {
@@ -291,7 +291,7 @@ export async function searchComposioToolRouter(
 }
 
 export async function generateComposioToolInput(
-  apiKey: string, toolSlug: string, text: string, model: string = 'claude-3-7-sonnet'
+  apiKey: string, toolSlug: string, text: string, model: string = 'boss'
 ): Promise<{ success: boolean; arguments?: Record<string, any>; error?: string }> {
   try {
     const res = await fetch(`${COMPOSIO_V31_BASE}/tools/execute/${encodeURIComponent(toolSlug)}/input`, {
@@ -336,7 +336,7 @@ export async function executeComposioToolRouter(
 }
 
 export async function executeComposioNaturalLanguage(
-  apiKey: string, userId: string, requestText: string, connectors: any[] = [], accounts: ComposioConnectedAccount[] = [], model: string = 'claude-3-7-sonnet', callbackUrl?: string
+  apiKey: string, userId: string, requestText: string, connectors: any[] = [], accounts: ComposioConnectedAccount[] = [], model: string = 'boss', callbackUrl?: string
 ): Promise<{ success: boolean; toolSlug?: string; arguments?: Record<string, any>; data?: any; error?: string; sessionId?: string; connectUrl?: string }> {
   const session = await createComposioToolRouterSession(apiKey, userId, connectors, accounts);
   if (!session.success || !session.sessionId) return { success: false, error: session.error || 'Unable to create Composio session.' };

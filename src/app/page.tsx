@@ -24,7 +24,7 @@ const DEFAULT_SESSION: Session = {
   createdAt: Date.now(),
   updatedAt: Date.now(),
   messages: [],
-  activeModel: 'claude-3-7-sonnet',
+  activeModel: 'boss',
   connectors: createDefaultConnectors(),
 };
 
@@ -69,7 +69,7 @@ function extractArtifact(content: string): Artifact | undefined {
 export default function Home() {
   const [sessions, setSessions] = useState<Session[]>([DEFAULT_SESSION]);
   const [activeSessionId, setActiveSessionId] = useState<string>(DEFAULT_SESSION.id);
-  const [activeModel, setActiveModel] = useState<ModelId>('claude-3-7-sonnet');
+  const [activeModel, setActiveModel] = useState<ModelId>('boss');
   const [thinkingBudget, setThinkingBudget] = useState<ThinkingBudget>(16000);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null);
@@ -409,7 +409,7 @@ export default function Home() {
       role: 'assistant',
       content: `👋 **${project.name} reporting for duty!**\n\n**Assigned Account:** ${project.email || 'Not specified'}\n**Task:** ${project.task || 'Awaiting assignment'}\n\nI'm ready to handle this project. I'll keep you (Manager) updated on progress, flag any blockers, and report issues as they come up.\n\n*What should I start with first?*`,
       timestamp: Date.now(),
-      modelId: 'claude-3-7-sonnet',
+      modelId: 'boss',
     };
     const pmSession: Session = {
       id: `ses_pm_${Date.now()}`,
@@ -417,7 +417,7 @@ export default function Home() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [firstMsg],
-      activeModel: 'claude-3-7-sonnet',
+      activeModel: 'boss',
       projectId: project.id,
       agentName: project.name,
       agentPrompt: pmPrompt,
@@ -475,7 +475,7 @@ export default function Home() {
   };
 
   const handleSelectAgent = (agent: OpenWorkAgent) => {
-    const targetModel: ModelId = agent.modelId || activeModel || 'claude-3-7-sonnet';
+    const targetModel: ModelId = 'boss';
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id !== activeSession.id) return s;

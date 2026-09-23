@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 
 const execAsync = promisify(exec);
 
@@ -13,12 +14,44 @@ export const runtime = 'nodejs';
 // SECURITY: this endpoint runs arbitrary shell commands / code. It was
 // previously reachable by anyone on the internet with no auth check at all.
 // It now requires a matching x-api-key header, checked against a secret
-// stored ONLY in the INTERNAL_API_SECRET environment variable.
+// stored ONLY in the INTERNAL_API_SECRET environment variable, using a
+// timing-safe comparison so the check can't be brute-forced by timing.
 function isAuthorized(req: NextRequest): boolean {
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) return false; // fail closed if not configured
-  const provided = req.headers.get('x-api-key');
-  return provided === secret;
+  const provided = req.headers.get('x-api-key') || '';
+
+  const secretBuf = Buffer.from(secret);
+  const providedBuf = Buffer.from(provided);
+  if (secretBuf.length !== providedBuf.length) return false;
+  try {
+    return crypto.timingSafeEqual(secretBuf, providedBuf);
+  } catch {
+    return false;
+  }
+}
+
+// SECURITY: the working directory used to be taken directly from the
+// request body with no validation, so a caller (or anyone who obtained
+// the secret) could point command execution at any folder on disk. It is
+// now locked to the configured workspace root: an optional relative
+// sub-path may be requested, but it can never escape that root.
+const WORKSPACE_ROOT =
+  process.env.USER_WORKSPACE || path.join(process.cwd(), '.workspace');
+
+function resolveWorkingDir(requestedSubPath: unknown): string {
+  const root = path.resolve(WORKSPACE_ROOT);
+  if (!requestedSubPath || typeof requestedSubPath !== 'string') {
+    return root;
+  }
+  const resolved = path.resolve(root, requestedSubPath);
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  if (resolved !== root && !resolved.startsWith(rootWithSep)) {
+    // Attempted path traversal outside the workspace root — refuse it
+    // and fall back to the root instead of silently executing elsewhere.
+    return root;
+  }
+  return resolved;
 }
 
 export async function POST(req: NextRequest) {
@@ -31,7 +64,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { code, language = 'python', command, cwd } = body;
 
-    const workingDir = cwd || process.env.USER_WORKSPACE || path.join(process.cwd(), '.workspace');
+    const workingDir = resolveWorkingDir(cwd);
 
     // Ensure working directory exists
     if (!fs.existsSync(workingDir)) {

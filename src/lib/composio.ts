@@ -477,21 +477,24 @@ export async function listConnectedAccounts(
           ? data.data
           : [];
 
-        if (rawList.length === 0 && entityId && entityId !== 'default') {
+        // If entityId filter was used, also fetch global project accounts to ensure accounts
+        // authorized under project/owner ID (e.g. YouTube ca_qz1qCgWwTdqd) are always merged.
+        if (entityId && entityId !== 'default') {
           try {
-            const fallbackUrl = toolkitSlug
-              ? `${COMPOSIO_V31_BASE}/connected_accounts?limit=100&toolkit_slugs=${encodeURIComponent(toolkitSlug)}`
-              : `${COMPOSIO_V31_BASE}/connected_accounts?limit=100`;
-            const fbRes = await fetch(fallbackUrl, {
+            const allRes = await fetch(`${COMPOSIO_V31_BASE}/connected_accounts?limit=100`, {
               method: 'GET',
               headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
               cache: 'no-store',
             });
-            if (fbRes.ok) {
-              const fbData = await fbRes.json();
-              const fbItems = Array.isArray(fbData.items) ? fbData.items : (Array.isArray(fbData.data) ? fbData.data : []);
-              if (fbItems.length > 0) {
-                rawList = fbItems;
+            if (allRes.ok) {
+              const allData = await allRes.json();
+              const allItems = Array.isArray(allData.items) ? allData.items : (Array.isArray(allData.data) ? allData.data : []);
+              const existingIds = new Set(rawList.map((a: any) => String(a.id || '')));
+              for (const it of allItems) {
+                if (!existingIds.has(String(it.id || ''))) {
+                  rawList.push(it);
+                  existingIds.add(String(it.id || ''));
+                }
               }
             }
           } catch {}

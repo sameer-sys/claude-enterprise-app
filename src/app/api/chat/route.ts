@@ -8,6 +8,7 @@ import {
   createComposioConnectionLink,
   getComposioApiKey,
 } from '@/lib/composio';
+import { handleConnectorRequest } from '@/lib/connectorHandler';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -1218,6 +1219,14 @@ export async function POST(req: NextRequest) {
           'X-Claude-Router': 'composio-live-status',
         },
       });
+    }
+
+    // ========================================================
+    // COMPOSIO CONNECTOR EXECUTION PIPELINE (DIRECT FLOW)
+    // ========================================================
+    const connectorResp = await handleConnectorRequest(lastText, composioUserId, messages);
+    if (connectorResp) {
+      return connectorResp;
     }
 
 

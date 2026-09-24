@@ -159,7 +159,8 @@ const AGENT_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Describe the action needed, such as create a GitHub issue, update a repository file, list pull requests, send a Gmail message, or find a Drive file.' },
+          query: { type: 'string', description: 'Describe the action needed, such as create a GitHub issue, update a repository file, list pull requests, send a Gmail message, post to Slack, create a Notion page, or find a Drive file.' },
+          toolkit: { type: 'string', description: 'Optional toolkit/app name, e.g. "slack", "notion", "google_calendar", "linear", "jira", "discord", "trello", etc.' },
         },
         required: ['query'],
       },
@@ -706,15 +707,21 @@ async function runAgentTool(
           .map((a: any) => String(a?.appUniqueId || a?.appName || '').toLowerCase())
           .filter(Boolean)
       ));
-      // Match Composio Connect: search can discover an app before it is connected.
-      const searchableToolkits = activeToolkits.length
-        ? activeToolkits
-        : ['github','gmail','google_drive','google_calendar','youtube','slack','notion','microsoft365','instagram','facebook','linkedin','linear','asana','canva','hubspot'];
+      const explicitToolkit = String(args?.toolkit || '').trim().toLowerCase();
+      const combinedToolkits = Array.from(new Set([
+        ...(explicitToolkit ? [explicitToolkit] : []),
+        ...activeToolkits,
+        'github','gmail','google_drive','google_calendar','slack','notion','linear','jira','asana','discord','trello','hubspot','youtube','microsoft365'
+      ]));
+
+      const targetToolkits = explicitToolkit
+        ? [explicitToolkit]
+        : (activeToolkits.length ? activeToolkits : combinedToolkits);
 
       const found = await searchComposioTools(
         connectorContext.apiKey,
         String(args?.query || ''),
-        searchableToolkits.slice(0, 20)
+        targetToolkits.slice(0, 20)
       );
 
       if (!found.length) {
@@ -813,10 +820,23 @@ async function runAgentTool(
         );
       } catch {}
 
-      const activeAccounts = accounts.filter((a: any) =>
-        a?.status === 'ACTIVE' &&
-        String(a?.appUniqueId || a?.appName || '').toLowerCase() === normalizedToolkit
-      );
+      const normClean = normalizedToolkit.toLowerCase().replace(/[-_]/g, '');
+      const rawClean = rawToolkit.replace(/[-_]/g, '');
+
+      let activeAccounts = accounts.filter((a: any) => {
+        if (a?.status !== 'ACTIVE') return false;
+        const app = String(a?.appUniqueId || a?.appName || '').toLowerCase().replace(/[-_]/g, '');
+        return app === normClean || app === rawClean || app.includes(normClean) || normClean.includes(app);
+      });
+
+      // If no exact/partial match with filtered list, check all available accounts
+      if (activeAccounts.length === 0 && Array.isArray(connectorContext.accounts)) {
+        activeAccounts = connectorContext.accounts.filter((a: any) => {
+          if (a?.status !== 'ACTIVE') return false;
+          const app = String(a?.appUniqueId || a?.appName || '').toLowerCase().replace(/[-_]/g, '');
+          return app === normClean || app === rawClean || app.includes(normClean) || normClean.includes(app);
+        });
+      }
 
       const requestedAccountId = String(args?.connected_account_id || '').trim();
       const accountId =
@@ -881,16 +901,24 @@ You have real execution tools connected to the live web and external services:
 - connector_manage_connections: List connected accounts or generate OAuth connection links.
 
 STRICT EXECUTION DIRECTIVE:
-1. When the user asks you to perform an action, check data, list items, search, or fetch information from their connected apps (GitHub, Gmail, Google Drive, Calendar, Slack, Notion, etc.):
+1. When the user asks you to perform an action, check data, list items, search, or fetch information from their connected apps (GitHub, Gmail, Google Drive, Calendar, Slack, Notion, Jira, Linear, Discord, Trello, Asana, etc.):
    YOU MUST ALWAYS CALL THE CORRESPONDING TOOL IMMEDIATELY.
-2. When the user asks to create, add, edit, write, or commit a file or code in a GitHub repository, CALL github_write_file immediately.
-3. When the user asks to view, inspect, or read code or a file in a GitHub repository, CALL github_get_file immediately.
-4. When the user asks to create an issue or pull request, CALL github_create_issue or github_create_pull_request immediately.
-5. When the user asks to see, check, or list their repositories or repos, CALL github_list_repos immediately.
-6. When the user asks to see, check, or read their emails or inbox, CALL read_inbox immediately.
-7. NEVER output conversational meta-plans like "I will call...", "We need to call...", or "Plan: 1. Call...". Always issue the tool call directly.
-8. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
-9. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
+2. For GitHub:
+   - To create, add, edit, write, or commit a file/code, CALL github_write_file immediately.
+   - To view, inspect, or read code or a file, CALL github_get_file immediately.
+   - To create an issue or pull request, CALL github_create_issue or github_create_pull_request immediately.
+   - To list repositories, CALL github_list_repos immediately.
+3. For Gmail:
+   - To check or read emails/inbox, CALL read_inbox immediately.
+   - To send an email, CALL send_email immediately.
+4. For Google Drive:
+   - To search or find files, CALL drive_search_files immediately.
+5. For ANY OTHER connected app (Slack, Notion, Google Calendar, Jira, Linear, Discord, Trello, Asana, HubSpot, etc.):
+   - Step 1: Call connector_search with your query describing the action (e.g., query: "post message to channel", toolkit: "slack", or query: "create event", toolkit: "google_calendar") to find the exact action tool_slug and input schema.
+   - Step 2: Call connector_execute with the returned tool_slug and arguments matching its schema to execute the action live on the user's account.
+6. NEVER output conversational meta-plans like "I will call...", "We need to call...", or "Plan: 1. Call...". Always issue the tool call directly.
+7. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
+8. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {

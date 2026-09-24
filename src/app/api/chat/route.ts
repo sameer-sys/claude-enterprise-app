@@ -905,6 +905,40 @@ async function runAgentTool(
         : JSON.stringify({ success: false, runtime: 'composio', tool_slug: slug, error: result.error || 'Composio action failed.' });
     }
 
+    // Universal dynamic Composio action dispatcher:
+    // Handles any tool slug returned by Composio (e.g. YOUTUBE_LIST_USER_PLAYLISTS, SLACK_CHAT_POST_MESSAGE, NOTION_CREATE_PAGE, etc.)
+    if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) || (name.includes('_') && name === name.toUpperCase())) {
+      if (connectorContext.apiKey) {
+        try {
+          const { normalizeComposioToolkitSlug, listConnectedAccounts } = await import('@/lib/composio');
+          const rawToolkit = name.split('_')[0].toLowerCase();
+          const normClean = normalizeComposioToolkitSlug(rawToolkit).replace(/[-_]/g, '');
+
+          let accounts = Array.isArray(connectorContext.accounts) ? connectorContext.accounts : [];
+          if (!accounts.length) {
+            accounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId);
+          }
+
+          const activeAccounts = accounts.filter((a: any) => {
+            if (a?.status !== 'ACTIVE') return false;
+            const app = String(a?.appUniqueId || a?.appName || '').toLowerCase().replace(/[-_]/g, '');
+            return app === normClean || app.includes(normClean) || normClean.includes(app);
+          });
+
+          const accountId = activeAccounts[0]?.id ? String(activeAccounts[0].id) : undefined;
+          const result = await executeComposioAction(connectorContext.apiKey, name, args || {}, accountId);
+
+          if (result.success) {
+            return typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2);
+          }
+          return `Composio action ${name} failed: ${result.error || 'Unknown error'}`;
+        } catch (e: any) {
+          return `Error executing Composio action ${name}: ${e.message}`;
+        }
+      }
+      return `Action ${name} requires Composio to be configured on the server.`;
+    }
+
     return `Unknown tool: ${name}`;
   } catch (e: any) {
     return `Tool "${name}" failed: ${e?.message || 'unknown error'}`;
@@ -1259,11 +1293,27 @@ export async function POST(req: NextRequest) {
     const agentDeadline = requestStartTime + 120000;
     const maxAgentTurns = 8;
     let connectorAccounts: any[] = [];
+    let dynamicComposioTools: any[] = [];
     if (composioApiKey) {
       try {
+        const { listConnectedAccounts, fetchComposioToolsForToolkits } = await import('@/lib/composio');
         connectorAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+        const activeToolkits = Array.from(new Set(
+          connectorAccounts
+            .filter((a: any) => a?.status === 'ACTIVE')
+            .map((a: any) => String(a?.appUniqueId || a?.appName || '').toLowerCase())
+            .filter(Boolean)
+        ));
+        if (activeToolkits.length > 0) {
+          dynamicComposioTools = await fetchComposioToolsForToolkits(composioApiKey, activeToolkits);
+        }
       } catch {}
     }
+
+    const effectiveTools = [
+      ...AGENT_TOOLS,
+      ...dynamicComposioTools,
+    ];
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -1278,7 +1328,7 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({
             model: 'openai/gpt-oss-120b',
             messages: fullMessages,
-            tools: AGENT_TOOLS,
+            tools: effectiveTools,
             tool_choice: 'auto',
             max_tokens: 8192,
           }),
@@ -1450,6 +1500,7 @@ export async function POST(req: NextRequest) {
             body: JSON.stringify({
               model: targetModel,
               messages: fullMessages,
+              tools: effectiveTools,
               stream: true,
               max_tokens: DEFAULT_MAX_TOKENS,
             }),

@@ -108,6 +108,55 @@ export async function searchComposioTools(
   return results;
 }
 
+const composioToolsCache = new Map<string, { timestamp: number; tools: any[] }>();
+
+export async function fetchComposioToolsForToolkits(
+  apiKey: string,
+  toolkitSlugs: string[]
+): Promise<any[]> {
+  const tools: any[] = [];
+  const targets = Array.from(new Set(toolkitSlugs.map(s => normalizeComposioToolkitSlug(s)).filter(Boolean)));
+
+  for (const toolkit of targets.slice(0, 10)) {
+    const cacheKey = `${apiKey.slice(-8)}_${toolkit}`;
+    const cached = composioToolsCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 300000) {
+      tools.push(...cached.tools);
+      continue;
+    }
+
+    try {
+      const url = new URL(`${COMPOSIO_V31_BASE}/tools`);
+      url.searchParams.set('toolkit_slug', toolkit);
+      url.searchParams.set('toolkit_versions', 'latest');
+      url.searchParams.set('limit', '15');
+      const res = await fetch(url.toString(), {
+        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const tkTools: any[] = [];
+      for (const item of (Array.isArray(data.items) ? data.items : [])) {
+        if (!item.slug || item.is_deprecated) continue;
+        const schema = normaliseComposioSchema(item.input_schema || item.inputSchema || item.input_parameters);
+        tkTools.push({
+          type: 'function',
+          function: {
+            name: String(item.slug),
+            description: item.human_description || item.description || item.name || item.slug,
+            parameters: schema,
+          },
+        });
+      }
+      composioToolsCache.set(cacheKey, { timestamp: Date.now(), tools: tkTools });
+      tools.push(...tkTools);
+    } catch {}
+  }
+  return tools;
+}
+
 const COMPOSIO_V3_BASE = 'https://backend.composio.dev/api/v3';
 const COMPOSIO_V31_BASE = 'https://backend.composio.dev/api/v3.1';
 

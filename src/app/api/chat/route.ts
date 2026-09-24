@@ -915,10 +915,20 @@ STRICT EXECUTION DIRECTIVE:
    - To search or find files, CALL drive_search_files immediately.
 5. For ANY OTHER connected app (Slack, Notion, Google Calendar, Jira, Linear, Discord, Trello, Asana, HubSpot, etc.):
    - Step 1: Call connector_search with your query describing the action (e.g., query: "post message to channel", toolkit: "slack", or query: "create event", toolkit: "google_calendar") to find the exact action tool_slug and input schema.
-   - Step 2: Call connector_execute with the returned tool_slug and arguments matching its schema to execute the action live on the user's account.
-6. NEVER output conversational meta-plans like "I will call...", "We need to call...", or "Plan: 1. Call...". Always issue the tool call directly.
-7. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
-8. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
+6. NATURAL LANGUAGE & CASUAL INTENT UNDERSTANDING:
+   - The user will communicate casually, informally, and conversationally in their own style (using slang, colloquial phrasing, shorthand, or indirect requests).
+   - You MUST understand the user's intent no matter how casually or indirectly they phrase it. NEVER require exact, formal, or robotic keywords.
+   - For example:
+     * "yo ping slack telling the team I'm running 10m late" -> Search Slack actions, execute posting that message to the team.
+     * "put this into notion" / "save this to notes" -> Look at the previous conversation, extract the content, search Notion create page/block, and execute it.
+     * "drop a meeting with dev team tomorrow at 11am" -> Search Google Calendar create event, resolve date/time, and execute.
+     * "file a ticket for this bug" -> Extract the bug description from the chat, search Jira/Linear create issue, and execute.
+     * "check my mail" / "any new messages?" -> Call read_inbox immediately.
+     * "commit this to main" / "add this to my repo" -> Call github_write_file with the code from the chat.
+   - Always use the conversation history to fill in missing details (e.g. if the user says "put this in notion", "this" refers to the code or topic just discussed).
+7. NEVER output conversational meta-plans like "I will call...", "We need to call...", or "Plan: 1. Call...". Always issue the tool call directly.
+8. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
+9. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {
@@ -1137,50 +1147,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Connector-first execution is authoritative when successful.
-    const connectorFirstRequest = isConnectorRelatedRequest(lastText);
-    if (connectorFirstRequest && composioApiKey) {
-      try {
-        const liveAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
-        const result = await executeComposioNaturalLanguage(
-          composioApiKey,
-          composioUserId,
-          lastText,
-          [{ id: 'conn-composio', enabled: true }],
-          liveAccounts,
-          modelId,
-          new URL('/api/composio/callback', req.url).toString()
-        );
 
-        const encoder = new TextEncoder();
-        const connectorStream = (content: string) => new ReadableStream({
-          start(controller) {
-            const safe = String(content || '').trim() || 'No connector result returned.';
-            for (let pos = 0; pos < safe.length; pos += 32) {
-              controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: safe.slice(pos, pos + 32) }) + '\n\n'));
-            }
-            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-            controller.close();
-          },
-        });
-
-        if (result.success) {
-          return new Response(connectorStream(formatConnectorResult(lastText, result)), {
-            headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Connector', 'X-Claude-Router': 'composio-direct' },
-          });
-        }
-
-        if (result.connectUrl) {
-          const message = 'Connect your account: ' + result.connectUrl;
-          return new Response(connectorStream(message), {
-            headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Claude-Skill': 'Composio Authentication', 'X-Claude-Router': 'composio-auth-required' },
-          });
-        }
-        // If Composio natural language router did not find a match, fall through to Boss Engine tool loop!
-      } catch (err: any) {
-        // Fall through to Boss Engine tool loop!
-      }
-    }
 
     // ========================================================
     // COMPOSIO CONNECTOR CONTEXT

@@ -1343,10 +1343,44 @@ export async function POST(req: NextRequest) {
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
           const contentText = String(agentMsg?.content || '').trim();
           const isPlanningText =
-            /(?:we need to call|we should (?:first )?call|let's call|i will call|calling|we must immediately call|must call|we must call)\s+(?:connector_search|connector_execute|composio|youtube|github|gmail|drive|read_inbox)/i.test(contentText) ||
-            /(?:we are in a loop|user wants to check|user asks|according to instructions|to find action, then use|no extra text before tool call)/i.test(contentText);
+            /(?:we need to call|we should (?:first )?call|let's call|i will call|calling|we must immediately call|must call|we must call|action likely|use composio|should output tool call)/i.test(contentText) ||
+            /(?:we are in a loop|user wants to check|user asks|according to instructions|to find action, then use|no extra text before tool call)/i.test(contentText) ||
+            contentText.includes('{"tool":') ||
+            contentText.includes('"action":');
 
           if (isPlanningText && composioApiKey) {
+            // Embedded JSON tool call parsing
+            const jsonMatch = contentText.match(/\{[\s\S]*"action"[\s\S]*\}/);
+            if (jsonMatch) {
+              try {
+                const parsed = JSON.parse(jsonMatch[0]);
+                const actionToRun = parsed.action || parsed.tool_slug || 'YOUTUBE_LIST_USER_PLAYLISTS';
+                const argsToRun = parsed.parameters || parsed.params || parsed.arguments || {};
+                const execResult = await runAgentTool('composio_execute_action', { action: actionToRun, params: argsToRun }, {
+                  apiKey: composioApiKey,
+                  connectors,
+                  accounts: connectorAccounts,
+                  composioUserId,
+                });
+                const healId = 'call_heal_exec_' + Date.now();
+                fullMessages.push({
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [{
+                    id: healId,
+                    type: 'function',
+                    function: { name: 'composio_execute_action', arguments: JSON.stringify({ action: actionToRun, params: argsToRun }) }
+                  }]
+                });
+                fullMessages.push({
+                  role: 'tool',
+                  tool_call_id: healId,
+                  content: execResult,
+                });
+                continue;
+              } catch (e) {}
+            }
+
             // Auto-heal: model wrote out a meta-plan instead of issuing a tool call!
             if (/youtube/i.test(contentText) && /playlist/i.test(contentText)) {
               const ytResult = await runAgentTool('youtube_list_playlists', {}, {
@@ -1425,6 +1459,7 @@ export async function POST(req: NextRequest) {
                   'Cache-Control': 'no-cache',
                   Connection: 'keep-alive',
                   'X-Claude-Skill': detectedSkill,
+                  'X-Claude-Router': 'boss-agent-direct',
                 },
               }
             );

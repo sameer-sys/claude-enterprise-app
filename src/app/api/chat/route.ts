@@ -220,6 +220,17 @@ const AGENT_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'youtube_list_playlists',
+      description: 'Fetch real playlists from the user\'s connected YouTube channel.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
 ];
 
 function getSafeHttpUrl(raw: string): URL | null {
@@ -684,6 +695,27 @@ async function runAgentTool(
       return 'Google Drive account is not connected yet. Open Connectors to connect your Google Drive.';
     }
 
+    if (name === 'youtube_list_playlists') {
+      if (connectorContext.apiKey) {
+        try {
+          const { fetchLiveYouTubePlaylists, listConnectedAccounts } = await import('@/lib/composio');
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'youtube');
+          const activeYt = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('youtube')));
+          const accountId = activeYt[0]?.id ? String(activeYt[0].id) : undefined;
+          const result = await fetchLiveYouTubePlaylists(connectorContext.apiKey, accountId);
+          if (result.success && Array.isArray(result.playlists) && result.playlists.length > 0) {
+            return `YouTube Playlists:\n` + result.playlists.map((p: any, idx: number) =>
+              `${idx + 1}. **${p.title}** (${p.itemCount} items) [${p.privacyStatus}]\n   URL: ${p.url}`
+            ).join('\n');
+          }
+          return result.error || 'No playlists found in your connected YouTube channel.';
+        } catch (e: any) {
+          return `Error fetching YouTube playlists: ${e.message}`;
+        }
+      }
+      return 'YouTube account is not connected via Composio. Connect YouTube in the Connectors modal.';
+    }
+
     if (name === 'connector_search') {
       if (!connectorContext.apiKey) {
         return 'Composio is not configured on the server.';
@@ -896,12 +928,13 @@ You have real execution tools connected to the live web and external services:
 - read_inbox: Read recent real emails from the connected Gmail/inbox.
 - send_email: Send real emails with recipient, subject, and body.
 - drive_search_files: Search files in Google Drive.
+- youtube_list_playlists: Fetch real playlists from the user's connected YouTube channel.
 - connector_search: Search available Composio actions across all connected apps (Slack, Notion, Calendar, Drive, etc.).
 - connector_execute: Execute any action on connected services.
 - connector_manage_connections: List connected accounts or generate OAuth connection links.
 
 STRICT EXECUTION DIRECTIVE:
-1. When the user asks you to perform an action, check data, list items, search, or fetch information from their connected apps (GitHub, Gmail, Google Drive, Calendar, Slack, Notion, Jira, Linear, Discord, Trello, Asana, etc.):
+1. When the user asks you to perform an action, check data, list items, search, or fetch information from their connected apps (GitHub, Gmail, Google Drive, YouTube, Calendar, Slack, Notion, Jira, Linear, Discord, Trello, Asana, etc.):
    YOU MUST ALWAYS CALL THE CORRESPONDING TOOL IMMEDIATELY.
 2. For GitHub:
    - To create, add, edit, write, or commit a file/code, CALL github_write_file immediately.
@@ -913,12 +946,16 @@ STRICT EXECUTION DIRECTIVE:
    - To send an email, CALL send_email immediately.
 4. For Google Drive:
    - To search or find files, CALL drive_search_files immediately.
-5. For ANY OTHER connected app (Slack, Notion, Google Calendar, Jira, Linear, Discord, Trello, Asana, HubSpot, etc.):
+5. For YouTube:
+   - To check, view, or list your playlists or channel data, CALL youtube_list_playlists immediately.
+6. For ANY OTHER connected app (Slack, Notion, Google Calendar, Jira, Linear, Discord, Trello, Asana, HubSpot, etc.):
    - Step 1: Call connector_search with your query describing the action (e.g., query: "post message to channel", toolkit: "slack", or query: "create event", toolkit: "google_calendar") to find the exact action tool_slug and input schema.
-6. NATURAL LANGUAGE & CASUAL INTENT UNDERSTANDING:
+   - Step 2: Call connector_execute with the returned tool_slug and arguments matching its schema to execute the action live on the user's account.
+7. NATURAL LANGUAGE & CASUAL INTENT UNDERSTANDING:
    - The user will communicate casually, informally, and conversationally in their own style (using slang, colloquial phrasing, shorthand, or indirect requests).
    - You MUST understand the user's intent no matter how casually or indirectly they phrase it. NEVER require exact, formal, or robotic keywords.
    - For example:
+     * "check my youtube playlists" / "what playlists do I have?" -> Call youtube_list_playlists immediately.
      * "yo ping slack telling the team I'm running 10m late" -> Search Slack actions, execute posting that message to the team.
      * "put this into notion" / "save this to notes" -> Look at the previous conversation, extract the content, search Notion create page/block, and execute it.
      * "drop a meeting with dev team tomorrow at 11am" -> Search Google Calendar create event, resolve date/time, and execute.
@@ -926,9 +963,9 @@ STRICT EXECUTION DIRECTIVE:
      * "check my mail" / "any new messages?" -> Call read_inbox immediately.
      * "commit this to main" / "add this to my repo" -> Call github_write_file with the code from the chat.
    - Always use the conversation history to fill in missing details (e.g. if the user says "put this in notion", "this" refers to the code or topic just discussed).
-7. NEVER output conversational meta-plans like "I will call...", "We need to call...", or "Plan: 1. Call...". Always issue the tool call directly.
-8. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
-9. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
+8. CRITICAL ANTI-LOOP RULE: NEVER output conversational meta-plans like "We are in a loop...", "We need to call...", "Let's call connector_search...", or "Plan: 1. Call...". Always invoke the tool call directly. Text is only for your final response to the user AFTER tools have executed.
+9. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
+10. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {
@@ -1255,7 +1292,69 @@ export async function POST(req: NextRequest) {
         const toolCalls = agentMsg?.tool_calls;
 
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-          if (turn > 0 && agentMsg?.content) {
+          const contentText = String(agentMsg?.content || '').trim();
+          const isPlanningText =
+            /(?:we need to call|we should (?:first )?call|let's call|i will call|calling)\s+(?:connector_search|connector_execute|youtube|github|gmail|drive|read_inbox)/i.test(contentText) ||
+            /(?:we are in a loop|user wants to check|to find action, then use)/i.test(contentText);
+
+          if (isPlanningText && composioApiKey) {
+            // Auto-heal: model wrote out a meta-plan instead of issuing a tool call!
+            if (/youtube/i.test(contentText) && /playlist/i.test(contentText)) {
+              const ytResult = await runAgentTool('youtube_list_playlists', {}, {
+                apiKey: composioApiKey,
+                connectors,
+                accounts: connectorAccounts,
+                composioUserId,
+              });
+              const healId = 'call_heal_yt_' + Date.now();
+              fullMessages.push({
+                role: 'assistant',
+                content: null,
+                tool_calls: [{
+                  id: healId,
+                  type: 'function',
+                  function: { name: 'youtube_list_playlists', arguments: '{}' }
+                }]
+              });
+              fullMessages.push({
+                role: 'tool',
+                tool_call_id: healId,
+                content: ytResult,
+              });
+              continue;
+            }
+
+            // General connector auto-heal: extract toolkit from plan
+            const toolMatch = contentText.match(/(?:for|with|call)\s+["']?([a-zA-Z0-9_-]+)["']?\s+to find action/i) ||
+                             contentText.match(/connector_search\s+for\s+["']?([a-zA-Z0-9_-]+)["']?/i);
+            const autoToolkit = toolMatch ? toolMatch[1].toLowerCase() : '';
+            const searchRes = await runAgentTool('connector_search', { query: lastText || autoToolkit, toolkit: autoToolkit || undefined }, {
+              apiKey: composioApiKey,
+              connectors,
+              accounts: connectorAccounts,
+              composioUserId,
+            });
+
+            const healId = 'call_heal_search_' + Date.now();
+            fullMessages.push({
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: healId,
+                type: 'function',
+                function: { name: 'connector_search', arguments: JSON.stringify({ query: lastText, toolkit: autoToolkit || undefined }) }
+              }]
+            });
+            fullMessages.push({
+              role: 'tool',
+              tool_call_id: healId,
+              content: searchRes,
+            });
+            continue;
+          }
+
+          // Not planning text: stream the model's actual answer directly
+          if (contentText) {
             return new Response(
               new ReadableStream({
                 start(controller) {
@@ -1263,9 +1362,8 @@ export async function POST(req: NextRequest) {
                   if (agentMsg.reasoning) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ thinking: agentMsg.reasoning })}\n\n`));
                   }
-                  const text = agentMsg.content;
-                  for (let i = 0; i < text.length; i += 32) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: text.slice(i, i + 32) })}\n\n`));
+                  for (let i = 0; i < contentText.length; i += 32) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: contentText.slice(i, i + 32) })}\n\n`));
                   }
                   controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                   controller.close();

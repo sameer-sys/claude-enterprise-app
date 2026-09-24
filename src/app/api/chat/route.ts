@@ -999,7 +999,9 @@ STRICT EXECUTION DIRECTIVE:
    - Always use the conversation history to fill in missing details (e.g. if the user says "put this in notion", "this" refers to the code or topic just discussed).
 8. CRITICAL ANTI-LOOP RULE: NEVER output conversational meta-plans like "We are in a loop...", "We need to call...", "Let's call connector_search...", or "Plan: 1. Call...". Always invoke the tool call directly. Text is only for your final response to the user AFTER tools have executed.
 9. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
-10. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
+10. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.
+11. When the user asks what apps or services are inside Composio, available in Composio, or what Composio supports:
+    Provide a comprehensive breakdown of Composio's 250+ supported integrations by category (e.g. Communication: Slack, Discord, Teams; Productivity: Google Calendar, Notion, Linear, Jira, Trello, Asana; Media: YouTube, Twitter/X, LinkedIn; Developer: GitHub, GitLab, Vercel, AWS; Storage: Google Drive, OneDrive; CRM: HubSpot, Salesforce), and explain that any of these can be connected directly via Connectors.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {
@@ -1335,7 +1337,48 @@ export async function POST(req: NextRequest) {
           signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
         });
 
-        if (!agentResp.ok) break;
+        if (!agentResp.ok) {
+          try {
+            const fallbackResp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: 'openai/gpt-oss-120b',
+                messages: fullMessages,
+                max_tokens: 8192,
+              }),
+              signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
+            });
+            if (fallbackResp.ok) {
+              const fbData = await fallbackResp.json();
+              const fbMsg = fbData?.choices?.[0]?.message;
+              const fbText = String(fbMsg?.content || fbMsg?.reasoning || '').trim();
+              if (fbText) {
+                return new Response(
+                  new ReadableStream({
+                    start(controller) {
+                      const encoder = new TextEncoder();
+                      for (let i = 0; i < fbText.length; i += 32) {
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fbText.slice(i, i + 32) })}\n\n`));
+                      }
+                      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                      controller.close();
+                    }
+                  }),
+                  {
+                    headers: {
+                      'Content-Type': 'text/event-stream',
+                      'Cache-Control': 'no-cache',
+                      Connection: 'keep-alive',
+                      'X-Claude-Skill': detectedSkill,
+                    },
+                  }
+                );
+              }
+            }
+          } catch {}
+          break;
+        }
 
         const agentData = await agentResp.json();
         const agentMsg = agentData?.choices?.[0]?.message;
@@ -1404,16 +1447,17 @@ export async function POST(req: NextRequest) {
           }
 
           // Not planning text: stream the model's actual answer directly
-          if (contentText) {
+          const textToStream = contentText || String(agentMsg?.reasoning || '').trim();
+          if (textToStream) {
             return new Response(
               new ReadableStream({
                 start(controller) {
                   const encoder = new TextEncoder();
-                  if (agentMsg.reasoning) {
+                  if (agentMsg?.reasoning && contentText) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ thinking: agentMsg.reasoning })}\n\n`));
                   }
-                  for (let i = 0; i < contentText.length; i += 32) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: contentText.slice(i, i + 32) })}\n\n`));
+                  for (let i = 0; i < textToStream.length; i += 32) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: textToStream.slice(i, i + 32) })}\n\n`));
                   }
                   controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                   controller.close();
@@ -1500,7 +1544,6 @@ export async function POST(req: NextRequest) {
             body: JSON.stringify({
               model: targetModel,
               messages: fullMessages,
-              tools: effectiveTools,
               stream: true,
               max_tokens: DEFAULT_MAX_TOKENS,
             }),

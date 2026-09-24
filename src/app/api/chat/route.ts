@@ -306,6 +306,8 @@ async function runAgentTool(
 
     if (name === 'github_list_repos') {
       const username = String(args?.username || '').trim();
+      const targetUser = username || 'sameer-sys';
+
       if (connectorContext.apiKey) {
         try {
           const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
@@ -317,12 +319,19 @@ async function runAgentTool(
               {},
               String(activeGh[0].id)
             );
-            if (result.success) return JSON.stringify({ success: true, runtime: 'composio', data: result.data });
+            if (result.success && result.data) {
+              const rawRepos = result.data.repositories || result.data.repos || result.data.items || (Array.isArray(result.data) ? result.data : []);
+              if (Array.isArray(rawRepos) && rawRepos.length > 0) {
+                const list = rawRepos.slice(0, 15).map((r: any) =>
+                  `- **[${r.name}](${r.html_url || r.url || `https://github.com/${targetUser}/${r.name}`})**${r.description ? `: ${r.description}` : ''} (Stars: ${r.stargazers_count || 0})`
+                ).join('\n');
+                return `Here are the GitHub repositories for ${targetUser}:\n\n${list}`;
+              }
+            }
           }
         } catch {}
       }
 
-      const targetUser = username || 'sameer-sys';
       try {
         const ghRes = await fetch(`https://api.github.com/users/${encodeURIComponent(targetUser)}/repos?sort=updated&per_page=15`, {
           headers: { 'User-Agent': 'Claude-Enterprise-App' },
@@ -331,15 +340,10 @@ async function runAgentTool(
         if (ghRes.ok) {
           const repos = await ghRes.json();
           if (Array.isArray(repos) && repos.length > 0) {
-            return JSON.stringify(repos.map((r: any) => ({
-              name: r.name,
-              full_name: r.full_name,
-              description: r.description,
-              stars: r.stargazers_count,
-              forks: r.forks_count,
-              url: r.html_url,
-              updated_at: r.updated_at,
-            })));
+            const list = repos.slice(0, 15).map((r: any) =>
+              `- **[${r.name}](${r.html_url})**${r.description ? `: ${r.description}` : ''} (Stars: ${r.stargazers_count}, Language: ${r.language || 'Code'}, Updated: ${String(r.updated_at || '').slice(0, 10)})`
+            ).join('\n');
+            return `Here are the GitHub repositories for ${targetUser}:\n\n${list}`;
           }
         }
       } catch {}
@@ -650,9 +654,12 @@ You have real execution tools connected to the live web and external services:
 
 STRICT EXECUTION DIRECTIVE:
 1. When the user asks you to perform an action, check data, list items, search, or fetch information from their connected apps (GitHub, Gmail, Google Drive, Calendar, Slack, Notion, etc.):
-   YOU MUST ALWAYS CALL THE CORRESPONDING TOOL.
-2. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
-3. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
+   YOU MUST ALWAYS CALL THE CORRESPONDING TOOL IMMEDIATELY.
+2. When the user asks to see, check, or list their repositories or repos, CALL github_list_repos immediately.
+3. When the user asks to see, check, or read their emails or inbox, CALL read_inbox immediately.
+4. NEVER output conversational meta-plans like "I will call...", "We need to call...", or "Plan: 1. Call...". Always issue the tool call directly.
+5. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
+6. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {

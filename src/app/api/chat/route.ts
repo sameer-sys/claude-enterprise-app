@@ -8,7 +8,6 @@ import {
   createComposioConnectionLink,
   getComposioApiKey,
 } from '@/lib/composio';
-import { handleConnectorRequest } from '@/lib/connectorHandler';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -816,11 +815,11 @@ async function runAgentTool(
       }
     }
 
-    if (name === 'connector_execute') {
+    if (name === 'connector_execute' || name === 'composio_execute_action') {
       if (!connectorContext.apiKey) return 'Composio is not configured on the server.';
 
-      const slug = String(args?.tool_slug || '').trim();
-      if (!slug) return 'tool_slug is required.';
+      const slug = String(args?.tool_slug || args?.action || args?.action_name || '').trim();
+      if (!slug) return 'tool_slug or action is required.';
 
       const { listConnectedAccounts } = await import('@/lib/composio');
       const toolkitAliases: Record<string, string> = {
@@ -897,7 +896,7 @@ async function runAgentTool(
       const result = await executeComposioAction(
         connectorContext.apiKey,
         slug,
-        args?.arguments || {},
+        args?.arguments || args?.params || args?.input || {},
         accountId
       );
 
@@ -1222,16 +1221,6 @@ export async function POST(req: NextRequest) {
     }
 
     // ========================================================
-    // COMPOSIO CONNECTOR EXECUTION PIPELINE (DIRECT FLOW)
-    // ========================================================
-    const connectorResp = await handleConnectorRequest(lastText, composioUserId, messages);
-    if (connectorResp) {
-      return connectorResp;
-    }
-
-
-
-    // ========================================================
     // COMPOSIO CONNECTOR CONTEXT
     // ========================================================
     let connectorContext = '';
@@ -1396,8 +1385,8 @@ export async function POST(req: NextRequest) {
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
           const contentText = String(agentMsg?.content || '').trim();
           const isPlanningText =
-            /(?:we need to call|we should (?:first )?call|let's call|i will call|calling)\s+(?:connector_search|connector_execute|youtube|github|gmail|drive|read_inbox)/i.test(contentText) ||
-            /(?:we are in a loop|user wants to check|to find action, then use)/i.test(contentText);
+            /(?:we need to call|we should (?:first )?call|let's call|i will call|calling|we must immediately call|must call|we must call)\s+(?:connector_search|connector_execute|composio|youtube|github|gmail|drive|read_inbox)/i.test(contentText) ||
+            /(?:we are in a loop|user wants to check|user asks|according to instructions|to find action, then use|no extra text before tool call)/i.test(contentText);
 
           if (isPlanningText && composioApiKey) {
             // Auto-heal: model wrote out a meta-plan instead of issuing a tool call!

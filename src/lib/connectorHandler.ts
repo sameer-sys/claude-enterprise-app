@@ -221,14 +221,15 @@ export async function formatConnectorResult(
   }
 
   // 2. GitHub Repositories formatting
-  if (app === 'github' || Array.isArray(data)) {
-    if (Array.isArray(data) && data.length > 0 && (data[0].full_name || data[0].name)) {
+  const repoList = Array.isArray(data) ? data : (Array.isArray(data?.repositories) ? data.repositories : (Array.isArray(data?.items) ? data.items : []));
+  if (app === 'github' || repoList.length > 0) {
+    if (repoList.length > 0 && (repoList[0].full_name || repoList[0].name)) {
       const lines = [
         `### Your GitHub Repositories\n`,
-        `Found **${data.length}** repositor${data.length === 1 ? 'y' : 'ies'} on your connected GitHub account:\n`,
+        `Found **${repoList.length}** repositor${repoList.length === 1 ? 'y' : 'ies'} on your connected GitHub account:\n`,
       ];
 
-      data.slice(0, 15).forEach((repo: any, idx: number) => {
+      repoList.slice(0, 20).forEach((repo: any, idx: number) => {
         const name = repo.full_name || repo.name;
         const url = repo.html_url || `https://github.com/${name}`;
         const desc = repo.description ? ` — *${repo.description.slice(0, 100)}*` : '';
@@ -236,8 +237,8 @@ export async function formatConnectorResult(
         lines.push(`${idx + 1}. **[${name}](${url})**${stars}${desc}`);
       });
 
-      if (data.length > 15) {
-        lines.push(`\n*...and ${data.length - 15} more repositories.*`);
+      if (repoList.length > 20) {
+        lines.push(`\n*...and ${repoList.length - 20} more repositories.*`);
       }
 
       return lines.join('\n');

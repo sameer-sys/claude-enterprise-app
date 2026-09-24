@@ -1268,10 +1268,7 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    const effectiveTools = [
-      ...AGENT_TOOLS,
-      ...dynamicComposioTools,
-    ];
+    const effectiveTools = AGENT_TOOLS;
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -1294,6 +1291,8 @@ export async function POST(req: NextRequest) {
         });
 
         if (!agentResp.ok) {
+          const errBody = await agentResp.text().catch(() => '');
+          console.error('[AGENT GROQ ERR]', agentResp.status, errBody);
           try {
             const fallbackResp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
               method: 'POST',

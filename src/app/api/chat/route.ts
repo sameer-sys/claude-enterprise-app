@@ -70,6 +70,74 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'github_write_file',
+      description: 'Create or update a real file and commit changes directly to a GitHub repository. Use this whenever the user asks you to add, write, edit, or commit code/files in a repository.',
+      parameters: {
+        type: 'object',
+        properties: {
+          repo: { type: 'string', description: 'Repository name, e.g. "claude-enterprise-app"' },
+          path: { type: 'string', description: 'Relative file path in the repository, e.g. "src/test.txt" or "README.md"' },
+          content: { type: 'string', description: 'The text or source code content of the file' },
+          message: { type: 'string', description: 'Commit message describing the change' },
+          branch: { type: 'string', description: 'Target branch (default: "main")' },
+        },
+        required: ['repo', 'path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'github_get_file',
+      description: 'Read the actual source code or text content of a file from a GitHub repository.',
+      parameters: {
+        type: 'object',
+        properties: {
+          repo: { type: 'string', description: 'Repository name' },
+          path: { type: 'string', description: 'Relative file path in repository' },
+          branch: { type: 'string', description: 'Branch to read from (default: "main")' },
+        },
+        required: ['repo', 'path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'github_create_issue',
+      description: 'Create a real issue on a GitHub repository.',
+      parameters: {
+        type: 'object',
+        properties: {
+          repo: { type: 'string', description: 'Repository name' },
+          title: { type: 'string', description: 'Issue title' },
+          body: { type: 'string', description: 'Issue body/description' },
+        },
+        required: ['repo', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'github_create_pull_request',
+      description: 'Create a real pull request on a GitHub repository.',
+      parameters: {
+        type: 'object',
+        properties: {
+          repo: { type: 'string', description: 'Repository name' },
+          title: { type: 'string', description: 'PR title' },
+          head: { type: 'string', description: 'Branch containing your changes' },
+          base: { type: 'string', description: 'Target branch to merge into (default: "main")' },
+          body: { type: 'string', description: 'PR description' },
+        },
+        required: ['repo', 'title', 'head'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'send_email',
       description: 'Send a real email via the connected Gmail/SMTP account. Only call this when the user has clearly asked you to send an email, with a real recipient.',
       parameters: {
@@ -348,6 +416,162 @@ async function runAgentTool(
         }
       } catch {}
       return `Could not find repositories for GitHub user "${targetUser}".`;
+    }
+
+    if (name === 'github_write_file') {
+      const rawRepo = String(args?.repo || '').trim();
+      const path = String(args?.path || '').trim();
+      const content = String(args?.content ?? '');
+      const message = String(args?.message || `update: ${path}`).trim();
+      const branch = String(args?.branch || 'main').trim();
+
+      if (!rawRepo || !path) return 'Repository name and file path are required.';
+      const repoClean = rawRepo.replace(/^sameer-sys\//i, '').replace(/^\/+/, '');
+      const owner = 'sameer-sys';
+
+      if (connectorContext.apiKey) {
+        try {
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
+          const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'github'));
+          if (activeGh.length >= 1) {
+            let existingSha: string | undefined;
+            try {
+              const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repoClean}/contents/${path}?ref=${branch}`, {
+                headers: { 'User-Agent': 'Claude-Enterprise-App' },
+                signal: AbortSignal.timeout(6000),
+              });
+              if (checkRes.ok) {
+                const checkData = await checkRes.json();
+                if (checkData.sha) existingSha = checkData.sha;
+              }
+            } catch {}
+
+            const base64Content = Buffer.from(content).toString('base64');
+            const inputPayload: Record<string, any> = {
+              owner,
+              repo: repoClean,
+              path,
+              content: base64Content,
+              message,
+              branch,
+            };
+            if (existingSha) inputPayload.sha = existingSha;
+
+            const result = await executeComposioAction(
+              connectorContext.apiKey,
+              'GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS',
+              inputPayload,
+              String(activeGh[0].id)
+            );
+            if (result.success && result.data) {
+              const commitData = result.data.commit || result.data;
+              const commitUrl = commitData.html_url || `https://github.com/${owner}/${repoClean}/commits/${branch}`;
+              return `Successfully committed file "${path}" to ${owner}/${repoClean} on branch ${branch}!\nCommit URL: ${commitUrl}`;
+            }
+            return `GitHub file write failed: ${result.error || 'Unknown error'}`;
+          }
+        } catch (e: any) {
+          return `Error writing file to GitHub: ${e.message}`;
+        }
+      }
+      return 'GitHub account is not connected via Composio. Please connect GitHub in the Connectors modal.';
+    }
+
+    if (name === 'github_get_file') {
+      const rawRepo = String(args?.repo || '').trim();
+      const path = String(args?.path || '').trim();
+      const branch = String(args?.branch || 'main').trim();
+
+      if (!rawRepo || !path) return 'Repository name and file path are required.';
+      const repoClean = rawRepo.replace(/^sameer-sys\//i, '').replace(/^\/+/, '');
+      const owner = 'sameer-sys';
+
+      try {
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repoClean}/contents/${path}?ref=${branch}`, {
+          headers: { 'User-Agent': 'Claude-Enterprise-App' },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (ghRes.ok) {
+          const ghData = await ghRes.json();
+          if (ghData.content) {
+            const decoded = Buffer.from(ghData.content, 'base64').toString('utf8');
+            return `--- File: ${path} (Repo: ${owner}/${repoClean}, Branch: ${branch}) ---\n${decoded}\n--- End of ${path} ---`;
+          }
+        }
+        return `File "${path}" not found in repository "${owner}/${repoClean}" (status ${ghRes.status}).`;
+      } catch (e: any) {
+        return `Error reading file from GitHub: ${e.message}`;
+      }
+    }
+
+    if (name === 'github_create_issue') {
+      const rawRepo = String(args?.repo || '').trim();
+      const title = String(args?.title || '').trim();
+      const body = String(args?.body || '').trim();
+
+      if (!rawRepo || !title) return 'Repository name and issue title are required.';
+      const repoClean = rawRepo.replace(/^sameer-sys\//i, '').replace(/^\/+/, '');
+      const owner = 'sameer-sys';
+
+      if (connectorContext.apiKey) {
+        try {
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
+          const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'github'));
+          if (activeGh.length >= 1) {
+            const result = await executeComposioAction(
+              connectorContext.apiKey,
+              'GITHUB_CREATE_AN_ISSUE',
+              { owner, repo: repoClean, title, body },
+              String(activeGh[0].id)
+            );
+            if (result.success && result.data) {
+              const issueUrl = result.data.html_url || `https://github.com/${owner}/${repoClean}/issues`;
+              const num = result.data.number ? `#${result.data.number}` : '';
+              return `Successfully created issue ${num} on ${owner}/${repoClean}: "${title}"\nURL: ${issueUrl}`;
+            }
+            return `GitHub issue creation failed: ${result.error || 'Unknown error'}`;
+          }
+        } catch (e: any) {
+          return `Error creating GitHub issue: ${e.message}`;
+        }
+      }
+      return 'GitHub account is not connected via Composio.';
+    }
+
+    if (name === 'github_create_pull_request') {
+      const rawRepo = String(args?.repo || '').trim();
+      const title = String(args?.title || '').trim();
+      const head = String(args?.head || '').trim();
+      const base = String(args?.base || 'main').trim();
+      const body = String(args?.body || '').trim();
+
+      if (!rawRepo || !title || !head) return 'Repository name, title, and head branch are required.';
+      const repoClean = rawRepo.replace(/^sameer-sys\//i, '').replace(/^\/+/, '');
+      const owner = 'sameer-sys';
+
+      if (connectorContext.apiKey) {
+        try {
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
+          const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'github'));
+          if (activeGh.length >= 1) {
+            const result = await executeComposioAction(
+              connectorContext.apiKey,
+              'GITHUB_CREATE_A_PULL_REQUEST',
+              { owner, repo: repoClean, title, head, base, body },
+              String(activeGh[0].id)
+            );
+            if (result.success && result.data) {
+              const prUrl = result.data.html_url || `https://github.com/${owner}/${repoClean}/pulls`;
+              const num = result.data.number ? `#${result.data.number}` : '';
+              return `Successfully created Pull Request ${num} on ${owner}/${repoClean}: "${title}"\nURL: ${prUrl}`;
+            }
+            return `GitHub Pull Request failed: ${result.error || 'Unknown error'}`;
+          }
+        } catch (e: any) {
+          return `Error creating GitHub Pull Request: ${e.message}`;
+        }
+      }
+      return 'GitHub account is not connected via Composio.';
     }
 
     if (name === 'send_email') {
@@ -645,6 +869,10 @@ You have real execution tools connected to the live web and external services:
 - web_fetch: Fetch readable content from any URL.
 - github_lookup: Inspect repository stats and recent commits.
 - github_list_repos: List real GitHub repositories for the user or organization.
+- github_write_file: Create or update a real file and commit changes directly to a GitHub repository.
+- github_get_file: Read actual source code or text content of a file from a GitHub repository.
+- github_create_issue: Create a real issue on a GitHub repository.
+- github_create_pull_request: Create a real pull request on a GitHub repository.
 - read_inbox: Read recent real emails from the connected Gmail/inbox.
 - send_email: Send real emails with recipient, subject, and body.
 - drive_search_files: Search files in Google Drive.
@@ -655,11 +883,14 @@ You have real execution tools connected to the live web and external services:
 STRICT EXECUTION DIRECTIVE:
 1. When the user asks you to perform an action, check data, list items, search, or fetch information from their connected apps (GitHub, Gmail, Google Drive, Calendar, Slack, Notion, etc.):
    YOU MUST ALWAYS CALL THE CORRESPONDING TOOL IMMEDIATELY.
-2. When the user asks to see, check, or list their repositories or repos, CALL github_list_repos immediately.
-3. When the user asks to see, check, or read their emails or inbox, CALL read_inbox immediately.
-4. NEVER output conversational meta-plans like "I will call...", "We need to call...", or "Plan: 1. Call...". Always issue the tool call directly.
-5. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
-6. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
+2. When the user asks to create, add, edit, write, or commit a file or code in a GitHub repository, CALL github_write_file immediately.
+3. When the user asks to view, inspect, or read code or a file in a GitHub repository, CALL github_get_file immediately.
+4. When the user asks to create an issue or pull request, CALL github_create_issue or github_create_pull_request immediately.
+5. When the user asks to see, check, or list their repositories or repos, CALL github_list_repos immediately.
+6. When the user asks to see, check, or read their emails or inbox, CALL read_inbox immediately.
+7. NEVER output conversational meta-plans like "I will call...", "We need to call...", or "Plan: 1. Call...". Always issue the tool call directly.
+8. NEVER simulate or fabricate actions in text. NEVER say "I checked" or "I found" unless you actually executed the tool and received real data.
+9. Provide complete, comprehensive, and exhaustive answers. Never cut off or truncate answers. Answer with full depth and clarity.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {

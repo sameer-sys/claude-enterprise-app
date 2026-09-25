@@ -385,55 +385,165 @@ export async function executeComposioToolRouter(
 }
 
 export async function executeComposioNaturalLanguage(
-  apiKey: string, userId: string, requestText: string, connectors: any[] = [], accounts: ComposioConnectedAccount[] = [], model: string = 'claude-3-7-sonnet', callbackUrl?: string
+  apiKey: string,
+  userId: string,
+  requestText: string,
+  connectors: any[] = [],
+  accounts: ComposioConnectedAccount[] = [],
+  model: string = 'claude-3-7-sonnet',
+  callbackUrl?: string
 ): Promise<{ success: boolean; toolSlug?: string; arguments?: Record<string, any>; data?: any; error?: string; sessionId?: string; connectUrl?: string }> {
-  const session = await createComposioToolRouterSession(apiKey, userId, connectors, accounts);
-  if (!session.success || !session.sessionId) return { success: false, error: session.error || 'Unable to create Composio session.' };
-  const search = await searchComposioToolRouter(apiKey, session.sessionId, requestText, model);
-  if (!search.success) return { success: false, sessionId: session.sessionId, error: search.error };
-  const result = Array.isArray(search.data?.results) ? search.data.results[0] : null;
-  const schemas = search.data?.tool_schemas || {};
-  const toolSlug = result?.primary_tool_slugs?.[0] || result?.tool_slugs?.[0] || Object.keys(schemas)[0];
-  if (!toolSlug) return { success: false, sessionId: session.sessionId, error: 'Composio could not find an executable tool for that request.' };
-  const toolkit = toolkitFromComposioToolSlug(toolSlug);
-  const status = Array.isArray(search.data?.toolkit_connection_statuses)
-    ? search.data.toolkit_connection_statuses.find((s: any) => String(s?.toolkit || '').toLowerCase() === toolkit)
-    : null;
-  if (status?.has_active_connection === false) {
-    const link = await createComposioConnectionLink(apiKey, userId, toolkit, callbackUrl);
-    if (!link.success || !link.redirectUrl) {
+  try {
+    if (!apiKey) return { success: false, error: 'Missing Composio API key.' };
+
+    const normalizedUserId = String(userId || '').trim() || 'sameer-web-user';
+
+    // Fetch only accounts scoped to this Composio user. Do not use a project-wide
+    // account as a fallback: Composio validates that connected_account_id belongs
+    // to the user_id used for execution.
+    let userAccounts = accounts.filter((a: any) =>
+      String(a?.status || '').toUpperCase() === 'ACTIVE' &&
+      (!a?.userUuid || String(a.userUuid) === normalizedUserId)
+    );
+
+    if (!userAccounts.length) {
+      try {
+        userAccounts = (await listConnectedAccounts(apiKey, normalizedUserId))
+          .filter((a: any) => String(a?.status || '').toUpperCase() === 'ACTIVE');
+      } catch {}
+    }
+
+    const activeToolkits = Array.from(new Set(
+      userAccounts
+        .map((a: any) => normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')))
+        .filter(Boolean)
+    ));
+
+    // If the conversation connector configuration names a specific app, include
+    // that app in discovery even before account metadata is fully hydrated.
+    const configuredToolkits = connectors
+      .filter((c: any) => c?.enabled !== false)
+      .map((c: any) => normalizeComposioToolkitSlug(String(c?.id || '')))
+      .filter(Boolean);
+
+    const targetToolkits = Array.from(new Set([...activeToolkits, ...configuredToolkits]));
+
+    if (!targetToolkits.length) {
       return {
         success: false,
-        sessionId: session.sessionId,
-        toolSlug,
-        error: link.error || status.status_message || ('No active connection is available for ' + toolkit + '.'),
+        error: 'No Composio-connected toolkit is available for this user. Reconnect the app through the Connectors panel.'
       };
     }
+
+    // 1) Ask Composio's live tool catalog which real action matches the request.
+    const found = await searchComposioTools(apiKey, requestText, targetToolkits);
+    if (!found.length) {
+      return {
+        success: false,
+        error: 'Composio could not find a real executable action for this request.'
+      };
+    }
+
+    // Prefer an action from an actually connected toolkit.
+    const connectedFound = found.find((tool) =>
+      activeToolkits.includes(normalizeComposioToolkitSlug(String(tool.toolkit || toolkitFromComposioToolSlug(tool.slug))))
+    );
+    const selected = connectedFound || found[0];
+    const toolSlug = String(selected.slug || '').trim();
+    if (!toolSlug) {
+      return { success: false, error: 'Composio returned a tool without a valid tool slug.' };
+    }
+
+    const toolkit = normalizeComposioToolkitSlug(
+      String(selected.toolkit || toolkitFromComposioToolSlug(toolSlug))
+    );
+
+    // 2) Have Composio translate the user's natural-language request into the
+    // exact argument object required by that real tool schema.
+    const generated = await generateComposioToolInput(apiKey, toolSlug, requestText, model);
+    if (!generated.success || !generated.arguments) {
+      return {
+        success: false,
+        toolSlug,
+        error: generated.error || 'Composio could not build valid arguments for the selected action.'
+      };
+    }
+
+    // 3) Resolve the authenticated account belonging to this same Composio user.
+    const configuredConnector = connectors.find((c: any) =>
+      c?.enabled !== false &&
+      normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit
+    );
+    const requestedAccountId = String(configuredConnector?.config?.connectedAccountId || '').trim();
+
+    const matchingAccounts = userAccounts.filter((a: any) =>
+      normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit
+    );
+
+    const defaultAccount = matchingAccounts.find((a: any) => a?.isDefault === true);
+    const resolvedAccountId =
+      (requestedAccountId && matchingAccounts.some((a: any) => String(a.id) === requestedAccountId)
+        ? requestedAccountId
+        : '') ||
+      (defaultAccount ? String(defaultAccount.id) : '') ||
+      (matchingAccounts.length === 1 ? String(matchingAccounts[0].id) : '');
+
+    if (!resolvedAccountId) {
+      if (!matchingAccounts.length) {
+        const link = await createComposioConnectionLink(apiKey, normalizedUserId, toolkit, callbackUrl);
+        if (link.success && link.redirectUrl) {
+          return {
+            success: true,
+            toolSlug,
+            data: 'Authorization required for ' + toolkit + '. Open this link to connect your account: ' + link.redirectUrl,
+            connectUrl: link.redirectUrl,
+          };
+        }
+        return {
+          success: false,
+          toolSlug,
+          error: 'No active ' + toolkit + ' account is connected to this Composio user.'
+        };
+      }
+
+      return {
+        success: false,
+        toolSlug,
+        error: 'Multiple active ' + toolkit + ' accounts are connected. Select the intended account before executing this request.'
+      };
+    }
+
+    // 4) Execute the REAL Composio tool directly. This is the actual source of
+    // connected-app data/actions; there is no LLM fallback in this function.
+    const executed = await executeComposioAction(
+      apiKey,
+      toolSlug,
+      generated.arguments,
+      resolvedAccountId,
+      normalizedUserId
+    );
+
+    if (!executed.success) {
+      return {
+        success: false,
+        toolSlug,
+        arguments: generated.arguments,
+        error: executed.error || 'Composio tool execution failed.'
+      };
+    }
+
     return {
       success: true,
-      sessionId: session.sessionId,
       toolSlug,
-      data: 'Authorization required for ' + toolkit + '. Open this link to connect your account: ' + link.redirectUrl,
+      arguments: generated.arguments,
+      data: executed.data
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Composio natural-language execution failed.'
     };
   }
-  const generated = await generateComposioToolInput(apiKey, toolSlug, requestText, model);
-  if (!generated.success || !generated.arguments) return { success: false, sessionId: session.sessionId, toolSlug, error: generated.error || `Could not generate arguments for ${toolSlug}.` };
-  const connector = connectors.find((c: any) => c?.enabled !== false && normalizeComposioToolkitSlug(String(c?.id || '')) === toolkit);
-  const selectedId = String(connector?.config?.connectedAccountId || '').trim();
-  const activeForToolkit = accounts.filter((a: any) =>
-    String(a?.status || '').toUpperCase() === 'ACTIVE' &&
-    normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit
-  );
-  const defaultAccount = activeForToolkit.find((a: any) => a?.isDefault === true);
-  const resolvedAccountId = selectedId || (defaultAccount ? String(defaultAccount.id) : '') || (activeForToolkit.length === 1 ? String(activeForToolkit[0].id) : '');
-  const executed = await executeComposioToolRouter(
-    apiKey,
-    session.sessionId,
-    toolSlug,
-    generated.arguments,
-    resolvedAccountId || undefined
-  );
-  return { ...executed, toolSlug, arguments: generated.arguments, sessionId: session.sessionId };
 }
 
 export async function listConnectedAccounts(
@@ -476,29 +586,6 @@ export async function listConnectedAccounts(
           : Array.isArray(data.data)
           ? data.data
           : [];
-
-        // If entityId filter was used, also fetch global project accounts to ensure accounts
-        // authorized under project/owner ID (e.g. YouTube ca_qz1qCgWwTdqd) are always merged.
-        if (entityId && entityId !== 'default') {
-          try {
-            const allRes = await fetch(`${COMPOSIO_V31_BASE}/connected_accounts?limit=100`, {
-              method: 'GET',
-              headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-              cache: 'no-store',
-            });
-            if (allRes.ok) {
-              const allData = await allRes.json();
-              const allItems = Array.isArray(allData.items) ? allData.items : (Array.isArray(allData.data) ? allData.data : []);
-              const existingIds = new Set(rawList.map((a: any) => String(a.id || '')));
-              for (const it of allItems) {
-                if (!existingIds.has(String(it.id || ''))) {
-                  rawList.push(it);
-                  existingIds.add(String(it.id || ''));
-                }
-              }
-            }
-          } catch {}
-        }
 
         return rawList.map((item: any) => {
           const appUid = String(
@@ -698,9 +785,16 @@ export async function executeComposioAction(
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || data?.successful === false) {
+      const rawError =
+        data?.error?.message ||
+        data?.error ||
+        data?.message ||
+        data?.detail ||
+        ('Composio tool execution failed (' + res.status + ').');
+      const suffix = data?.log_id ? ' [log_id: ' + String(data.log_id) + ']' : '';
       return {
         success: false,
-        error: data?.error?.message || data?.error || data?.message || 'Composio tool execution failed (' + res.status + ').',
+        error: String(rawError) + suffix,
       };
     }
 

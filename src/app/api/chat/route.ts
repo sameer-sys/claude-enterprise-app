@@ -983,7 +983,7 @@ function isConnectorRelatedRequest(text: string): boolean {
     'page','pages','post','posts','task','tasks','contact','contacts',
     'comment','comments'
   ];
-  const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|how many|total|count|number of)\b/i.test(lower);
+  const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|retrieve|fetch|load|pull|view|display|browse|access|how many|total|count|number of)\b/i.test(lower);
   const mentionsGitHub = /\b(?:github|git|repo|repos|repository|repositories|pull request|pull requests|commit|commits|branch|branches)\b/i.test(lower);
   const mentionsOtherApp = appTerms.some((term) => lower.includes(term));
   const mentionsConnectorObject = actionObjects.some((term) => lower.includes(term));
@@ -1299,6 +1299,55 @@ export async function POST(req: NextRequest) {
       }),
     ];
     let forceConnectorTool = false;
+
+    // PRIMARY CONNECTOR PATH:
+    // For any request that targets a connected app, bypass the LLM's unreliable
+    // decision to emit a tool call and execute through Composio Tool Router directly.
+    // This guarantees the data/action comes from the real connected account.
+    if (composioApiKey && isConnectorRelatedRequest(lastText)) {
+      try {
+        const composioResult = await executeComposioNaturalLanguage(
+          composioApiKey,
+          composioUserId || 'sameer-web-user',
+          lastText,
+          connectors,
+          connectorAccounts,
+          'claude-3-7-sonnet'
+        );
+
+        const connectorText = composioResult.success
+          ? (typeof composioResult.data === 'string'
+              ? composioResult.data
+              : formatConnectorResult(lastText, composioResult.data))
+          : ('Composio execution failed: ' + (composioResult.error || 'Unknown Composio error.'));
+
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            for (let pos = 0; pos < connectorText.length; pos += 32) {
+              controller.enqueue(
+                encoder.encode('data: ' + JSON.stringify({ content: connectorText.slice(pos, pos + 32) }) + '\n\n')
+              );
+            }
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'X-Claude-Skill': detectedSkill,
+            'X-Claude-Router': 'composio-tool-router-direct',
+          },
+        });
+      } catch (composioErr: any) {
+        console.error('[COMPOSIO DIRECT ROUTER ERR]', composioErr);
+        // Fall through to the normal agent loop only if Composio itself failed.
+      }
+    }
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;

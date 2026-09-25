@@ -493,6 +493,56 @@ export async function executeComposioNaturalLanguage(
     };
   }
 
+  // For named YouTube playlists, resolve the human name through Composio
+  // first, then use the real playlist ID for the second Composio action.
+  if (toolSlug === 'YOUTUBE_LIST_PLAYLIST_ITEMS') {
+    const args = generated.arguments as any;
+    const currentPlaylistId = String(args?.playlistId || '').trim();
+    const nameMatch =
+      requestText.match(/(?:in|from|inside|of|for)\s+(?:the\s+)?["']?([^"'?.!,]+?)["']?\s+playlist\b/i) ||
+      requestText.match(/playlist\s+(?:named|called)\s+["']?([^"'?.!,]+)["']?/i);
+    const requestedName = nameMatch ? String(nameMatch[1]).trim() : '';
+
+    if (requestedName && (!currentPlaylistId || !/^PL[A-Za-z0-9_-]+$/.test(currentPlaylistId))) {
+      const resolved = await executeComposioAction(
+        apiKey,
+        'YOUTUBE_LIST_USER_PLAYLISTS',
+        { part: 'snippet,contentDetails', maxResults: 50 },
+        undefined,
+        normalizedUserId
+      );
+
+      if (!resolved.success) {
+        return {
+          success: false,
+          sessionId: session.sessionId,
+          toolSlug: 'YOUTUBE_LIST_USER_PLAYLISTS',
+          error: resolved.error || 'Composio could not retrieve the YouTube playlists.'
+        };
+      }
+
+      const items = (resolved.data as any)?.items || (resolved.data as any)?.playlists ||
+        (Array.isArray(resolved.data) ? resolved.data : []);
+      const match = Array.isArray(items)
+        ? items.find((p: any) =>
+            String(p?.snippet?.title || p?.title || '').trim().toLowerCase() === requestedName.toLowerCase()
+          )
+        : null;
+
+      if (!match?.id) {
+        return {
+          success: false,
+          sessionId: session.sessionId,
+          toolSlug: 'YOUTUBE_LIST_USER_PLAYLISTS',
+          error: 'Composio could not find a YouTube playlist named "' + requestedName + '".'
+        };
+      }
+
+      args.playlistId = String(match.id);
+      generated.arguments = args;
+    }
+  }
+
   // Execute through the Tool Router session. This keeps execution inside
   // Composio's authenticated user context and avoids the previous account
   // ownership validation problem.

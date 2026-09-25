@@ -965,22 +965,40 @@ After receiving the tool results, present the findings clearly, conversationally
 function isConnectorRelatedRequest(text: string): boolean {
   const lower = String(text || '').toLowerCase();
   const appTerms = [
-    'gmail','google drive','drive','google calendar','calendar','youtube','slack','notion',
-    'microsoft 365','instagram','facebook','linkedin','linear','asana','canva','hubspot'
+    'gmail','google drive','gdrive','drive','google calendar','calendar','youtube','yt','slack','notion',
+    'microsoft 365','m365','instagram','facebook','linkedin','linear','asana','canva','hubspot',
+    'discord','trello','jira','github','git'
   ];
+  const connectorTerms = [
+    'connector','connected app','connected account','connected service',
+    'authorize','authorization','oauth','linked account','access'
+  ];
+  const actionObjects = [
+    'repository','repositories','repo','repos','pull request','pull requests',
+    'issue','issues','branch','branches','commit','commits',
+    'email','emails','inbox','message','messages','thread','threads',
+    'calendar event','calendar events','meeting','meetings','event','events',
+    'file','files','folder','folders','document','documents','spreadsheet','spreadsheets',
+    'playlist','playlists','video','videos','channel','channels',
+    'page','pages','post','posts','task','tasks','contact','contacts',
+    'comment','comments'
+  ];
+  const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|how many|total|count|number of)\b/i.test(lower);
   const mentionsGitHub = /\b(?:github|git|repo|repos|repository|repositories|pull request|pull requests|commit|commits|branch|branches)\b/i.test(lower);
   const mentionsOtherApp = appTerms.some((term) => lower.includes(term));
-  const connectorTerms = ['connector','connected app','connected account','authorize','authorization','oauth','linked account','access'];
-  const actionTerms = ['repository','repositories','repo','pull request','issue','email','message','calendar event','file','folder','document','spreadsheet','channel','page','post','task','contact'];
-  const looksLikeAction = /\b(can you|could you|tell me|show me|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|how many|total|count)\b/i.test(lower);
+  const mentionsConnectorObject = actionObjects.some((term) => lower.includes(term));
   const implicitGitHubRepoRequest =
     /\b(?:my|i\s+have|do\s+i\s+have)\b/i.test(lower) &&
     /\b(?:repositories|repos|pull\s+requests|issues)\b/i.test(lower) &&
-    /\b(?:how many|list|show|what|which)\b/i.test(lower);
-  return (mentionsGitHub || mentionsOtherApp || implicitGitHubRepoRequest) && (
-    looksLikeAction ||
-    connectorTerms.some((term) => lower.includes(term)) ||
-    actionTerms.some((term) => lower.includes(term))
+    /\b(?:how many|list|show|what|which|tell me)\b/i.test(lower);
+  const implicitConnectorObjectRequest = mentionsConnectorObject && looksLikeAction;
+  return (
+    (mentionsGitHub || mentionsOtherApp || implicitGitHubRepoRequest || implicitConnectorObjectRequest) &&
+    (
+      looksLikeAction ||
+      connectorTerms.some((term) => lower.includes(term)) ||
+      mentionsConnectorObject
+    )
   );
 }
 
@@ -1270,6 +1288,7 @@ export async function POST(req: NextRequest) {
     }
 
     const effectiveTools = AGENT_TOOLS;
+    let forceConnectorTool = false;
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -1285,7 +1304,7 @@ export async function POST(req: NextRequest) {
             model: 'openai/gpt-oss-120b',
             messages: fullMessages,
             tools: effectiveTools,
-            tool_choice: (turn === 0 && isConnectorRelatedRequest(lastText)) ? 'required' : 'auto',
+            tool_choice: ((turn === 0 || forceConnectorTool) && isConnectorRelatedRequest(lastText)) ? 'required' : 'auto',
             max_tokens: 8192,
           }),
           signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
@@ -1341,6 +1360,75 @@ export async function POST(req: NextRequest) {
         const toolCalls = agentMsg?.tool_calls;
 
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+          // Hard fallback: connector requests must never degrade into narration.
+          // Handle obvious built-in reads directly; otherwise search Composio and
+          // force the next agent turn to issue the real connector action.
+          if (isConnectorRelatedRequest(lastText) && composioApiKey) {
+            if (/\bplaylists?\b/i.test(lastText)) {
+              const ytResult = await runAgentTool('youtube_list_playlists', {}, {
+                apiKey: composioApiKey,
+                connectors,
+                accounts: connectorAccounts,
+                composioUserId,
+              });
+              const healId = 'call_hard_yt_' + Date.now();
+              fullMessages.push({
+                role: 'assistant',
+                content: null,
+                tool_calls: [{
+                  id: healId,
+                  type: 'function',
+                  function: { name: 'youtube_list_playlists', arguments: '{}' }
+                }]
+              });
+              fullMessages.push({ role: 'tool', tool_call_id: healId, content: ytResult });
+              forceConnectorTool = false;
+              continue;
+            }
+
+            if (/\b(?:repositories|repos|repository)\b/i.test(lastText)) {
+              const ghResult = await runAgentTool('github_list_repos', {}, {
+                apiKey: composioApiKey,
+                connectors,
+                accounts: connectorAccounts,
+                composioUserId,
+              });
+              const healId = 'call_hard_gh_' + Date.now();
+              fullMessages.push({
+                role: 'assistant',
+                content: null,
+                tool_calls: [{
+                  id: healId,
+                  type: 'function',
+                  function: { name: 'github_list_repos', arguments: '{}' }
+                }]
+              });
+              fullMessages.push({ role: 'tool', tool_call_id: healId, content: ghResult });
+              forceConnectorTool = false;
+              continue;
+            }
+
+            const searchRes = await runAgentTool('connector_search', { query: lastText }, {
+              apiKey: composioApiKey,
+              connectors,
+              accounts: connectorAccounts,
+              composioUserId,
+            });
+            const healId = 'call_hard_search_' + Date.now();
+            fullMessages.push({
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: healId,
+                type: 'function',
+                function: { name: 'connector_search', arguments: JSON.stringify({ query: lastText }) }
+              }]
+            });
+            fullMessages.push({ role: 'tool', tool_call_id: healId, content: searchRes });
+            forceConnectorTool = true;
+            continue;
+          }
+
           const contentText = String(agentMsg?.content || '').trim();
           const isPlanningText =
             /(?:we need to call|we should (?:first )?call|let's call|i will call|calling|we must immediately call|must call|we must call|action likely|use composio|should output tool call)/i.test(contentText) ||

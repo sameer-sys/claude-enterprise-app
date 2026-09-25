@@ -1304,8 +1304,34 @@ export async function POST(req: NextRequest) {
     // For any request that targets a connected app, bypass the LLM's unreliable
     // decision to emit a tool call and execute through Composio Tool Router directly.
     // This guarantees the data/action comes from the real connected account.
-    if (composioApiKey && isConnectorRelatedRequest(lastText)) {
+    const connectorRequest = isConnectorRelatedRequest(lastText);
+
+    // Connector requests are fail-closed: NEVER send them to the LLM as a
+    // fallback. The only source of connected-app data/actions is Composio.
+    if (connectorRequest) {
+      if (!composioApiKey) {
+        const message = 'Composio is not configured on the server. This connected-app request was not sent to the language model.';
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message }) + '\n\n'));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'X-Claude-Skill': detectedSkill,
+            'X-Claude-Router': 'composio-not-configured',
+          },
+        });
+      }
+
       try {
+        console.log('[COMPOSIO DIRECT REQUEST]', { user: composioUserId, request: lastText });
         const composioResult = await executeComposioNaturalLanguage(
           composioApiKey,
           composioUserId || 'sameer-web-user',
@@ -1315,11 +1341,13 @@ export async function POST(req: NextRequest) {
           'claude-3-7-sonnet'
         );
 
-        const connectorText = composioResult.success
-          ? (typeof composioResult.data === 'string'
-              ? composioResult.data
-              : formatConnectorResult(lastText, composioResult.data))
-          : ('Composio execution failed: ' + (composioResult.error || 'Unknown Composio error.'));
+        if (!composioResult.success) {
+          throw new Error(composioResult.error || 'Composio could not execute the request.');
+        }
+
+        const connectorText = typeof composioResult.data === 'string'
+          ? composioResult.data
+          : formatConnectorResult(lastText, composioResult.data);
 
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
@@ -1345,7 +1373,24 @@ export async function POST(req: NextRequest) {
         });
       } catch (composioErr: any) {
         console.error('[COMPOSIO DIRECT ROUTER ERR]', composioErr);
-        // Fall through to the normal agent loop only if Composio itself failed.
+        const message = 'Composio could not complete this connected-app request: ' + (composioErr?.message || 'unknown error');
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message }) + '\n\n'));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'X-Claude-Skill': detectedSkill,
+            'X-Claude-Router': 'composio-error',
+          },
+        });
       }
     }
 

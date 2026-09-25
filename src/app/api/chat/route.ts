@@ -1205,7 +1205,8 @@ export async function POST(req: NextRequest) {
 2. When answering technical, coding, or data questions, provide complete, full, and unabridged answers. Never cut off or truncate.
 3. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation in a code block.
 4. Be direct, authoritative, and completely honest. Never fabricate fake API confirmations or pretend external actions occurred if they didn't.
-5. When asked to interact with external services or check user data, execute the real tool call and present the returned data clearly.\n`;
+5. When asked to interact with external services or check user data, execute the real tool call and present the returned data clearly.
+6. CRITICAL: Never write sentences describing a tool call you are about to make (e.g. "I will call the YouTube tool now" or "Let me check that for you"). That text is useless to the user. If an action on a connected app is needed, respond with ONLY a tool_call — zero prose before or after it. If you are unsure which tool, call connector_search first, silently.\n`;
 
     const baseSystemPrompt =
       agentPrompt ||
@@ -1284,7 +1285,7 @@ export async function POST(req: NextRequest) {
             model: 'openai/gpt-oss-120b',
             messages: fullMessages,
             tools: effectiveTools,
-            tool_choice: 'auto',
+            tool_choice: (turn === 0 && isConnectorRelatedRequest(lastText)) ? 'required' : 'auto',
             max_tokens: 8192,
           }),
           signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
@@ -1344,6 +1345,7 @@ export async function POST(req: NextRequest) {
           const isPlanningText =
             /(?:we need to call|we should (?:first )?call|let's call|i will call|calling|we must immediately call|must call|we must call|action likely|use composio|should output tool call)/i.test(contentText) ||
             /(?:we are in a loop|user wants to check|user asks|according to instructions|to find action, then use|no extra text before tool call)/i.test(contentText) ||
+            /(?:let me check|let me look|let me fetch|let me get|checking your|looking that up|one moment|i'll check|i'll look|i'll fetch|i'll get|give me a moment|fetching your|retrieving your)/i.test(contentText) ||
             contentText.includes('{"tool":') ||
             contentText.includes('"action":');
 

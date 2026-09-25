@@ -1287,7 +1287,17 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    const effectiveTools = AGENT_TOOLS;
+    // IMPORTANT: pass the actual live Composio action definitions to the model.
+    // Without this, the router only sees our wrapper tools and can never directly
+    // call the real action slug discovered from Composio.
+    const reservedToolNames = new Set(AGENT_TOOLS.map((t: any) => String(t?.function?.name || '')));
+    const effectiveTools = [
+      ...AGENT_TOOLS,
+      ...dynamicComposioTools.filter((t: any) => {
+        const name = String(t?.function?.name || '');
+        return name && !reservedToolNames.has(name);
+      }),
+    ];
     let forceConnectorTool = false;
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {

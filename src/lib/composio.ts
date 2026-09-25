@@ -320,13 +320,13 @@ export async function createComposioToolRouterSession(
 }
 
 export async function searchComposioToolRouter(
-  apiKey: string, sessionId: string, query: string, model: string = 'claude-3-7-sonnet'
+  apiKey: string, sessionId: string, query: string, model?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
     const res = await fetch(`${COMPOSIO_V31_BASE}/tool_router/session/${encodeURIComponent(sessionId)}/search`, {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ queries: [{ use_case: String(query || '') }], model, search_strategy: 'auto' }),
+      body: JSON.stringify({ queries: [{ use_case: String(query || '') }], ...(model ? { model } : {}), search_strategy: 'tool_search' }),
       cache: 'no-store',
       signal: AbortSignal.timeout(15000),
     });

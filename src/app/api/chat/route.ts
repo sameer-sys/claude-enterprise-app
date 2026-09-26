@@ -1534,16 +1534,26 @@ export async function POST(req: NextRequest) {
           }
 
           const contentText = String(agentMsg?.content || '').trim();
+          const reasoningText = String(agentMsg?.reasoning || agentMsg?.reasoning_content || '').trim();
+          // IMPORTANT: gpt-oss-120b often puts its planning narration in the
+          // separate `reasoning` field while leaving `content` empty. Any
+          // planning-text / tool-slug detection MUST check both fields, or a
+          // reasoning-only turn slips past every check below and gets
+          // streamed to the user as if it were a real final answer.
+          const checkText = contentText || reasoningText;
+          const mentionedToolSlugMatch = checkText.match(/\b([A-Z][A-Z0-9]{2,}_[A-Z0-9_]{2,})\b/);
           const isPlanningText =
-            /(?:we need to call|we should (?:first )?call|let's call|i will call|calling|we must immediately call|must call|we must call|action likely|use composio|should output tool call)/i.test(contentText) ||
-            /(?:we are in a loop|user wants to check|user asks|according to instructions|to find action, then use|no extra text before tool call)/i.test(contentText) ||
-            /(?:let me check|let me look|let me fetch|let me get|checking your|looking that up|one moment|i'll check|i'll look|i'll fetch|i'll get|give me a moment|fetching your|retrieving your)/i.test(contentText) ||
-            contentText.includes('{"tool":') ||
-            contentText.includes('"action":');
+            !contentText && Boolean(reasoningText) ||
+            /(?:we need to call|we should (?:first )?call|let's call|i will call|calling|we must immediately call|must call|we must call|action likely|use composio|should output tool call)/i.test(checkText) ||
+            /(?:we are in a loop|user wants to check|user asks|according to instructions|to find action, then use|no extra text before tool call)/i.test(checkText) ||
+            /(?:let me check|let me look|let me fetch|let me get|checking your|looking that up|one moment|i'll check|i'll look|i'll fetch|i'll get|give me a moment|fetching your|retrieving your)/i.test(checkText) ||
+            Boolean(mentionedToolSlugMatch) ||
+            checkText.includes('{"tool":') ||
+            checkText.includes('"action":');
 
           if (isPlanningText && composioApiKey) {
             // Embedded JSON tool call parsing
-            const jsonMatch = contentText.match(/\{[\s\S]*"action"[\s\S]*\}/);
+            const jsonMatch = checkText.match(/\{[\s\S]*"action"[\s\S]*\}/);
             if (jsonMatch) {
               try {
                 const parsed = JSON.parse(jsonMatch[0]);
@@ -1574,8 +1584,38 @@ export async function POST(req: NextRequest) {
               } catch (e) {}
             }
 
+            // Generalized auto-heal: the narration/reasoning named an exact real
+            // tool slug (e.g. GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER,
+            // GMAIL_LIST_THREADS, YOUTUBE_LIST_USER_PLAYLISTS). Execute it directly
+            // instead of only handling YouTube playlists as a special case.
+            if (mentionedToolSlugMatch) {
+              const namedSlug = mentionedToolSlugMatch[1];
+              const namedResult = await runAgentTool(namedSlug, {}, {
+                apiKey: composioApiKey,
+                connectors,
+                accounts: connectorAccounts,
+                composioUserId,
+              });
+              const healId = 'call_heal_named_' + Date.now();
+              fullMessages.push({
+                role: 'assistant',
+                content: null,
+                tool_calls: [{
+                  id: healId,
+                  type: 'function',
+                  function: { name: namedSlug, arguments: '{}' }
+                }]
+              });
+              fullMessages.push({
+                role: 'tool',
+                tool_call_id: healId,
+                content: namedResult,
+              });
+              continue;
+            }
+
             // Auto-heal: model wrote out a meta-plan instead of issuing a tool call!
-            if (/youtube/i.test(contentText) && /playlist/i.test(contentText)) {
+            if (/youtube/i.test(checkText) && /playlist/i.test(checkText)) {
               const ytResult = await runAgentTool('youtube_list_playlists', {}, {
                 apiKey: composioApiKey,
                 connectors,
@@ -1601,8 +1641,8 @@ export async function POST(req: NextRequest) {
             }
 
             // General connector auto-heal: extract toolkit from plan
-            const toolMatch = contentText.match(/(?:for|with|call)\s+["']?([a-zA-Z0-9_-]+)["']?\s+to find action/i) ||
-                             contentText.match(/connector_search\s+for\s+["']?([a-zA-Z0-9_-]+)["']?/i);
+            const toolMatch = checkText.match(/(?:for|with|call)\s+["']?([a-zA-Z0-9_-]+)["']?\s+to find action/i) ||
+                             checkText.match(/connector_search\s+for\s+["']?([a-zA-Z0-9_-]+)["']?/i);
             const autoToolkit = toolMatch ? toolMatch[1].toLowerCase() : '';
             const searchRes = await runAgentTool('connector_search', { query: lastText || autoToolkit, toolkit: autoToolkit || undefined }, {
               apiKey: composioApiKey,
@@ -1629,8 +1669,11 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          // Not planning text: stream the model's actual answer directly
-          const textToStream = contentText || String(agentMsg?.reasoning || '').trim();
+          // Not planning text: stream the model's actual answer directly.
+          // NEVER fall back to raw reasoning here - reasoning is internal
+          // thinking, not a real answer, and streaming it verbatim was the
+          // bug that leaked "We need to call X..." straight to the user.
+          const textToStream = contentText;
           if (textToStream) {
             return new Response(
               new ReadableStream({

@@ -234,15 +234,18 @@ function enabledComposioToolkits(
   );
 
   if (hasComposioHub) {
-    // Match Composio Connect: discover supported app tools before an account
-    // exists, then let connection management request OAuth when execution needs it.
-    return Array.from(new Set([
-      ...COMPOSIO_SUPPORTED_TOOLKITS,
-      ...accounts
+    // Only send toolkits for which the user actually has an ACTIVE connected
+    // account. Sending the full static COMPOSIO_SUPPORTED_TOOLKITS list causes
+    // Composio's Tool Router V2 to reject the whole session with
+    // "Invalid toolkit slugs" whenever any of those slugs isn't valid for
+    // Tool Router (e.g. google_calendar, google_drive, microsoft365), which
+    // breaks EVERY request, not just the ones for those apps.
+    return Array.from(new Set(
+      accounts
         .filter((account) => String(account?.status || '').toUpperCase() === 'ACTIVE')
         .map((account) => normalizeComposioToolkitSlug(String(account?.appUniqueId || account?.appName || '')))
-        .filter(Boolean),
-    ]));
+        .filter(Boolean)
+    ));
   }
 
   const builtInComposioIds = new Set([

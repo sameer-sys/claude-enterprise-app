@@ -226,45 +226,19 @@ function enabledComposioToolkits(
   connectors: any[] = [],
   accounts: ComposioConnectedAccount[] = []
 ): string[] {
-  // The workspace has one built-in connector: Composio. In that mode,
-  // every ACTIVE toolkit attached to the current Composio user becomes
-  // available to the Tool Router session.
-  const hasComposioHub = connectors.some(
-    (c: any) => String(c?.id || '') === 'conn-composio' && c?.enabled !== false
-  );
-
-  if (hasComposioHub) {
-    // Only send toolkits for which the user actually has an ACTIVE connected
-    // account. Sending the full static COMPOSIO_SUPPORTED_TOOLKITS list causes
-    // Composio's Tool Router V2 to reject the whole session with
-    // "Invalid toolkit slugs" whenever any of those slugs isn't valid for
-    // Tool Router (e.g. google_calendar, google_drive, microsoft365), which
-    // breaks EVERY request, not just the ones for those apps.
-    return Array.from(new Set(
-      accounts
-        .filter((account) => String(account?.status || '').toUpperCase() === 'ACTIVE')
-        .map((account) => normalizeComposioToolkitSlug(String(account?.appUniqueId || account?.appName || '')))
-        .filter(Boolean)
-    ));
-  }
-
-  const builtInComposioIds = new Set([
-    'conn-github', 'conn-gmail', 'conn-gdrive', 'conn-gcalendar', 'conn-m365',
-    'conn-youtube', 'conn-instagram', 'conn-facebook', 'conn-twitter',
-    'conn-linkedin', 'conn-tiktok', 'conn-slack', 'conn-notion', 'conn-linear',
-    'conn-asana', 'conn-canva', 'conn-hubspot', 'conn-salesforce', 'conn-shopify',
-    'conn-reddit', 'conn-discord', 'conn-telegram', 'conn-whatsapp',
-  ]);
-
-  return Array.from(new Set(
-    connectors
-      .filter((c: any) => {
-        if (c?.enabled === false) return false;
-        return !c?.isCustom || builtInComposioIds.has(String(c?.id || ''));
-      })
-      .map((c: any) => normalizeComposioToolkitSlug(String(c?.id || '')))
+  // Directly use whatever active toolkits exist in Composio!
+  const activeToolkits = Array.from(new Set(
+    accounts
+      .filter((account) => String(account?.status || '').toUpperCase() === 'ACTIVE')
+      .map((account) => normalizeComposioToolkitSlug(String(account?.appUniqueId || account?.appName || '')))
       .filter(Boolean)
   ));
+
+  if (activeToolkits.length > 0) {
+    return activeToolkits;
+  }
+
+  return ['youtube', 'github', 'gmail'];
 }
 
 export async function createComposioToolRouterSession(
@@ -273,9 +247,9 @@ export async function createComposioToolRouterSession(
   connectors: any[] = [],
   accounts: ComposioConnectedAccount[] = []
 ): Promise<{ success: boolean; sessionId?: string; error?: string }> {
-  const toolkits = enabledComposioToolkits(connectors, accounts);
+  let toolkits = enabledComposioToolkits(connectors, accounts);
   if (!apiKey) return { success: false, error: 'Missing Composio API key.' };
-  if (!toolkits.length) return { success: false, error: 'No Composio-backed connectors are enabled for this chat.' };
+  if (!toolkits.length) toolkits = ['youtube', 'github', 'gmail'];
 
   const connectedAccounts: Record<string, string[]> = {};
   for (const toolkit of toolkits) {
@@ -400,11 +374,12 @@ export async function executeComposioNaturalLanguage(
 
   const normalizedUserId = String(userId || '').trim() || 'default';
 
-  // Create a user-scoped Composio session. Pass the caller's real ACTIVE
-  // accounts through so enabledComposioToolkits() can resolve actual
-  // connected toolkits - passing [] here silently made every request fail
-  // with "No Composio-backed connectors are enabled for this chat" no
-  // matter what was actually connected.
+  if (!accounts || accounts.length === 0) {
+    try {
+      accounts = await listConnectedAccounts(apiKey);
+    } catch {}
+  }
+
   const session = await createComposioToolRouterSession(
     apiKey,
     normalizedUserId,

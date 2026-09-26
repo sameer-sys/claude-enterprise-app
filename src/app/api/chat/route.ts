@@ -1142,8 +1142,11 @@ export async function POST(req: NextRequest) {
     const connectorStatusQuestion =
       /\b(?:is|are)\s+(?:my\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365|instagram|facebook|linkedin|linear|asana|canva|hubspot)\s+(?:connected|authorized|linked)\b/i.test(lastText) ||
       /\bdo\s+you\s+have\s+(?:a\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connection|access)\b/i.test(lastText) ||
-      /\b(?:list|show|what)\s+(?:my\s+)?(?:connected|authorized|linked)\s+(?:apps?|accounts?|services?)\b/i.test(lastText) ||
-      /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lastText);
+      /\b(?:list|show|what|check|inspect)\s+(?:my\s+)?(?:connected|authorized|linked)\s+(?:apps?|accounts?|services?|tools?)\b/i.test(lastText) ||
+      /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lastText) ||
+      /\b(?:check|inspect|see|look\s+in|view)\s+(?:in\s+)?composio\b/i.test(lastText) ||
+      /\b(?:how many|what)\s+(?:connectors|apps)\s+(?:are\s+)?(?:connected|in composio|there)\b/i.test(lastText) ||
+      /\bcomposio\s+(?:status|accounts|apps|connections|connectors)\b/i.test(lastText);
 
     if (connectorStatusQuestion) {
       let statusText = '';

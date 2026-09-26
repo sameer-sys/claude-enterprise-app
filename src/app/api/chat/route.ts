@@ -981,7 +981,13 @@ function isConnectorRelatedRequest(text: string): boolean {
     'file','files','folder','folders','document','documents','spreadsheet','spreadsheets',
     'playlist','playlists','video','videos','channel','channels',
     'page','pages','post','posts','task','tasks','contact','contacts',
-    'comment','comments'
+    'comment','comments',
+    // Code/app-editing nouns - these imply "go do this in my GitHub repo",
+    // not a request for chit-chat, so they must route to Composio too.
+    'component','components','layout','layouts','sidebar','navbar','header','footer',
+    'ui','screen','screens','function','functions','class','classes','module','modules',
+    'endpoint','endpoints','route','routes','code','script','scripts','codebase',
+    'my app','my project','my repo','my repository'
   ];
   const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|retrieve|fetch|load|pull|view|display|browse|access|how many|total|count|number of)\b/i.test(lower);
   const mentionsGitHub = /\b(?:github|git|repo|repos|repository|repositories|pull request|pull requests|commit|commits|branch|branches)\b/i.test(lower);

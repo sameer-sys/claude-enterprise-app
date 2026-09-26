@@ -210,33 +210,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
           {error && <div className="rounded-xl border border-red-900/50 bg-red-950/20 px-4 py-3 text-xs text-red-200">{error}</div>}
 
-          <div className="rounded-2xl border border-[#302e27] bg-[#1b1916] overflow-hidden">
-            <button onClick={function () { setShowServices(!showServices); }} className="w-full px-5 py-4 flex items-center justify-between hover:bg-[#211f1b]">
-              <div><div className="font-medium text-sm">Your connected apps</div><div className="text-xs text-[#8f8a80] mt-1">These are the ACTIVE Composio accounts the chat can actually use.</div></div>
-              <Plus className={showServices ? 'w-4 h-4 rotate-45' : 'w-4 h-4'} />
-            </button>
-            {showServices && <div className="border-t border-[#302e27] p-4 space-y-2">
-              {activeAccounts.map(function (account) {
-                return <div key={account.id} className="flex items-center justify-between gap-3 rounded-xl border border-[#332f28] bg-[#141310] px-3 py-3">
-                  <div className="min-w-0"><div className="text-sm font-medium">{serviceLabel(account.appUniqueId)}</div><div className="text-xs text-[#858077] truncate">{account.email || account.accountIdentifier || account.alias || account.id}</div></div>
-                  <button onClick={function () { disconnectService(account.id); }} className="p-2 rounded-lg hover:bg-red-950/30 text-[#99938a]" title="Disconnect"><LogOut className="w-4 h-4" /></button>
-                </div>;
-              })}
-              {!activeAccounts.length && <div className="text-xs text-[#777269] py-2">No active accounts yet.</div>}
-              <div className="pt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {SERVICE_OPTIONS.map(function (item) {
-                  const id = item[0]; const label = item[1];
-                  const connected = activeAccounts.some(function (a) { return String(a.appUniqueId).toLowerCase() === id; });
-                  return <button key={id} disabled={Boolean(connecting)} onClick={function () { connectService(id); }} className="rounded-xl border border-[#353129] bg-[#211f1b] hover:bg-[#292721] disabled:opacity-50 px-3 py-2.5 text-left">
-                    <div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">{label}</span>{connected ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : connecting === id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 text-[#777269]" />}</div>
-                  </button>;
-                })}
-              </div>
-            </div>}
-          </div>
-
-          <div className="rounded-2xl border border-[#302e27] bg-[#1b1916] p-5">
-            <div className="flex items-center gap-2 mb-2"><ShieldCheck className="w-4 h-4 text-[#aaa49a]" /><span className="text-sm font-medium">Real authentication</span></div>
+          Real authentication</span></div>
             <p className="text-xs leading-5 text-[#89837a]">Click an app above and Composio opens its hosted authentication flow. You sign in with Google, GitHub, or the provider itself. The chat only treats an account as connected after Composio reports it ACTIVE.</p>
           </div>
 

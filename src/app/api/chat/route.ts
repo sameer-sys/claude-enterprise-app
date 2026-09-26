@@ -950,16 +950,18 @@ const SYSTEM_PROMPTS: Record<string, string> = {
   boss: `You are Boss — the autonomous enterprise AI assistant with live hands powered by Composio.
 
 CONNECTED ACCOUNTS & LIVE TOOLS:
-You have live execution tools for external services:
-- composio_execute_action: Call any real action on connected accounts (YouTube, GitHub, Gmail, Google Drive, Google Calendar, Slack, Notion, etc.). Use the uppercase action slug like YOUTUBE_LIST_USER_PLAYLISTS, GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER, GMAIL_LIST_THREADS, GMAIL_SEND_EMAIL, etc.
-- composio_search_actions: Search available actions across connected services.
+You have live execution tools powered by Composio:
+- composio_execute_action: Execute real actions on accounts connected in Composio.
+- composio_search_actions: Search available actions across connected services in Composio.
 - web_search: Search the live web for facts, news, and current information.
 - web_fetch: Fetch readable content from any URL.
 
-DIRECTIVE:
-When the user asks you to check, view, list, create, update, or do anything on their connected services (YouTube, GitHub, Gmail, Slack, etc.):
-Immediately invoke the appropriate tool call. Do not write text explaining what you will do. Output the tool call directly.
-After receiving the tool results, present the findings clearly, conversationally, and completely in GitHub-flavored Markdown.`,
+CRITICAL DIRECTIVE ON CONNECTED APPS:
+- You NEVER assume, invent, or hardcode which apps are connected.
+- Your connected apps are strictly determined at runtime by the live Composio account registry.
+- When asked what apps or how many apps you are connected with, report ONLY the live accounts provided in the LIVE CONNECTED APP ACCOUNTS section below. If no accounts are listed there, state that no apps are currently connected in Composio.
+- When asked to perform an action on any service, invoke the tool call directly.
+- After receiving tool results, present findings clearly, conversationally, and completely in GitHub-flavored Markdown.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {
@@ -1142,8 +1144,10 @@ export async function POST(req: NextRequest) {
     const connectorStatusQuestion =
       /\b(?:is|are)\s+(?:my\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365|instagram|facebook|linkedin|linear|asana|canva|hubspot)\s+(?:connected|authorized|linked)\b/i.test(lastText) ||
       /\bdo\s+you\s+have\s+(?:a\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connection|access)\b/i.test(lastText) ||
-      /\b(?:list|show|what|check|inspect)\s+(?:my\s+)?(?:connected|authorized|linked)\s+(?:apps?|accounts?|services?|tools?)\b/i.test(lastText) ||
+      /\b(?:list|show|what|check|inspect|tell\s+me)\s+(?:about\s+)?(?:all\s+)?(?:the\s+)?(?:total\s+)?(?:my\s+)?(?:connected|authorized|linked|active)?\s*(?:apps?|accounts?|services?|tools?|connectors?|integrations?)\b/i.test(lastText) ||
       /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lastText) ||
+      /\b(?:tell\s+me\s+)?(?:the\s+)?(?:total\s+)?apps\s+(?:you\s+are|we\s+are|are)\s+(?:connected|integrated)\b/i.test(lastText) ||
+      /\b(?:total|how many)\s+apps\b/i.test(lastText) ||
       /\b(?:check|inspect|see|look\s+in|view)\s+(?:in\s+)?composio\b/i.test(lastText) ||
       /\b(?:how many|what)\s+(?:connectors|apps)\s+(?:are\s+)?(?:connected|in composio|there)\b/i.test(lastText) ||
       /\bcomposio\s+(?:status|accounts|apps|connections|connectors)\b/i.test(lastText);
@@ -1152,31 +1156,31 @@ export async function POST(req: NextRequest) {
       let statusText = '';
       if (!composioApiKey) {
         statusText =
-          '### Composio connector status\n\n' +
-          'The Composio project API key is not configured on the server. No connected app is available to chat right now.';
+          '### Composio Live Status\n\n' +
+          'The Composio API key is not configured on the server. No connected apps are available to chat right now.';
       } else {
         try {
-          const accounts = await listConnectedAccounts(composioApiKey, composioUserId);
+          const accounts = await listConnectedAccounts(composioApiKey);
           const active = accounts.filter((a) => a?.status === 'ACTIVE');
           if (!active.length) {
             statusText =
-              '### Composio connector status\n\n' +
-              'No ACTIVE app accounts are connected for this Composio user yet. Open **Connectors → Composio → Connect**, authorize an app, and retry.';
+              '### Connected Apps (Composio Live)\n\n' +
+              'There are currently **0** active app connections in Composio.';
           } else {
             const lines = active.map((a) => {
               const toolkit = String(a?.appUniqueId || a?.appName || 'unknown');
-              const label = String(a?.email || a?.accountIdentifier || a?.id || 'account authorized');
+              const label = String(a?.email || a?.accountIdentifier || (a as any)?.alias || a?.id || 'account authorized');
               return '- **' + toolkit + '** — ' + label + ' (ACTIVE)';
             });
             statusText =
-              '### Composio connector status\n\n' +
-              'The following app accounts are ACTIVE for this app user:\n\n' +
+              '### Connected Apps (Composio Live)\n\n' +
+              'I am currently connected to **' + active.length + '** active app' + (active.length === 1 ? '' : 's') + ' in Composio:\n\n' +
               lines.join('\n') +
-              '\n\nThose accounts are the accounts the chat can resolve for Composio tool execution.';
+              '\n\nAll tools and actions for these accounts are available live through Composio.';
           }
         } catch (err: any) {
           statusText =
-            '### Composio connector status\n\n' +
+            '### Composio Live Status\n\n' +
             'The live Composio account lookup failed: ' + (err?.message || 'unknown error') + '.';
         }
       }
@@ -1206,21 +1210,24 @@ export async function POST(req: NextRequest) {
     }
 
     // ========================================================
-    // COMPOSIO CONNECTOR CONTEXT
+    // COMPOSIO CONNECTOR CONTEXT (DYNAMIC RUNTIME ONLY)
     // ========================================================
     let connectorContext = '';
     if (composioApiKey) {
       try {
-        const realAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+        const realAccounts = await listConnectedAccounts(composioApiKey);
         const activeAccounts = realAccounts.filter((a: any) => a?.status === 'ACTIVE');
         if (activeAccounts.length > 0) {
-          connectorContext += '\n\n[LIVE CONNECTED APP ACCOUNTS]\n';
+          connectorContext += '\n\n[LIVE CONNECTED APP ACCOUNTS FROM COMPOSIO]\n';
+          connectorContext += `Total active connections in Composio: ${activeAccounts.length}\n`;
           connectorContext += activeAccounts.map((account: any) => {
             const toolkit = String(account?.appUniqueId || account?.appName || 'unknown');
-            const label = String(account?.email || account?.accountIdentifier || account?.alias || account?.id || 'connected account');
+            const label = String(account?.email || account?.accountIdentifier || (account as any)?.alias || account?.id || 'connected account');
             return '- ' + toolkit + ' — ' + label + ' (ACTIVE)';
           }).join('\n') + '\n';
-          connectorContext += 'You have live access to these accounts. When asked to inspect, check, or do anything on them, CALL the corresponding tool.\n';
+          connectorContext += 'CRITICAL: These are the ONLY accounts connected in Composio. If asked what apps or how many apps you are connected with, list ONLY these accounts from Composio. Never mention or hallucinate any other apps.\n';
+        } else {
+          connectorContext += '\n\n[LIVE CONNECTED APP ACCOUNTS FROM COMPOSIO]\nCurrently 0 active accounts in Composio. If asked what apps are connected, state that 0 apps are currently connected.\n';
         }
       } catch (err: any) {
         // pass
@@ -1228,12 +1235,12 @@ export async function POST(req: NextRequest) {
     }
 
     const developerDirective = `\nInstructions:
-1. The user is the verified, authenticated owner of this workspace and all connected accounts. The user has explicitly authorized you to read, access, and summarize their own emails, files, and repositories for them. Always fulfill their requests directly using the retrieved data.
+1. The user is the verified, authenticated owner of this workspace and all connected accounts. The user has explicitly authorized you to read, access, and summarize their own data for them. Always fulfill their requests directly using the retrieved data.
 2. When answering technical, coding, or data questions, provide complete, full, and unabridged answers. Never cut off or truncate.
 3. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation in a code block.
 4. Be direct, authoritative, and completely honest. Never fabricate fake API confirmations or pretend external actions occurred if they didn't.
 5. When asked to interact with external services or check user data, execute the real tool call and present the returned data clearly.
-6. CRITICAL: Never write sentences describing a tool call you are about to make (e.g. "I will call the YouTube tool now" or "Let me check that for you"). That text is useless to the user. If an action on a connected app is needed, respond with ONLY a tool_call — zero prose before or after it. If you are unsure which tool, call connector_search first, silently.\n`;
+6. CRITICAL: Never write sentences describing a tool call you are about to make. If an action on a connected app is needed, respond with ONLY a tool_call — zero prose before or after it. If you are unsure which tool, call connector_search first, silently.\n`;
 
     const baseSystemPrompt =
       agentPrompt ||
@@ -1283,7 +1290,7 @@ export async function POST(req: NextRequest) {
     if (composioApiKey) {
       try {
         const { listConnectedAccounts, fetchComposioToolsForToolkits } = await import('@/lib/composio');
-        connectorAccounts = await listConnectedAccounts(composioApiKey, composioUserId);
+        connectorAccounts = await listConnectedAccounts(composioApiKey);
         const activeToolkits = Array.from(new Set(
           connectorAccounts
             .filter((a: any) => a?.status === 'ACTIVE')

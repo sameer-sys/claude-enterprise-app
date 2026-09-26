@@ -311,7 +311,8 @@ export async function createComposioToolRouterSession(
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data?.session_id) {
-      return { success: false, error: data?.error?.message || data?.message || `Composio Tool Router session failed (${res.status}).` };
+      const detail = data?.error?.details ? JSON.stringify(data.error.details) : (data?.errors ? JSON.stringify(data.errors) : '');
+      return { success: false, error: (data?.error?.message || data?.message || `Composio Tool Router session failed (${res.status}).`) + (detail ? ` | details: ${detail}` : '') + ` | raw: ${JSON.stringify(data).slice(0,300)}` };
     }
     return { success: true, sessionId: String(data.session_id) };
   } catch (err: any) {

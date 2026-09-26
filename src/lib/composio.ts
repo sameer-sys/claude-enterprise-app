@@ -587,9 +587,9 @@ export async function listConnectedAccounts(
   try {
     const params = new URLSearchParams();
     params.set('limit', '100');
-    // Composio v3.1 documents these filters as arrays. Append each value
-    // so the API receives the same wire shape as the SDK (userIds/toolkitSlugs).
-    if (entityId && entityId !== 'default') params.append('user_ids', entityId);
+    // Always fetch all project-level accounts so every connected app shows up.
+    // Don't filter by user_ids — the entityId is often a random UUID that doesn't
+    // match the accounts the user connected via OAuth.
     if (toolkitSlug) params.append('toolkit_slugs', toolkitSlug);
 
     const urls = [

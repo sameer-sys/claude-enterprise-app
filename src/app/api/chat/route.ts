@@ -1122,7 +1122,7 @@ export async function POST(req: NextRequest) {
     } = await req.json();
 
     const composioApiKey = process.env.COMPOSIO_API_KEY || '';
-    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'sameer-web-user';
+    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default';
 
     const isOmniRouteModel = true;
 

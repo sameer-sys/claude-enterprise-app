@@ -210,8 +210,9 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
           {error && <div className="rounded-xl border border-red-900/50 bg-red-950/20 px-4 py-3 text-xs text-red-200">{error}</div>}
 
-          Real authentication</span></div>
-            <p className="text-xs leading-5 text-[#89837a]">Click an app above and Composio opens its hosted authentication flow. You sign in with Google, GitHub, or the provider itself. The chat only treats an account as connected after Composio reports it ACTIVE.</p>
+          <div className="rounded-xl border border-[#2b2823] bg-[#161512] p-4">
+            <div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="w-4 h-4 text-emerald-400" /><span>Real authentication</span></div>
+            <p className="text-xs leading-5 text-[#89837a] mt-1">Click an app above and Composio opens its hosted authentication flow. You sign in with Google, GitHub, or the provider itself. The chat only treats an account as connected after Composio reports it ACTIVE.</p>
           </div>
 
 

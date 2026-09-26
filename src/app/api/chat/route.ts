@@ -231,6 +231,81 @@ const AGENT_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'youtube_transfer_playlist',
+      description: 'Transfer / copy videos from one YouTube playlist to another. Handles finding playlists by name, deduplication, and bulk insertion.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source_playlist: { type: 'string', description: 'Name or ID of the source playlist' },
+          target_playlist: { type: 'string', description: 'Name or ID of the target playlist' },
+        },
+        required: ['source_playlist', 'target_playlist'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'youtube_add_video_to_playlist',
+      description: 'Add a specific video (by title, search query, or YouTube video ID/URL) to a YouTube playlist.',
+      parameters: {
+        type: 'object',
+        properties: {
+          video: { type: 'string', description: 'YouTube video title, search query, or video ID/URL' },
+          playlist: { type: 'string', description: 'Target playlist title or ID' },
+        },
+        required: ['video', 'playlist'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'youtube_create_playlist',
+      description: 'Create a new YouTube playlist on the user\'s channel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Title for the new playlist' },
+          description: { type: 'string', description: 'Optional playlist description' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'calendar_list_events',
+      description: 'Fetch upcoming events from the user\'s connected Google Calendar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          count: { type: 'number', description: 'Number of upcoming events to fetch (default 5)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'calendar_create_event',
+      description: 'Create a calendar event/meeting in the user\'s Google Calendar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string', description: 'Title/summary of the event' },
+          start_time: { type: 'string', description: 'Start time (ISO string or datetime description)' },
+          end_time: { type: 'string', description: 'End time (ISO string or datetime description)' },
+          description: { type: 'string', description: 'Optional event description or details' },
+        },
+        required: ['summary'],
+      },
+    },
+  },
 ];
 
 function getSafeHttpUrl(raw: string): URL | null {
@@ -710,6 +785,141 @@ async function runAgentTool(
         }
       }
       return 'YouTube account is not connected via Composio. Connect YouTube in the Connectors modal.';
+    }
+
+    if (name === 'youtube_transfer_playlist') {
+      if (connectorContext.apiKey) {
+        try {
+          const { handleYouTubePlaylistTransfer, listConnectedAccounts } = await import('@/lib/composio');
+          const src = String(args?.source_playlist || '').trim();
+          const dst = String(args?.target_playlist || '').trim();
+          if (!src || !dst) return 'Both source_playlist and target_playlist are required.';
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
+          const result = await handleYouTubePlaylistTransfer(
+            connectorContext.apiKey,
+            connectorContext.composioUserId || 'default',
+            src,
+            dst,
+            liveAccounts
+          );
+          return result.success ? (result.data || 'Transfer complete.') : (result.error || 'Transfer failed.');
+        } catch (e: any) {
+          return `Error transferring playlist: ${e.message}`;
+        }
+      }
+      return 'YouTube account is not connected via Composio.';
+    }
+
+    if (name === 'youtube_add_video_to_playlist') {
+      if (connectorContext.apiKey) {
+        try {
+          const { handleYouTubeAddVideo, listConnectedAccounts } = await import('@/lib/composio');
+          const video = String(args?.video || '').trim();
+          const playlist = String(args?.playlist || '').trim();
+          if (!video || !playlist) return 'Both video and playlist parameters are required.';
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
+          const result = await handleYouTubeAddVideo(
+            connectorContext.apiKey,
+            connectorContext.composioUserId || 'default',
+            video,
+            playlist,
+            liveAccounts
+          );
+          return result.success ? (result.data || 'Video added.') : (result.error || 'Failed to add video.');
+        } catch (e: any) {
+          return `Error adding video: ${e.message}`;
+        }
+      }
+      return 'YouTube account is not connected via Composio.';
+    }
+
+    if (name === 'youtube_create_playlist') {
+      if (connectorContext.apiKey) {
+        try {
+          const { executeComposioAction, listConnectedAccounts } = await import('@/lib/composio');
+          const title = String(args?.title || '').trim();
+          const description = String(args?.description || '');
+          if (!title) return 'Playlist title is required.';
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
+          const activeYt = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('youtube')));
+          const accountId = activeYt[0]?.id ? String(activeYt[0].id) : undefined;
+          const result = await executeComposioAction(
+            connectorContext.apiKey,
+            'YOUTUBE_CREATE_PLAYLIST',
+            { title, description: description || undefined, privacyStatus: 'public' },
+            accountId
+          );
+          if (result.success && result.data) {
+            const pId = result.data.id || result.data.snippet?.playlistId;
+            return `Successfully created playlist "${title}"!\nURL: https://www.youtube.com/playlist?list=${pId}`;
+          }
+          return `Playlist creation failed: ${result.error || 'Unknown error'}`;
+        } catch (e: any) {
+          return `Error creating playlist: ${e.message}`;
+        }
+      }
+      return 'YouTube account is not connected via Composio.';
+    }
+
+    if (name === 'calendar_list_events') {
+      if (connectorContext.apiKey) {
+        try {
+          const { executeComposioAction, listConnectedAccounts } = await import('@/lib/composio');
+          const count = Math.min(Number(args?.count) || 5, 20);
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
+          const activeCal = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('calendar')));
+          const accountId = activeCal[0]?.id ? String(activeCal[0].id) : undefined;
+          const result = await executeComposioAction(
+            connectorContext.apiKey,
+            'GOOGLE_CALENDAR_LIST_EVENTS',
+            { maxResults: count, timeMin: new Date().toISOString() },
+            accountId
+          );
+          if (result.success && result.data) {
+            const events = result.data.items || (Array.isArray(result.data) ? result.data : []);
+            if (Array.isArray(events) && events.length > 0) {
+              const list = events.map((ev: any, idx: number) => {
+                const start = ev.start?.dateTime || ev.start?.date || 'No time';
+                return `${idx + 1}. **${ev.summary || 'Untitled Event'}** (${start})\n   Link: ${ev.htmlLink || 'N/A'}`;
+              }).join('\n');
+              return `Upcoming Google Calendar Events:\n\n${list}`;
+            }
+            return 'No upcoming events found on your Google Calendar.';
+          }
+          return `Calendar lookup failed: ${result.error || 'Unknown error'}`;
+        } catch (e: any) {
+          return `Error fetching calendar events: ${e.message}`;
+        }
+      }
+      return 'Google Calendar is not connected via Composio.';
+    }
+
+    if (name === 'calendar_create_event') {
+      if (connectorContext.apiKey) {
+        try {
+          const { executeComposioAction, listConnectedAccounts } = await import('@/lib/composio');
+          const summary = String(args?.summary || '').trim();
+          const start = args?.start_time || new Date().toISOString();
+          const end = args?.end_time || new Date(Date.now() + 3600000).toISOString();
+          const description = args?.description || '';
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
+          const activeCal = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('calendar')));
+          const accountId = activeCal[0]?.id ? String(activeCal[0].id) : undefined;
+          const result = await executeComposioAction(
+            connectorContext.apiKey,
+            'GOOGLE_CALENDAR_CREATE_EVENT',
+            { summary, description, start: { dateTime: start }, end: { dateTime: end } },
+            accountId
+          );
+          if (result.success && result.data) {
+            return `Successfully scheduled calendar event: "${summary}"!\nLink: ${result.data.htmlLink || 'Created'}`;
+          }
+          return `Failed to create calendar event: ${result.error || 'Unknown error'}`;
+        } catch (e: any) {
+          return `Error creating calendar event: ${e.message}`;
+        }
+      }
+      return 'Google Calendar is not connected via Composio.';
     }
 
     if (name === 'connector_search') {

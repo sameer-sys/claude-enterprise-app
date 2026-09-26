@@ -380,6 +380,12 @@ export async function executeComposioNaturalLanguage(
     } catch {}
   }
 
+  // Check for compound / multi-step operations first
+  const compound = await executeCompoundWorkflow(apiKey, normalizedUserId, requestText, accounts);
+  if (compound) {
+    return compound;
+  }
+
   const session = await createComposioToolRouterSession(
     apiKey,
     normalizedUserId,
@@ -479,14 +485,34 @@ export async function executeComposioNaturalLanguage(
     generated.arguments = {};
   }
 
-  // For YouTube playlists, ensure proper mine and part parameters
-  if (toolkit === 'youtube' && /playlists?/i.test(requestText)) {
+  // For YouTube playlist listing, ensure proper mine and part parameters
+  if (toolkit === 'youtube' && (toolSlug === 'YOUTUBE_LIST_USER_PLAYLISTS' || toolSlug === 'YOUTUBE_LIST_MY_PLAYLISTS')) {
     generated.arguments = {
       mine: true,
       part: 'snippet,contentDetails',
       maxResults: 50,
       ...(generated.arguments || {}),
     };
+  }
+
+  // For adding videos to playlists, resolve human playlist name if needed
+  if (toolSlug === 'YOUTUBE_ADD_VIDEO_TO_PLAYLIST') {
+    const args = generated.arguments as any;
+    const currentPlaylistId = String(args?.playlistId || '').trim();
+    if (currentPlaylistId && !/^PL[A-Za-z0-9_-]+$/.test(currentPlaylistId)) {
+      const activeAcctId = activeForToolkit[0]?.id ? String(activeForToolkit[0].id) : undefined;
+      const ytPlaylists = await fetchLiveYouTubePlaylists(apiKey, activeAcctId);
+      if (ytPlaylists.success && ytPlaylists.playlists) {
+        const found = ytPlaylists.playlists.find((p: any) =>
+          p.title.toLowerCase().includes(currentPlaylistId.toLowerCase()) ||
+          currentPlaylistId.toLowerCase().includes(p.title.toLowerCase())
+        );
+        if (found) {
+          args.playlistId = found.id;
+          generated.arguments = args;
+        }
+      }
+    }
   }
 
   // For named YouTube playlists, resolve the human name through Composio
@@ -921,4 +947,375 @@ export async function fetchLiveDriveFiles(
     }
   }
   return { success: false, error: 'Drive files fetch failed' };
+}
+
+/**
+ * Parse YouTube playlist transfer requests from user text
+ */
+export function parseYouTubePlaylistTransferRequest(text: string): { src: string; dst: string } | null {
+  const clean = String(text || '')
+    .replace(/^(?:ok\s+|hey\s+|please\s+|listen\s+|can\s+you\s+|could\s+you\s+)*(?:do\s+one\s+thing\s+)?(?:please\s+)?/i, '')
+    .trim();
+
+  // Pattern 1: add/copy/transfer/move [all] [the] <src> [playlist] videos [in]to [the] <dst> [playlist]
+  let m = clean.match(/(?:add|copy|transfer|move)\s+(?:all\s+)?(?:the\s+)?(.+?)\s+(?:playlist\s+)?videos?\s+(?:in)?to\s+(?:the\s+)?(.+?)(?:\s+playlist)?$/i);
+  if (m) {
+    const src = m[1].replace(/\bplaylist\b/gi, '').trim();
+    const dst = m[2].replace(/\bplaylist\b/gi, '').trim();
+    if (src && dst && src.toLowerCase() !== dst.toLowerCase()) {
+      return { src, dst };
+    }
+  }
+
+  // Pattern 2: add/copy/transfer/move [all] [the] videos from/of [the] <src> [playlist] [in]to [the] <dst> [playlist]
+  m = clean.match(/(?:add|copy|transfer|move)\s+(?:all\s+)?(?:the\s+)?videos?\s+(?:from|of)\s+(?:the\s+)?(.+?)\s+(?:playlist\s+)?(?:in)?to\s+(?:the\s+)?(.+?)(?:\s+playlist)?$/i);
+  if (m) {
+    const src = m[1].replace(/\bplaylist\b/gi, '').trim();
+    const dst = m[2].replace(/\bplaylist\b/gi, '').trim();
+    if (src && dst && src.toLowerCase() !== dst.toLowerCase()) {
+      return { src, dst };
+    }
+  }
+
+  // Pattern 3: copy/transfer/move/add [the] <src> playlist [in]to [the] <dst> [playlist]
+  m = clean.match(/(?:copy|transfer|move|add)\s+(?:the\s+)?(.+?)\s+playlist\s+(?:in)?to\s+(?:the\s+)?(.+?)(?:\s+playlist)?$/i);
+  if (m) {
+    const src = m[1].replace(/\bplaylist\b/gi, '').trim();
+    const dst = m[2].replace(/\bplaylist\b/gi, '').trim();
+    if (src && dst && src.toLowerCase() !== dst.toLowerCase()) {
+      return { src, dst };
+    }
+  }
+
+  // Pattern 4: copy/transfer/move/add playlist <src> [in]to [the] <dst> [playlist]
+  m = clean.match(/(?:copy|transfer|move|add)\s+playlist\s+([^"'?.!,]+?)\s+(?:in)?to\s+(?:the\s+)?([^"'?.!,]+?)(?:\s+playlist)?$/i);
+  if (m) {
+    const src = m[1].trim();
+    const dst = m[2].replace(/\bplaylist\b/gi, '').trim();
+    if (src && dst && src.toLowerCase() !== dst.toLowerCase()) {
+      return { src, dst };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Executes a compound YouTube playlist video transfer with deduplication and automated creation
+ */
+export async function handleYouTubePlaylistTransfer(
+  apiKey: string,
+  userId: string,
+  sourceName: string,
+  targetName: string,
+  accounts: ComposioConnectedAccount[] = []
+): Promise<{ success: boolean; data?: string; error?: string; toolSlug?: string }> {
+  try {
+    let liveAccounts = accounts;
+    if (!liveAccounts || liveAccounts.length === 0) {
+      liveAccounts = await listConnectedAccounts(apiKey);
+    }
+    const ytAcc = liveAccounts.find((a: any) =>
+      String(a?.status || '').toUpperCase() === 'ACTIVE' &&
+      (String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('youtube'))
+    );
+    const accountId = ytAcc?.id ? String(ytAcc.id) : undefined;
+    const userUuid = ytAcc?.userUuid || userId;
+
+    // 1. Fetch user's playlists
+    const plRes = await executeComposioAction(
+      apiKey,
+      'YOUTUBE_LIST_USER_PLAYLISTS',
+      { mine: true, maxResults: 50, part: 'snippet,contentDetails' },
+      accountId,
+      userUuid
+    );
+
+    const rawPlaylists = (plRes.data as any)?.items || (plRes.data as any)?.playlists ||
+      (Array.isArray(plRes.data) ? plRes.data : []);
+
+    if (!plRes.success || !Array.isArray(rawPlaylists) || rawPlaylists.length === 0) {
+      return {
+        success: false,
+        error: 'Could not retrieve your YouTube playlists to perform the transfer. Make sure YouTube is connected in Connectors.'
+      };
+    }
+
+    // 2. Find source playlist
+    const sNorm = sourceName.trim().toLowerCase();
+    const sourcePl = rawPlaylists.find((p: any) => {
+      const title = String(p?.snippet?.title || p?.title || '').trim().toLowerCase();
+      return title === sNorm || title.includes(sNorm) || sNorm.includes(title);
+    });
+
+    if (!sourcePl?.id) {
+      const names = rawPlaylists.map((p: any) => p?.snippet?.title || p?.title).filter(Boolean);
+      return {
+        success: false,
+        error: `Could not find source playlist "${sourceName}". Your current playlists are:\n` + names.map((n: string) => `- ${n}`).join('\n')
+      };
+    }
+
+    // 3. Find or auto-create target playlist
+    const tNorm = targetName.trim().toLowerCase();
+    let targetPl = rawPlaylists.find((p: any) => {
+      const title = String(p?.snippet?.title || p?.title || '').trim().toLowerCase();
+      return title === tNorm || title.includes(tNorm) || tNorm.includes(title);
+    });
+
+    if (!targetPl?.id) {
+      const createRes = await executeComposioAction(
+        apiKey,
+        'YOUTUBE_CREATE_PLAYLIST',
+        { title: targetName.trim(), privacyStatus: 'public' },
+        accountId,
+        userUuid
+      );
+      if (createRes.success && (createRes.data?.id || createRes.data?.snippet)) {
+        targetPl = createRes.data;
+      } else {
+        return {
+          success: false,
+          error: `Target playlist "${targetName}" was not found and could not be created automatically.`
+        };
+      }
+    }
+
+    const sourceId = String(sourcePl.id);
+    const targetId = String(targetPl.id);
+    const sourceTitle = sourcePl?.snippet?.title || sourcePl?.title || sourceName;
+    const targetTitle = targetPl?.snippet?.title || targetPl?.title || targetName;
+
+    // 4. Fetch videos from source playlist
+    const itemsRes = await executeComposioAction(
+      apiKey,
+      'YOUTUBE_LIST_PLAYLIST_ITEMS',
+      { playlistId: sourceId, maxResults: 50, part: 'snippet,contentDetails' },
+      accountId,
+      userUuid
+    );
+
+    const rawItems = (itemsRes.data as any)?.items || (itemsRes.data as any)?.playlistItems ||
+      (Array.isArray(itemsRes.data) ? itemsRes.data : []);
+
+    if (!rawItems.length) {
+      return {
+        success: true,
+        toolSlug: 'YOUTUBE_ADD_VIDEO_TO_PLAYLIST',
+        data: `The source playlist **${sourceTitle}** has 0 videos, so no videos were transferred to **${targetTitle}**.`
+      };
+    }
+
+    // 5. Fetch existing videos in target playlist to prevent duplicates
+    const targetItemsRes = await executeComposioAction(
+      apiKey,
+      'YOUTUBE_LIST_PLAYLIST_ITEMS',
+      { playlistId: targetId, maxResults: 50, part: 'snippet,contentDetails' },
+      accountId,
+      userUuid
+    );
+    const targetItems = (targetItemsRes.data as any)?.items || [];
+    const existingVideoIds = new Set<string>();
+    for (const it of targetItems) {
+      const vid = it?.snippet?.resourceId?.videoId || it?.contentDetails?.videoId;
+      if (vid) existingVideoIds.add(vid);
+    }
+
+    // 6. Filter items to add
+    const toAdd: { videoId: string; title: string }[] = [];
+    for (const it of rawItems) {
+      const videoId = it?.snippet?.resourceId?.videoId || it?.contentDetails?.videoId;
+      const title = it?.snippet?.title || 'Video';
+      if (videoId && !existingVideoIds.has(videoId)) {
+        toAdd.push({ videoId, title });
+      }
+    }
+
+    if (toAdd.length === 0) {
+      return {
+        success: true,
+        toolSlug: 'YOUTUBE_ADD_VIDEO_TO_PLAYLIST',
+        data: `All videos from **${sourceTitle}** are already present in **${targetTitle}**! No duplicate videos were added.\n\nTarget playlist URL: https://www.youtube.com/playlist?list=${targetId}`
+      };
+    }
+
+    // Transfer up to 10 videos serially
+    const batch = toAdd.slice(0, 10);
+    const added: string[] = [];
+
+    for (const video of batch) {
+      const addRes = await executeComposioAction(
+        apiKey,
+        'YOUTUBE_ADD_VIDEO_TO_PLAYLIST',
+        { playlistId: targetId, videoId: video.videoId },
+        accountId,
+        userUuid
+      );
+      if (addRes.success) {
+        added.push(video.title);
+      }
+    }
+
+    const remaining = toAdd.length - batch.length;
+    let summary = `Successfully transferred **${added.length}** video${added.length === 1 ? '' : 's'} from **${sourceTitle}** to **${targetTitle}**:\n\n`;
+    summary += added.map((t, idx) => `${idx + 1}. **${t}**`).join('\n');
+    if (remaining > 0) {
+      summary += `\n\n*(${remaining} more video${remaining === 1 ? '' : 's'} remain in ${sourceTitle}. Say "add the rest" to continue transferring.)*`;
+    }
+    summary += `\n\nTarget playlist URL: https://www.youtube.com/playlist?list=${targetId}`;
+
+    return {
+      success: true,
+      toolSlug: 'YOUTUBE_ADD_VIDEO_TO_PLAYLIST',
+      data: summary
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: `Failed to transfer playlist videos: ${err.message || 'Unknown error'}`
+    };
+  }
+}
+
+/**
+ * Executes adding a single video to a YouTube playlist by search query or video URL/ID
+ */
+export async function handleYouTubeAddVideo(
+  apiKey: string,
+  userId: string,
+  videoQuery: string,
+  playlistName: string,
+  accounts: ComposioConnectedAccount[] = []
+): Promise<{ success: boolean; data?: string; error?: string; toolSlug?: string }> {
+  try {
+    let liveAccounts = accounts;
+    if (!liveAccounts || liveAccounts.length === 0) {
+      liveAccounts = await listConnectedAccounts(apiKey);
+    }
+    const ytAcc = liveAccounts.find((a: any) =>
+      String(a?.status || '').toUpperCase() === 'ACTIVE' &&
+      (String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('youtube'))
+    );
+    const accountId = ytAcc?.id ? String(ytAcc.id) : undefined;
+    const userUuid = ytAcc?.userUuid || userId;
+
+    // Resolve playlist
+    const plRes = await executeComposioAction(
+      apiKey,
+      'YOUTUBE_LIST_USER_PLAYLISTS',
+      { mine: true, maxResults: 50, part: 'snippet,contentDetails' },
+      accountId,
+      userUuid
+    );
+    const rawPlaylists = (plRes.data as any)?.items || [];
+    const pNorm = playlistName.trim().toLowerCase();
+    const pl = rawPlaylists.find((p: any) => {
+      const t = String(p?.snippet?.title || p?.title || '').trim().toLowerCase();
+      return t === pNorm || t.includes(pNorm) || pNorm.includes(t);
+    });
+
+    if (!pl?.id) {
+      return { success: false, error: `Could not find playlist "${playlistName}".` };
+    }
+
+    // Resolve video ID
+    let videoId = videoQuery.trim();
+    let videoTitle = videoQuery.trim();
+    const urlMatch = videoId.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
+    if (urlMatch) {
+      videoId = urlMatch[1];
+    } else if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+      const sRes = await executeComposioAction(
+        apiKey,
+        'YOUTUBE_SEARCH_YOU_TUBE',
+        { q: videoQuery, maxResults: 1, type: 'video' },
+        accountId,
+        userUuid
+      );
+      const items = (sRes.data as any)?.items || [];
+      if (items[0]?.id?.videoId) {
+        videoId = items[0].id.videoId;
+        videoTitle = items[0].snippet?.title || videoTitle;
+      } else {
+        return { success: false, error: `Could not find any YouTube video matching "${videoQuery}".` };
+      }
+    }
+
+    const addRes = await executeComposioAction(
+      apiKey,
+      'YOUTUBE_ADD_VIDEO_TO_PLAYLIST',
+      { playlistId: pl.id, videoId },
+      accountId,
+      userUuid
+    );
+    if (!addRes.success) {
+      return { success: false, error: addRes.error || `Could not add video to playlist "${pl.snippet?.title || playlistName}".` };
+    }
+
+    return {
+      success: true,
+      toolSlug: 'YOUTUBE_ADD_VIDEO_TO_PLAYLIST',
+      data: `Successfully added **"${videoTitle}"** to playlist **"${pl.snippet?.title || playlistName}"**!\nURL: https://www.youtube.com/playlist?list=${pl.id}`
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to add video to playlist.' };
+  }
+}
+
+/**
+ * Universal compound workflow orchestrator for multi-step tasks across all connected apps
+ */
+export async function executeCompoundWorkflow(
+  apiKey: string,
+  userId: string,
+  requestText: string,
+  accounts: ComposioConnectedAccount[] = []
+): Promise<{ success: boolean; toolSlug?: string; data?: any; error?: string } | null> {
+  const text = String(requestText || '').trim();
+
+  // 1. YouTube cross-playlist transfer
+  const transfer = parseYouTubePlaylistTransferRequest(text);
+  if (transfer) {
+    return await handleYouTubePlaylistTransfer(apiKey, userId, transfer.src, transfer.dst, accounts);
+  }
+
+  // 2. YouTube add specific video to playlist
+  const addVideoMatch = text.match(/(?:add|put|insert)\s+(?:the\s+)?(?:video|song)?\s*["']?([^"']+)["']?\s+(?:in)?to\s+(?:the\s+)?["']?([^"']+)["']?\s+playlist/i);
+  if (addVideoMatch) {
+    const videoQuery = addVideoMatch[1].trim();
+    const playlistName = addVideoMatch[2].trim();
+    if (videoQuery && playlistName && !/playlist/i.test(videoQuery)) {
+      return await handleYouTubeAddVideo(apiKey, userId, videoQuery, playlistName, accounts);
+    }
+  }
+
+  // 3. YouTube create playlist
+  const createPlMatch = text.match(/create\s+(?:a\s+)?(?:new\s+)?playlist\s+(?:named|called\s+)?["']?([^"']+)["']?/i);
+  if (createPlMatch && !/videos?/i.test(text)) {
+    const plTitle = createPlMatch[1].trim();
+    if (plTitle) {
+      let liveAccounts = accounts.length ? accounts : await listConnectedAccounts(apiKey);
+      const ytAcc = liveAccounts.find((a: any) =>
+        String(a?.status || '').toUpperCase() === 'ACTIVE' &&
+        (String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('youtube'))
+      );
+      const res = await executeComposioAction(
+        apiKey,
+        'YOUTUBE_CREATE_PLAYLIST',
+        { title: plTitle, privacyStatus: 'public' },
+        ytAcc?.id ? String(ytAcc.id) : undefined,
+        ytAcc?.userUuid || userId
+      );
+      if (res.success && res.data) {
+        const pId = res.data.id || res.data.snippet?.playlistId;
+        return {
+          success: true,
+          toolSlug: 'YOUTUBE_CREATE_PLAYLIST',
+          data: `Successfully created YouTube playlist **"${plTitle}"**!\nURL: https://www.youtube.com/playlist?list=${pId}`
+        };
+      }
+    }
+  }
+
+  return null;
 }

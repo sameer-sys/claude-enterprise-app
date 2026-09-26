@@ -180,44 +180,46 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={function (e) { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl max-h-[88vh] overflow-hidden rounded-3xl border border-[#38352d] bg-[#181714] text-[#ece9e2] shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[#2d2b25]">
-          <div>
-            <div className="flex items-center gap-2"><Zap className="w-5 h-5 text-[#cc785c]" /><h2 className="text-lg font-semibold">Connectors</h2></div>
-            <p className="text-xs text-[#8f8a80] mt-1">One connector: Composio. Your real connected apps live inside it.</p>
+      <div className="w-full max-w-lg rounded-2xl border border-[#38352d] bg-[#181714] text-[#ece9e2] shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#2d2b25]">
+          <div className="flex items-center gap-2">
+            <Zap className="w-5 h-5 text-[#cc785c]" />
+            <h2 className="text-base font-semibold">Connectors</h2>
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-[#292721]"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-[#292721]">
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
-        <div className="overflow-y-auto max-h-[calc(88vh-80px)] p-5 space-y-4">
-          <div className="rounded-2xl border border-[#3a362e] bg-[#1d1b17] p-5">
-            <div className="flex items-start justify-between">
-              <div className="flex gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-[#28241f] flex items-center justify-center"><Zap className="w-6 h-6 text-[#cc785c]" /></div>
-                <div>
-                  <div className="flex items-center gap-2"><h3 className="font-semibold">Composio</h3><span className="text-[10px] px-2 py-1 rounded-full border border-[#4a463d] text-[#b8b2a7]">REAL RUNTIME</span></div>
-                  <p className="text-xs text-[#8f8a80] mt-1">OAuth, connected accounts, tool discovery, and execution all come from the same Composio project.</p>
-                </div>
-              </div>
-              <button onClick={function () { refresh(); }} className="p-2 rounded-xl border border-[#38352d] hover:bg-[#292721]"><RefreshCw className={loading ? 'w-4 h-4 animate-spin' : 'w-4 h-4'} /></button>
+        <div className="px-5 py-3">
+          <div className="grid grid-cols-3 text-xs text-[#8f8a80] pb-2 border-b border-[#2d2b25]">
+            <div>Connector</div>
+            <div>Type</div>
+            <div className="text-right">Status</div>
+          </div>
+          <div className="grid grid-cols-3 items-center py-3">
+            <div className="flex items-center gap-2 font-medium">
+              <Zap className="w-4 h-4 text-[#cc785c]" />
+              <span>composio</span>
             </div>
-
-            <div className="mt-5 flex items-center justify-between rounded-xl bg-[#141310] border border-[#292720] px-4 py-3">
-              <div><div className="text-xs text-[#8f8a80]">Authorization</div><div className="font-medium mt-0.5">{activeAccounts.length ? 'Connected - ' + activeAccounts.length + ' active account' + (activeAccounts.length === 1 ? '' : 's') : 'Not connected'}</div></div>
-              <div className={activeAccounts.length ? 'w-3 h-3 rounded-full bg-emerald-400' : 'w-3 h-3 rounded-full bg-[#666158]'} />
+            <div className="text-xs">
+              <span className="px-2 py-0.5 rounded-full border border-[#4a463d] text-[#b8b2a7]">Web Custom</span>
+            </div>
+            <div className="flex justify-end">
+              {activeAccounts.length ? (
+                <Check className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-[#666158]" />
+              )}
             </div>
           </div>
-
-          {error && <div className="rounded-xl border border-red-900/50 bg-red-950/20 px-4 py-3 text-xs text-red-200">{error}</div>}
-
-          <div className="rounded-xl border border-[#2b2823] bg-[#161512] p-4">
-            <div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="w-4 h-4 text-emerald-400" /><span>Real authentication</span></div>
-            <p className="text-xs leading-5 text-[#89837a] mt-1">Click an app above and Composio opens its hosted authentication flow. You sign in with Google, GitHub, or the provider itself. The chat only treats an account as connected after Composio reports it ACTIVE.</p>
-          </div>
-
-
-          <div className="text-[11px] text-[#6f6a61] text-center">The local Enabled state is not proof of authorization. Chat access comes from the same Composio user ID and ACTIVE accounts shown above.</div>
         </div>
+
+        {error && (
+          <div className="mx-5 mb-4 rounded-xl border border-red-900/50 bg-red-950/20 px-4 py-3 text-xs text-red-200">
+            {error}
+          </div>
+        )}
       </div>
     </div>
   );

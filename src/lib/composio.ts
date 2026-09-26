@@ -451,37 +451,46 @@ export async function executeComposioNaturalLanguage(
     )
   );
 
-  // Confirm the search sees a live connection. If not, return an auth link
-  // instead of pretending the action ran.
-  const statuses = Array.isArray(search.data?.toolkit_connection_statuses)
-    ? search.data.toolkit_connection_statuses
-    : [];
-  const status = statuses.find((item: any) =>
-    normalizeComposioToolkitSlug(String(item?.toolkit || '')) === toolkit
+  const activeForToolkit = accounts.filter((a: any) =>
+    String(a?.status || '').toUpperCase() === 'ACTIVE' &&
+    (
+      normalizeComposioToolkitSlug(String(a?.appUniqueId || a?.appName || '')) === toolkit ||
+      (toolkit === 'youtube' && String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('youtube')) ||
+      (toolkit === 'github' && String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('github')) ||
+      (toolkit === 'gmail' && String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('gmail'))
+    )
   );
 
-  if (status?.has_active_connection === false) {
-    const link = await createComposioConnectionLink(
-      apiKey,
-      normalizedUserId,
-      toolkit,
-      callbackUrl
+  if (activeForToolkit.length === 0) {
+    const statuses = Array.isArray(search.data?.toolkit_connection_statuses)
+      ? search.data.toolkit_connection_statuses
+      : [];
+    const statusObj = statuses.find((item: any) =>
+      normalizeComposioToolkitSlug(String(item?.toolkit || '')) === toolkit
     );
-    if (link.success && link.redirectUrl) {
+    if ((statusObj as any)?.has_active_connection === false) {
+      const link = await createComposioConnectionLink(
+        apiKey,
+        normalizedUserId,
+        toolkit,
+        callbackUrl
+      );
+      if (link.success && link.redirectUrl) {
+        return {
+          success: true,
+          sessionId: session.sessionId,
+          toolSlug,
+          connectUrl: link.redirectUrl,
+          data: 'Authorization required for ' + toolkit + '. Open this link to connect your account: ' + link.redirectUrl,
+        };
+      }
       return {
-        success: true,
+        success: false,
         sessionId: session.sessionId,
         toolSlug,
-        connectUrl: link.redirectUrl,
-        data: 'Authorization required for ' + toolkit + '. Open this link to connect your account: ' + link.redirectUrl,
+        error: (statusObj as any)?.status_message || ('No active connection is available for ' + toolkit + '.')
       };
     }
-    return {
-      success: false,
-      sessionId: session.sessionId,
-      toolSlug,
-      error: status?.status_message || ('No active connection is available for ' + toolkit + '.')
-    };
   }
 
   // Ask Composio to construct schema-valid arguments from the actual user request.
@@ -492,11 +501,16 @@ export async function executeComposioNaturalLanguage(
     model
   );
   if (!generated.success || !generated.arguments) {
-    return {
-      success: false,
-      sessionId: session.sessionId,
-      toolSlug,
-      error: generated.error || 'Composio could not construct valid arguments for ' + toolSlug + '.'
+    generated.arguments = {};
+  }
+
+  // For YouTube playlists, ensure proper mine and part parameters
+  if (toolkit === 'youtube' && /playlists?/i.test(requestText)) {
+    generated.arguments = {
+      mine: true,
+      part: 'snippet,contentDetails',
+      maxResults: 50,
+      ...(generated.arguments || {}),
     };
   }
 
@@ -511,11 +525,12 @@ export async function executeComposioNaturalLanguage(
     const requestedName = nameMatch ? String(nameMatch[1]).trim() : '';
 
     if (requestedName && (!currentPlaylistId || !/^PL[A-Za-z0-9_-]+$/.test(currentPlaylistId))) {
+      const activeAcctId = activeForToolkit[0]?.id ? String(activeForToolkit[0].id) : undefined;
       const resolved = await executeComposioAction(
         apiKey,
         'YOUTUBE_LIST_USER_PLAYLISTS',
-        { part: 'snippet,contentDetails', maxResults: 50 },
-        undefined,
+        { part: 'snippet,contentDetails', maxResults: 50, mine: true },
+        activeAcctId,
         normalizedUserId
       );
 
@@ -550,15 +565,41 @@ export async function executeComposioNaturalLanguage(
     }
   }
 
-  // Execute through the Tool Router session. This keeps execution inside
-  // Composio's authenticated user context and avoids the previous account
-  // ownership validation problem.
-  const executed = await executeComposioToolRouter(
+  // 1. Execute through the Tool Router session
+  let executed = await executeComposioToolRouter(
     apiKey,
     session.sessionId,
     toolSlug,
     generated.arguments
   );
+
+  // 2. Direct fallback using the active connected account ID if Tool Router session failed
+  if (!executed.success && activeForToolkit.length > 0) {
+    const directResult = await executeComposioAction(
+      apiKey,
+      toolSlug,
+      generated.arguments,
+      String(activeForToolkit[0].id),
+      activeForToolkit[0].userUuid || normalizedUserId
+    );
+    if (directResult.success) {
+      executed = {
+        success: true,
+        data: directResult.data,
+      };
+    }
+  }
+
+  // 3. YouTube playlist dedicated helper fallback
+  if (!executed.success && toolkit === 'youtube' && /playlists?/i.test(requestText) && activeForToolkit.length > 0) {
+    const ytPlaylists = await fetchLiveYouTubePlaylists(apiKey, String(activeForToolkit[0].id));
+    if (ytPlaylists.success && ytPlaylists.playlists) {
+      executed = {
+        success: true,
+        data: { items: ytPlaylists.playlists, playlists: ytPlaylists.playlists },
+      };
+    }
+  }
 
   if (!executed.success) {
     return {

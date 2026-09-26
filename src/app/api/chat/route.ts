@@ -390,7 +390,7 @@ async function runAgentTool(
 
       if (connectorContext.apiKey) {
         try {
-          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
           const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'github'));
           if (activeGh.length >= 1) {
             const result = await executeComposioAction(
@@ -443,7 +443,7 @@ async function runAgentTool(
 
       if (connectorContext.apiKey) {
         try {
-          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
           const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'github'));
           if (activeGh.length >= 1) {
             let existingSha: string | undefined;
@@ -527,7 +527,7 @@ async function runAgentTool(
 
       if (connectorContext.apiKey) {
         try {
-          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
           const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'github'));
           if (activeGh.length >= 1) {
             const result = await executeComposioAction(
@@ -563,7 +563,7 @@ async function runAgentTool(
 
       if (connectorContext.apiKey) {
         try {
-          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'github');
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
           const activeGh = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'github'));
           if (activeGh.length >= 1) {
             const result = await executeComposioAction(
@@ -594,11 +594,7 @@ async function runAgentTool(
 
       if (connectorContext.apiKey) {
         try {
-          const liveAccounts = await listConnectedAccounts(
-            connectorContext.apiKey,
-            connectorContext.composioUserId,
-            'gmail'
-          );
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
           const activeGmail = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase() === 'gmail'));
           if (activeGmail.length >= 1) {
             const sent = await executeComposioAction(
@@ -699,7 +695,7 @@ async function runAgentTool(
       if (connectorContext.apiKey) {
         try {
           const { fetchLiveYouTubePlaylists, listConnectedAccounts } = await import('@/lib/composio');
-          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey, connectorContext.composioUserId, 'youtube');
+          const liveAccounts = await listConnectedAccounts(connectorContext.apiKey);
           const activeYt = liveAccounts.filter((a: any) => a?.status === 'ACTIVE' && (String(a?.appUniqueId || a?.appName || '').toLowerCase().includes('youtube')));
           const accountId = activeYt[0]?.id ? String(activeYt[0].id) : undefined;
           const result = await fetchLiveYouTubePlaylists(connectorContext.apiKey, accountId);
@@ -1019,19 +1015,28 @@ function formatConnectorResult(requestText: string, result: any): string {
 
   const directCount = data.total_count ?? data.totalCount ?? data.repository_count ?? data.repositoryCount ?? data.count;
   if (directCount != null && /\b(how many|total|count|number of)\b/i.test(lower)) {
-    const noun = lower.includes('repositor') ? 'repositories' : lower.includes('email') ? 'emails' : 'items';
-    return 'You have ' + String(directCount) + ' ' + noun + '.';
+    const noun = lower.includes('repositor') ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
+    return 'You have ' + String(directCount) + ' ' + noun + ' in your connected account.';
   }
 
-  const candidates = [data.items, data.repositories, data.repos, data.results, data.data];
+  const candidates = [data.items, data.playlists, data.repositories, data.repos, data.results, data.data];
   const list = candidates.find((value: any) => Array.isArray(value));
   if (Array.isArray(list)) {
+    const noun = lower.includes('repositor') ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
+    const labels = list.map((item: any, idx: number) => {
+      const name = item?.title || item?.snippet?.title || item?.name || item?.full_name || item?.id || '';
+      const count = item?.itemCount ?? item?.contentDetails?.itemCount;
+      return `${idx + 1}. **${name}**` + (count != null ? ` (${count} items)` : '');
+    }).filter(Boolean);
+
     if (/\b(how many|total|count|number of)\b/i.test(lower)) {
-      const noun = lower.includes('repositor') ? 'repositories' : lower.includes('email') ? 'emails' : 'items';
-      return 'You have ' + String(list.length) + ' ' + noun + '.';
+      return `You have **${list.length}** ${noun} in your connected account:\n\n` +
+        labels.slice(0, 20).join('\n') +
+        (list.length > 20 ? '\n…and ' + (list.length - 20) + ' more.' : '');
     }
-    const labels = list.slice(0, 5).map((item: any) => String(item?.name || item?.title || item?.full_name || item?.subject || item?.path || item?.id || '')).filter(Boolean);
-    return labels.length ? labels.join('\n') + (list.length > labels.length ? '\n…and ' + String(list.length - labels.length) + ' more.' : '') : 'Found ' + String(list.length) + ' items.';
+    return labels.length
+      ? `Found **${list.length}** ${noun}:\n\n` + labels.slice(0, 20).join('\n') + (list.length > 20 ? '\n…and ' + (list.length - 20) + ' more.' : '')
+      : 'Found ' + String(list.length) + ' ' + noun + '.';
   }
 
   const compact = Object.entries(data)
@@ -1560,8 +1565,8 @@ export async function POST(req: NextRequest) {
           const mentionedToolSlugMatch = checkText.match(/\b([A-Z][A-Z0-9]{2,}_[A-Z0-9_]{2,})\b/);
           const isPlanningText =
             !contentText && Boolean(reasoningText) ||
-            /(?:we need to call|we should (?:first )?call|let's call|i will call|calling|we must immediately call|must call|we must call|action likely|use composio|should output tool call)/i.test(checkText) ||
-            /(?:we are in a loop|user wants to check|user asks|according to instructions|to find action, then use|no extra text before tool call)/i.test(checkText) ||
+            /(?:we need to|we should|let's call|i will call|calling|we must|must call|action likely|use composio|should output tool call|user wants|user asks|need to call|need to find|first, need to|first need to|use composio_|to search actions|search actions for)/i.test(checkText) ||
+            /(?:we are in a loop|according to instructions|to find action|no extra text before tool call)/i.test(checkText) ||
             /(?:let me check|let me look|let me fetch|let me get|checking your|looking that up|one moment|i'll check|i'll look|i'll fetch|i'll get|give me a moment|fetching your|retrieving your)/i.test(checkText) ||
             Boolean(mentionedToolSlugMatch) ||
             checkText.includes('{"tool":') ||

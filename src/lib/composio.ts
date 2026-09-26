@@ -398,15 +398,18 @@ export async function executeComposioNaturalLanguage(
 ): Promise<{ success: boolean; toolSlug?: string; arguments?: Record<string, any>; data?: any; error?: string; sessionId?: string; connectUrl?: string }> {
   if (!apiKey) return { success: false, error: 'Missing Composio API key.' };
 
-  const normalizedUserId = String(userId || '').trim() || 'sameer-web-user';
+  const normalizedUserId = String(userId || '').trim() || 'default';
 
-  // Create a user-scoped Composio session. Do NOT pin project-wide account IDs
-  // into the session; Composio resolves the user's own active connections.
+  // Create a user-scoped Composio session. Pass the caller's real ACTIVE
+  // accounts through so enabledComposioToolkits() can resolve actual
+  // connected toolkits - passing [] here silently made every request fail
+  // with "No Composio-backed connectors are enabled for this chat" no
+  // matter what was actually connected.
   const session = await createComposioToolRouterSession(
     apiKey,
     normalizedUserId,
     connectors,
-    []
+    accounts
   );
   if (!session.success || !session.sessionId) {
     return { success: false, error: session.error || 'Unable to create Composio session.' };

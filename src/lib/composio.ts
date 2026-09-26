@@ -302,7 +302,7 @@ export async function createComposioToolRouterSession(
         // Composio's create-session request uses "enable" for the toolkit
         // allowlist (the response normalizes this to "enabled").
         toolkits: { enabled: toolkits },
-        multi_account: { enable: true, max_accounts_per_toolkit: 1, require_explicit_selection: false },
+        multi_account: { enable: true, max_accounts_per_toolkit: 5, require_explicit_selection: false },
         search: { enable: true },
         execute: { enable_multi_execute: true },
       }),

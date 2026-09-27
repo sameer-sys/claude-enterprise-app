@@ -1609,24 +1609,19 @@ export async function POST(req: NextRequest) {
           },
         });
       } catch (composioErr: any) {
-        console.error('[COMPOSIO DIRECT ROUTER ERR]', composioErr);
-        const message = 'Composio could not complete this connected-app request: ' + (composioErr?.message || 'unknown error');
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message }) + '\n\n'));
-            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-            controller.close();
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-            'X-Claude-Skill': detectedSkill,
-            'X-Claude-Router': 'composio-error',
-          },
+        // The fast single-action path couldn't fully resolve this request
+        // (e.g. it genuinely needs multiple steps across one or more apps).
+        // Instead of failing here, fall through into the real multi-turn
+        // agent loop below, which can call connector_search /
+        // connector_execute repeatedly - across ANY connected app, not just
+        // one - until the task is actually done, then report the real
+        // result. forceConnectorTool keeps turn 0 of that loop from
+        // narrating instead of acting.
+        console.error('[COMPOSIO DIRECT ROUTER FALLTHROUGH]', composioErr?.message || composioErr);
+        forceConnectorTool = true;
+        fullMessages.push({
+          role: 'system',
+          content: 'A direct single-action attempt for this request did not fully succeed (' + String(composioErr?.message || 'no matching single action') + '). This may require multiple real tool calls (e.g. list something, then act on each result, possibly across more than one connected app). Use connector_search and connector_execute as many times as needed to actually complete the whole task, then report the real, specific result. Do not narrate a plan - call the tools.',
         });
       }
     }

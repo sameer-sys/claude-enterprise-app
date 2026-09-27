@@ -368,7 +368,8 @@ export async function executeComposioNaturalLanguage(
   connectors: any[] = [],
   accounts: ComposioConnectedAccount[] = [],
   model: string = 'claude-3-7-sonnet',
-  callbackUrl?: string
+  callbackUrl?: string,
+  history: { role: string; content: string }[] = []
 ): Promise<{ success: boolean; toolSlug?: string; arguments?: Record<string, any>; data?: any; error?: string; sessionId?: string; connectUrl?: string }> {
   if (!apiKey) return { success: false, error: 'Missing Composio API key.' };
 
@@ -380,8 +381,14 @@ export async function executeComposioNaturalLanguage(
     } catch {}
   }
 
+  // Resolve vague conversational references ("it", "this playlist", "that
+  // playlist") to the actual name mentioned earlier in this chat, so a
+  // multi-step task like "create playlist X" then "add videos to it" works
+  // across turns instead of failing because "it" isn't a real playlist name.
+  const resolvedRequestText = resolvePlaylistPronouns(requestText, history);
+
   // Check for compound / multi-step operations first
-  const compound = await executeCompoundWorkflow(apiKey, normalizedUserId, requestText, accounts);
+  const compound = await executeCompoundWorkflow(apiKey, normalizedUserId, resolvedRequestText, accounts);
   if (compound) {
     return compound;
   }
@@ -400,7 +407,7 @@ export async function executeComposioNaturalLanguage(
   const search = await searchComposioToolRouter(
     apiKey,
     session.sessionId,
-    requestText,
+    resolvedRequestText,
     model
   );
   if (!search.success) {
@@ -1265,7 +1272,40 @@ export async function handleYouTubeAddVideo(
 /**
  * Universal compound workflow orchestrator for multi-step tasks across all connected apps
  */
-export async function executeCompoundWorkflow(
+export // Resolve conversational pronouns ("it", "this playlist", "that playlist")
+// to the actual playlist name most recently created or mentioned in this
+// chat, by scanning backwards through the message history. This is what
+// makes a follow-up like "add videos to it" work after "create a playlist
+// called Road Trip" in the previous turn.
+function resolvePlaylistPronouns(
+  requestText: string,
+  history: { role: string; content: string }[] = []
+): string {
+  const text = String(requestText || '');
+  const needsResolution = /\b(it|this playlist|that playlist|the playlist)\b/i.test(text);
+  if (!needsResolution || !history.length) return text;
+
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    const content = String(msg?.content || '');
+    // Matches the exact success message this codebase already emits when a
+    // playlist is created: Successfully created YouTube playlist **"Name"**!
+    const created = content.match(/created YouTube playlist \*\*"([^"]+)"\*\*/i)
+      || content.match(/playlist\s+(?:named|called)\s+["']([^"']+)["']/i)
+      || content.match(/create\s+(?:a\s+)?(?:new\s+)?playlist\s+(?:named|called)?\s*["']([^"']+)["']/i);
+    if (created && created[1]) {
+      const resolvedName = created[1].trim();
+      return text
+        .replace(/\bit\b/gi, resolvedName)
+        .replace(/\bthis playlist\b/gi, resolvedName)
+        .replace(/\bthat playlist\b/gi, resolvedName)
+        .replace(/\bthe playlist\b/gi, resolvedName);
+    }
+  }
+  return text;
+}
+
+async function executeCompoundWorkflow(
   apiKey: string,
   userId: string,
   requestText: string,

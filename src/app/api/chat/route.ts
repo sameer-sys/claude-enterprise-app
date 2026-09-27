@@ -201,6 +201,58 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'Search_Composio_Tools',
+      description: 'Search Composio "For You" tools, skills, and personal accounts connected to the user.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search query or action to find' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'Multi_Execute_Composio_Tools',
+      description: 'Execute tools or actions remotely on the user\'s connected Composio personal accounts.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tools: {
+            type: 'array',
+            description: 'Array of tool objects with tool_name and arguments',
+            items: {
+              type: 'object',
+              properties: {
+                tool_name: { type: 'string' },
+                arguments: { type: 'object' },
+              },
+              required: ['tool_name', 'arguments'],
+            },
+          },
+        },
+        required: ['tools'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'Manage_connections',
+      description: 'List or inspect personal accounts and apps connected in Composio "For You".',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', description: 'Action to perform, e.g. "list"' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'read_inbox',
       description: 'Read the most recent real emails from the connected inbox.',
       parameters: {
@@ -364,9 +416,40 @@ function getSafeHttpUrl(raw: string): URL | null {
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
+  connectorContext: { apiKey?: string; mcpToken?: string; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
 ): Promise<string> {
   try {
+    // Handle Composio "For You" MCP execution
+    if (connectorContext.mcpToken) {
+      try {
+        const { executeMcpTool } = await import('@/lib/composioMcp');
+
+        if (name === 'Search_Composio_Tools' || name === 'COMPOSIO_SEARCH_SKILLS' || name === 'connector_search') {
+          const query = String(args?.query || args?.search || '');
+          const res = await executeMcpTool(connectorContext.mcpToken, 'COMPOSIO SEARCH SKILLS', { query });
+          if (res.success) {
+            return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+          }
+        }
+
+        if (name === 'Multi_Execute_Composio_Tools' || name === 'connector_execute') {
+          const res = await executeMcpTool(connectorContext.mcpToken, 'Multi Execute Composio Tools', args);
+          if (res.success) {
+            return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+          }
+        }
+
+        if (name === 'Manage_connections' || name === 'connector_manage_connections') {
+          const res = await executeMcpTool(connectorContext.mcpToken, 'Manage connections', args || {});
+          if (res.success) {
+            return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+          }
+        }
+      } catch (mcpErr: any) {
+        console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
+      }
+    }
+
     if (name === 'web_search') {
       const queryClean = String(args?.query || '').trim();
       if (!queryClean) return 'No query provided.';
@@ -1346,6 +1429,7 @@ export async function POST(req: NextRequest) {
 
     const composioApiKey = process.env.COMPOSIO_API_KEY || '';
     const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default';
+    const composioMcpToken = String(req.cookies.get('composio_mcp_token')?.value || '').trim();
 
     const isOmniRouteModel = true;
 
@@ -1369,10 +1453,25 @@ export async function POST(req: NextRequest) {
 
     if (connectorStatusQuestion) {
       let statusText = '';
-      if (!composioApiKey) {
+      if (composioMcpToken) {
+        try {
+          const { listMcpTools } = await import('@/lib/composioMcp');
+          const tools = await listMcpTools(composioMcpToken);
+          statusText =
+            '### Composio "For You" Live Status (MCP)\n\n' +
+            'Connected to **Composio For You** via Model Context Protocol (`https://connect.composio.dev/mcp`).\n\n' +
+            'Your personal account is authenticated with **' + tools.length + '** live tools available, including:\n' +
+            tools.slice(0, 8).map((t: any) => '- **' + t.name + '**: ' + (t.description || 'Personal account action')).join('\n') +
+            '\n\nAll tools and actions for your personal accounts (YouTube, GitHub, Google Drive, Gmail, etc.) are available live through Composio For You MCP.';
+        } catch (err: any) {
+          statusText =
+            '### Composio "For You" Live Status (MCP)\n\n' +
+            'Connected to Composio For You MCP (`https://connect.composio.dev/mcp`), but tool lookup returned: ' + (err?.message || 'unknown error');
+        }
+      } else if (!composioApiKey) {
         statusText =
-          '### Composio Live Status\n\n' +
-          'The Composio API key is not configured on the server. No connected apps are available to chat right now.';
+          '### Composio "For You" Status\n\n' +
+          'Composio "For You" is not connected yet. Click **Connectors** in the top right and click **Connect** on Composio (`https://connect.composio.dev/mcp`) to sign in with your personal account.';
       } else {
         try {
           const accounts = await listConnectedAccounts(composioApiKey);
@@ -1380,7 +1479,7 @@ export async function POST(req: NextRequest) {
           if (!active.length) {
             statusText =
               '### Connected Apps (Composio Live)\n\n' +
-              'There are currently **0** active app connections in Composio.';
+              'There are currently **0** active app connections in Composio Platform.';
           } else {
             const lines = active.map((a) => {
               const toolkit = String(a?.appUniqueId || a?.appName || 'unknown');
@@ -1389,9 +1488,8 @@ export async function POST(req: NextRequest) {
             });
             statusText =
               '### Connected Apps (Composio Live)\n\n' +
-              'I am currently connected to **' + active.length + '** active app' + (active.length === 1 ? '' : 's') + ' in Composio:\n\n' +
-              lines.join('\n') +
-              '\n\nAll tools and actions for these accounts are available live through Composio.';
+              'Connected to **' + active.length + '** active app' + (active.length === 1 ? '' : 's') + ' in Composio:\n\n' +
+              lines.join('\n');
           }
         } catch (err: any) {
           statusText =
@@ -1428,7 +1526,12 @@ export async function POST(req: NextRequest) {
     // COMPOSIO CONNECTOR CONTEXT (DYNAMIC RUNTIME ONLY)
     // ========================================================
     let connectorContext = '';
-    if (composioApiKey) {
+    if (composioMcpToken) {
+      connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n';
+      connectorContext += 'You are connected to the user\'s personal Composio account via Model Context Protocol at https://connect.composio.dev/mcp.\n';
+      connectorContext += 'Personal MCP tools available: Multi_Execute_Composio_Tools, Search_Composio_Tools, Manage_connections.\n';
+      connectorContext += 'When asked to perform actions on user accounts (YouTube, GitHub, Drive, Mail, etc.), execute the appropriate tool via MCP.\n';
+    } else if (composioApiKey) {
       try {
         const realAccounts = await listConnectedAccounts(composioApiKey);
         const activeAccounts = realAccounts.filter((a: any) => a?.status === 'ACTIVE');
@@ -1540,8 +1643,12 @@ export async function POST(req: NextRequest) {
     // Connector requests are fail-closed: NEVER send them to the LLM as a
     // fallback. The only source of connected-app data/actions is Composio.
     if (connectorRequest) {
-      if (!composioApiKey) {
-        const message = 'Composio is not configured on the server. This connected-app request was not sent to the language model.';
+      if (composioMcpToken) {
+        // User is connected via Composio "For You" MCP.
+        // Route through multi-turn agent loop with live MCP tools.
+        forceConnectorTool = true;
+      } else if (!composioApiKey) {
+        const message = 'Composio "For You" is not connected yet. Click Connectors in the top right and click Connect on Composio (https://connect.composio.dev/mcp) to sign in to your personal Composio account.';
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           start(controller) {
@@ -1559,7 +1666,7 @@ export async function POST(req: NextRequest) {
             'X-Claude-Router': 'composio-not-configured',
           },
         });
-      }
+      } else {
 
       try {
         console.log('[COMPOSIO DIRECT REQUEST]', { user: composioUserId, request: lastText });
@@ -1625,6 +1732,15 @@ export async function POST(req: NextRequest) {
         });
       }
     }
+  }
+
+    const toolContext = {
+      apiKey: composioApiKey,
+      mcpToken: composioMcpToken,
+      connectors,
+      accounts: connectorAccounts,
+      composioUserId,
+    };
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -1699,14 +1815,9 @@ export async function POST(req: NextRequest) {
           // Hard fallback: connector requests must never degrade into narration.
           // Handle obvious built-in reads directly; otherwise search Composio and
           // force the next agent turn to issue the real connector action.
-          if (isConnectorRelatedRequest(lastText) && composioApiKey) {
+          if (isConnectorRelatedRequest(lastText) && (composioMcpToken || composioApiKey)) {
             if (/\bplaylists?\b/i.test(lastText)) {
-              const ytResult = await runAgentTool('youtube_list_playlists', {}, {
-                apiKey: composioApiKey,
-                connectors,
-                accounts: connectorAccounts,
-                composioUserId,
-              });
+              const ytResult = await runAgentTool('youtube_list_playlists', {}, toolContext);
               const healId = 'call_hard_yt_' + Date.now();
               fullMessages.push({
                 role: 'assistant',
@@ -1723,12 +1834,7 @@ export async function POST(req: NextRequest) {
             }
 
             if (/\b(?:repositories|repos|repository)\b/i.test(lastText)) {
-              const ghResult = await runAgentTool('github_list_repos', {}, {
-                apiKey: composioApiKey,
-                connectors,
-                accounts: connectorAccounts,
-                composioUserId,
-              });
+              const ghResult = await runAgentTool('github_list_repos', {}, toolContext);
               const healId = 'call_hard_gh_' + Date.now();
               fullMessages.push({
                 role: 'assistant',
@@ -1744,12 +1850,7 @@ export async function POST(req: NextRequest) {
               continue;
             }
 
-            const searchRes = await runAgentTool('connector_search', { query: lastText }, {
-              apiKey: composioApiKey,
-              connectors,
-              accounts: connectorAccounts,
-              composioUserId,
-            });
+            const searchRes = await runAgentTool('connector_search', { query: lastText }, toolContext);
             const healId = 'call_hard_search_' + Date.now();
             fullMessages.push({
               role: 'assistant',
@@ -1783,7 +1884,7 @@ export async function POST(req: NextRequest) {
             checkText.includes('{"tool":') ||
             checkText.includes('"action":');
 
-          if (isPlanningText && composioApiKey) {
+          if (isPlanningText && (composioMcpToken || composioApiKey)) {
             // Embedded JSON tool call parsing
             const jsonMatch = checkText.match(/\{[\s\S]*"action"[\s\S]*\}/);
             if (jsonMatch) {
@@ -1791,12 +1892,7 @@ export async function POST(req: NextRequest) {
                 const parsed = JSON.parse(jsonMatch[0]);
                 const actionToRun = parsed.action || parsed.tool_slug || 'YOUTUBE_LIST_USER_PLAYLISTS';
                 const argsToRun = parsed.parameters || parsed.params || parsed.arguments || {};
-                const execResult = await runAgentTool('composio_execute_action', { action: actionToRun, params: argsToRun }, {
-                  apiKey: composioApiKey,
-                  connectors,
-                  accounts: connectorAccounts,
-                  composioUserId,
-                });
+                const execResult = await runAgentTool('composio_execute_action', { action: actionToRun, params: argsToRun }, toolContext);
                 const healId = 'call_heal_exec_' + Date.now();
                 fullMessages.push({
                   role: 'assistant',
@@ -1822,12 +1918,7 @@ export async function POST(req: NextRequest) {
             // instead of only handling YouTube playlists as a special case.
             if (mentionedToolSlugMatch) {
               const namedSlug = mentionedToolSlugMatch[1];
-              const namedResult = await runAgentTool(namedSlug, {}, {
-                apiKey: composioApiKey,
-                connectors,
-                accounts: connectorAccounts,
-                composioUserId,
-              });
+              const namedResult = await runAgentTool(namedSlug, {}, toolContext);
               const healId = 'call_heal_named_' + Date.now();
               fullMessages.push({
                 role: 'assistant',
@@ -1848,12 +1939,7 @@ export async function POST(req: NextRequest) {
 
             // Auto-heal: model wrote out a meta-plan instead of issuing a tool call!
             if (/youtube/i.test(checkText) && /playlist/i.test(checkText)) {
-              const ytResult = await runAgentTool('youtube_list_playlists', {}, {
-                apiKey: composioApiKey,
-                connectors,
-                accounts: connectorAccounts,
-                composioUserId,
-              });
+              const ytResult = await runAgentTool('youtube_list_playlists', {}, toolContext);
               const healId = 'call_heal_yt_' + Date.now();
               fullMessages.push({
                 role: 'assistant',
@@ -1876,12 +1962,7 @@ export async function POST(req: NextRequest) {
             const toolMatch = checkText.match(/(?:for|with|call)\s+["']?([a-zA-Z0-9_-]+)["']?\s+to find action/i) ||
                              checkText.match(/connector_search\s+for\s+["']?([a-zA-Z0-9_-]+)["']?/i);
             const autoToolkit = toolMatch ? toolMatch[1].toLowerCase() : '';
-            const searchRes = await runAgentTool('connector_search', { query: lastText || autoToolkit, toolkit: autoToolkit || undefined }, {
-              apiKey: composioApiKey,
-              connectors,
-              accounts: connectorAccounts,
-              composioUserId,
-            });
+            const searchRes = await runAgentTool('connector_search', { query: lastText || autoToolkit, toolkit: autoToolkit || undefined }, toolContext);
 
             const healId = 'call_heal_search_' + Date.now();
             fullMessages.push({
@@ -1944,12 +2025,7 @@ export async function POST(req: NextRequest) {
             toolArgs = JSON.parse(call.function?.arguments || '{}');
           } catch (e) {}
 
-          const result = await runAgentTool(toolName, toolArgs, {
-            apiKey: composioApiKey,
-            connectors,
-            accounts: connectorAccounts,
-            composioUserId,
-          });
+          const result = await runAgentTool(toolName, toolArgs, toolContext);
 
           fullMessages.push({
             role: 'tool',

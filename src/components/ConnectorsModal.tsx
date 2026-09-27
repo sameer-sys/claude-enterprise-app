@@ -17,7 +17,8 @@ import {
   Zap, 
   Globe, 
   CheckCircle2,
-  Trash2
+  Trash2,
+  LogIn
 } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
 
@@ -125,7 +126,9 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   const [authMode, setAuthMode] = useState<'now' | 'needed' | 'none'>('now');
   const [oauthClientMode, setOauthClientMode] = useState<'published' | 'auto' | 'custom'>('auto');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [mcpConnected, setMcpConnected] = useState(false);
 
   // Connectors list
   const [customConnectors, setCustomConnectors] = useState<Connector[]>(() => {
@@ -138,6 +141,57 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     } catch {}
     return DEFAULT_CONNECTORS;
   });
+
+  // Check Composio "For You" MCP status on open
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const res = await fetch('/api/composio', { method: 'GET', cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          const isConn = Boolean(data.mcpConnected || data.mode === 'for_you');
+          setMcpConnected(isConn);
+          if (isConn) {
+            setCustomConnectors((prev) =>
+              prev.map((c) =>
+                c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
+                  ? { ...c, status: 'connected' }
+                  : c
+              )
+            );
+          }
+        }
+      } catch {}
+    };
+    if (isOpen) {
+      checkStatus();
+    }
+  }, [isOpen]);
+
+  // Listen for OAuth completion message from popup
+  useEffect(() => {
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'sameer-composio-mcp-connected') {
+        if (event.data?.status === 'success') {
+          setMcpConnected(true);
+          setStatusMessage('Successfully connected to Composio "For You"!');
+          setCustomConnectors((prev) =>
+            prev.map((c) =>
+              c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
+                ? { ...c, status: 'connected' }
+                : c
+            )
+          );
+        } else if (event.data?.error) {
+          setStatusMessage(`OAuth Error: ${event.data.error}`);
+        }
+        setIsAuthenticating(false);
+        setIsSubmitting(false);
+      }
+    };
+    window.addEventListener('message', handleOAuthMessage);
+    return () => window.removeEventListener('message', handleOAuthMessage);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -152,6 +206,33 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     setTimeout(() => setCopiedUrl(false), 2000);
   };
 
+  const startComposioOAuth = async () => {
+    setIsAuthenticating(true);
+    setStatusMessage('Initiating Composio "For You" sign-in...');
+    try {
+      const res = await fetch('/api/composio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_mcp_oauth_url' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.authUrl) {
+        throw new Error(data.error || 'Failed to generate OAuth URL');
+      }
+      const popup = window.open(
+        data.authUrl,
+        'composio_mcp_login',
+        'popup,width=620,height=780,resizable=yes,scrollbars=yes'
+      );
+      if (!popup) {
+        window.open(data.authUrl, '_blank');
+      }
+    } catch (err: any) {
+      setStatusMessage(`OAuth Error: ${err.message}`);
+      setIsAuthenticating(false);
+    }
+  };
+
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customName.trim() || !customUrl.trim()) return;
@@ -160,7 +241,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     setStatusMessage('Connecting to MCP server...');
 
     try {
-      // Create new connector object matching Claude Desktop format
       const newConnector: Connector = {
         id: `mcp-${Date.now()}`,
         name: customName.trim(),
@@ -194,12 +274,9 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         onAddCustomConnector(newConnector);
       }
 
-      // If it's Composio, initiate OAuth login handshake popup
+      // If it's Composio, initiate the real OAuth PKCE flow
       if (customUrl.includes('composio.dev') || customName.toLowerCase().includes('composio')) {
-        const authPopup = window.open('https://login.composio.dev/', 'composio_mcp_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
-        if (!authPopup) {
-          window.open('https://login.composio.dev/', '_blank');
-        }
+        await startComposioOAuth();
       }
 
       setSelectedConnector(newConnector);
@@ -211,7 +288,19 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     }
   };
 
-  const handleDisconnect = (connectorId: string) => {
+  const handleDisconnect = async (connectorId: string) => {
+    const conn = customConnectors.find((c) => c.id === connectorId);
+    if (conn && (conn.name.toLowerCase().includes('composio') || conn.url?.includes('composio.dev'))) {
+      try {
+        await fetch('/api/composio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'disconnect_mcp' }),
+        });
+        setMcpConnected(false);
+      } catch {}
+    }
+
     const updated = customConnectors.filter((c) => c.id !== connectorId);
     setCustomConnectors(updated);
     try {
@@ -222,9 +311,9 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
   const toggleToolMode = (type: 'read' | 'write', toolName: string, mode: 'allow' | 'ask' | 'block') => {
     if (type === 'read') {
-      setReadTools((prev) => prev.map((t) => t.name === toolName ? { ...t, mode } : t));
+      setReadTools((prev) => prev.map((t) => (t.name === toolName ? { ...t, mode } : t)));
     } else {
-      setWriteTools((prev) => prev.map((t) => t.name === toolName ? { ...t, mode } : t));
+      setWriteTools((prev) => prev.map((t) => (t.name === toolName ? { ...t, mode } : t)));
     }
   };
 
@@ -320,36 +409,70 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                   ) : (
                     customConnectors
                       .filter((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                      .map((conn) => (
-                        <div
-                          key={conn.id}
-                          onClick={() => {
-                            setSelectedConnector(conn);
-                            setCurrentView('detail');
-                          }}
-                          className="flex items-center justify-between p-3.5 rounded-xl border border-[#2d2b25] bg-[#1e1c18] hover:border-[#423f36] hover:bg-[#23211c] cursor-pointer transition-all"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-lg bg-[#2a2722] border border-[#38352d] flex items-center justify-center font-bold text-[#cc785c]">
-                              <Zap className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-sm text-[#ece9e2]">{conn.name}</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-400 font-medium">
-                                  Connected
-                                </span>
-                              </div>
-                              <span className="text-xs text-[#8f8a80]">{conn.config?.mcpUrl || conn.url || 'MCP Server'}</span>
-                            </div>
-                          </div>
+                      .map((conn) => {
+                        const isComposio = conn.name.toLowerCase().includes('composio') || conn.url?.includes('composio.dev');
+                        const isConnected = isComposio ? mcpConnected : (conn.status === 'connected');
 
-                          <div className="flex items-center gap-2 text-xs text-[#8f8a80]">
-                            <span>Configure</span>
-                            <ChevronDown className="w-4 h-4 -rotate-90" />
+                        return (
+                          <div
+                            key={conn.id}
+                            className="flex items-center justify-between p-3.5 rounded-xl border border-[#2d2b25] bg-[#1e1c18] hover:border-[#423f36] hover:bg-[#23211c] transition-all"
+                          >
+                            <div 
+                              className="flex items-center gap-3 cursor-pointer flex-1"
+                              onClick={() => {
+                                setSelectedConnector(conn);
+                                setCurrentView('detail');
+                              }}
+                            >
+                              <div className="w-9 h-9 rounded-lg bg-[#2a2722] border border-[#38352d] flex items-center justify-center font-bold text-[#cc785c]">
+                                <Zap className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-sm text-[#ece9e2]">{conn.name}</span>
+                                  {isConnected ? (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-400 font-medium">
+                                      {isComposio ? 'Connected (For You)' : 'Connected'}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800 text-amber-400 font-medium">
+                                      Sign in needed
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-xs text-[#8f8a80]">{conn.config?.mcpUrl || conn.url || 'MCP Server'}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 text-xs">
+                              {isComposio && !isConnected && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startComposioOAuth();
+                                  }}
+                                  disabled={isAuthenticating}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#b86950] text-white font-medium text-xs shadow-sm disabled:opacity-50"
+                                >
+                                  {isAuthenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+                                  <span>Connect</span>
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setSelectedConnector(conn);
+                                  setCurrentView('detail');
+                                }}
+                                className="flex items-center gap-1 text-[#8f8a80] hover:text-[#ece9e2] px-2 py-1"
+                              >
+                                <span>Configure</span>
+                                <ChevronDown className="w-4 h-4 -rotate-90" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                   )}
                 </div>
               ) : (
@@ -455,7 +578,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                   className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
                 />
                 <p className="text-[11px] text-[#6d685f]">
-                  The HTTPS address where the server accepts connections, e.g. https://mcp.example.com/mcp.
+                  The HTTPS address where the server accepts connections, e.g. https://connect.composio.dev/mcp.
                 </p>
               </div>
 
@@ -588,10 +711,10 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isAuthenticating}
                 className="px-5 py-2 text-xs font-semibold rounded-xl bg-[#cc785c] hover:bg-[#b86950] text-white flex items-center gap-2 shadow-sm disabled:opacity-50"
               >
-                {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {(isSubmitting || isAuthenticating) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 <span>Connect</span>
               </button>
             </div>
@@ -629,7 +752,20 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                     <Zap className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-base text-[#ece9e2]">{selectedConnector.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-base text-[#ece9e2]">{selectedConnector.name}</h3>
+                      {selectedConnector.name.toLowerCase().includes('composio') && (
+                        mcpConnected ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-400 font-medium">
+                            Connected (For You)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800 text-amber-400 font-medium">
+                            Sign in needed
+                          </span>
+                        )
+                      )}
+                    </div>
                     <div className="flex items-center gap-1 text-xs text-[#8f8a80]">
                       <span>{selectedConnector.config?.mcpUrl || selectedConnector.url}</span>
                       <button 
@@ -643,12 +779,24 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => handleDisconnect(selectedConnector.id)}
-                  className="px-3.5 py-1.5 rounded-xl border border-[#38352d] hover:border-red-900/60 bg-[#201e1a] hover:bg-red-950/30 text-xs text-[#b8b2a7] hover:text-red-300 transition-colors"
-                >
-                  Disconnect
-                </button>
+                <div className="flex items-center gap-2">
+                  {selectedConnector.name.toLowerCase().includes('composio') && !mcpConnected && (
+                    <button
+                      onClick={startComposioOAuth}
+                      disabled={isAuthenticating}
+                      className="px-3.5 py-1.5 rounded-xl bg-[#cc785c] hover:bg-[#b86950] text-xs font-semibold text-white flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                    >
+                      {isAuthenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+                      <span>Sign In with Composio</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDisconnect(selectedConnector.id)}
+                    className="px-3.5 py-1.5 rounded-xl border border-[#38352d] hover:border-red-900/60 bg-[#201e1a] hover:bg-red-950/30 text-xs text-[#b8b2a7] hover:text-red-300 transition-colors"
+                  >
+                    Disconnect
+                  </button>
+                </div>
               </div>
 
               {/* Tool permissions section */}

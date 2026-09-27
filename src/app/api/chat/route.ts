@@ -1563,13 +1563,19 @@ export async function POST(req: NextRequest) {
 
       try {
         console.log('[COMPOSIO DIRECT REQUEST]', { user: composioUserId, request: lastText });
+        const recentHistory = (Array.isArray(messages) ? messages : [])
+          .slice(-8)
+          .map((m: any) => ({ role: String(m?.role || 'user'), content: typeof m?.content === 'string' ? m.content : '' }));
+
         const composioResult = await executeComposioNaturalLanguage(
           composioApiKey,
           composioUserId || 'sameer-web-user',
           lastText,
           connectors,
           connectorAccounts,
-          'claude-3-7-sonnet'
+          'claude-3-7-sonnet',
+          undefined,
+          recentHistory
         );
 
         if (!composioResult.success) {

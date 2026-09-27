@@ -2028,13 +2028,13 @@ export async function POST(req: NextRequest) {
                 if (!trimmed || !trimmed.startsWith('data: ')) continue;
                 const dataStr = trimmed.replace('data: ', '');
                 if (dataStr === '[DONE]') {
-                  if (accumulatedContent.trim().length === 0 && accumulatedReasoning.trim().length > 0) {
+                  if (accumulatedContent.trim().length === 0) {
+                    const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+                    const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
+                      ? lastToolMsg.content.trim()
+                      : 'I was not able to fully confirm this. Ask me to check the current status and I will look again.';
                     controller.enqueue(
-                      encoder.encode(`data: ${JSON.stringify({ content: accumulatedReasoning })}\n\n`)
-                    );
-                  } else if (accumulatedContent.trim().length < 60 && accumulatedReasoning.trim().length > 30) {
-                    controller.enqueue(
-                      encoder.encode(`data: ${JSON.stringify({ content: '\n\n' + accumulatedReasoning })}\n\n`)
+                      encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                     );
                   }
                   controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -2065,13 +2065,13 @@ export async function POST(req: NextRequest) {
               }
             },
             flush(controller) {
-              if (accumulatedContent.trim().length === 0 && accumulatedReasoning.trim().length > 0) {
+              if (accumulatedContent.trim().length === 0) {
+                const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+                const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
+                  ? lastToolMsg.content.trim()
+                  : 'I was not able to fully confirm this. Ask me to check the current status and I will look again.';
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ content: accumulatedReasoning })}\n\n`)
-                );
-              } else if (accumulatedContent.trim().length < 60 && accumulatedReasoning.trim().length > 30) {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ content: '\n\n' + accumulatedReasoning })}\n\n`)
+                  encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                 );
               }
               controller.enqueue(encoder.encode('data: [DONE]\n\n'));

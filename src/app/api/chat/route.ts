@@ -427,23 +427,17 @@ async function runAgentTool(
         if (name === 'Search_Composio_Tools' || name === 'COMPOSIO_SEARCH_SKILLS' || name === 'connector_search') {
           const query = String(args?.query || args?.search || '');
           const res = await executeMcpTool(connectorContext.mcpToken, 'COMPOSIO SEARCH SKILLS', { query });
-          if (res.success) {
-            return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-          }
+          return typeof res.data === 'string' ? res.data : JSON.stringify(res.data || { error: res.error });
         }
 
         if (name === 'Multi_Execute_Composio_Tools' || name === 'connector_execute') {
           const res = await executeMcpTool(connectorContext.mcpToken, 'Multi Execute Composio Tools', args);
-          if (res.success) {
-            return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-          }
+          return typeof res.data === 'string' ? res.data : JSON.stringify(res.data || { error: res.error });
         }
 
         if (name === 'Manage_connections' || name === 'connector_manage_connections') {
           const res = await executeMcpTool(connectorContext.mcpToken, 'Manage connections', args || {});
-          if (res.success) {
-            return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-          }
+          return typeof res.data === 'string' ? res.data : JSON.stringify(res.data || { error: res.error });
         }
       } catch (mcpErr: any) {
         console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
@@ -1437,90 +1431,7 @@ export async function POST(req: NextRequest) {
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
 
-    // Live Composio status preflight. This runs before the model so questions
-    // such as "is GitHub connected?" are answered from the real account store
-    // instead of from model memory or stale UI state.
-    const connectorStatusQuestion =
-      /\b(?:is|are)\s+(?:my\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365|instagram|facebook|linkedin|linear|asana|canva|hubspot)\s+(?:connected|authorized|linked)\b/i.test(lastText) ||
-      /\bdo\s+you\s+have\s+(?:a\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connection|access)\b/i.test(lastText) ||
-      /\b(?:list|show|what|check|inspect|tell\s+me)\s+(?:about\s+)?(?:all\s+)?(?:the\s+)?(?:total\s+)?(?:my\s+)?(?:connected|authorized|linked|active)?\s*(?:apps?|accounts?|services?|tools?|connectors?|integrations?)\b/i.test(lastText) ||
-      /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lastText) ||
-      /\b(?:tell\s+me\s+)?(?:the\s+)?(?:total\s+)?apps\s+(?:you\s+are|we\s+are|are)\s+(?:connected|integrated)\b/i.test(lastText) ||
-      /\b(?:total|how many)\s+apps\b/i.test(lastText) ||
-      /\b(?:check|inspect|see|look\s+in|view)\s+(?:in\s+)?composio\b/i.test(lastText) ||
-      /\b(?:how many|what)\s+(?:connectors|apps)\s+(?:are\s+)?(?:connected|in composio|there)\b/i.test(lastText) ||
-      /\bcomposio\s+(?:status|accounts|apps|connections|connectors)\b/i.test(lastText);
 
-    if (connectorStatusQuestion) {
-      let statusText = '';
-      if (composioMcpToken) {
-        try {
-          const { listMcpTools } = await import('@/lib/composioMcp');
-          const tools = await listMcpTools(composioMcpToken);
-          statusText =
-            '### Composio "For You" Live Status (MCP)\n\n' +
-            'Connected to **Composio For You** via Model Context Protocol (`https://connect.composio.dev/mcp`).\n\n' +
-            'Your personal account is authenticated with **' + tools.length + '** live tools available, including:\n' +
-            tools.slice(0, 8).map((t: any) => '- **' + t.name + '**: ' + (t.description || 'Personal account action')).join('\n') +
-            '\n\nAll tools and actions for your personal accounts (YouTube, GitHub, Google Drive, Gmail, etc.) are available live through Composio For You MCP.';
-        } catch (err: any) {
-          statusText =
-            '### Composio "For You" Live Status (MCP)\n\n' +
-            'Connected to Composio For You MCP (`https://connect.composio.dev/mcp`), but tool lookup returned: ' + (err?.message || 'unknown error');
-        }
-      } else if (!composioApiKey) {
-        statusText =
-          '### Composio "For You" Status\n\n' +
-          'Composio "For You" is not connected yet. Click **Connectors** in the top right and click **Connect** on Composio (`https://connect.composio.dev/mcp`) to sign in with your personal account.';
-      } else {
-        try {
-          const accounts = await listConnectedAccounts(composioApiKey);
-          const active = accounts.filter((a) => a?.status === 'ACTIVE');
-          if (!active.length) {
-            statusText =
-              '### Connected Apps (Composio Live)\n\n' +
-              'There are currently **0** active app connections in Composio Platform.';
-          } else {
-            const lines = active.map((a) => {
-              const toolkit = String(a?.appUniqueId || a?.appName || 'unknown');
-              const label = String(a?.email || a?.accountIdentifier || (a as any)?.alias || a?.id || 'account authorized');
-              return '- **' + toolkit + '** — ' + label + ' (ACTIVE)';
-            });
-            statusText =
-              '### Connected Apps (Composio Live)\n\n' +
-              'Connected to **' + active.length + '** active app' + (active.length === 1 ? '' : 's') + ' in Composio:\n\n' +
-              lines.join('\n');
-          }
-        } catch (err: any) {
-          statusText =
-            '### Composio Live Status\n\n' +
-            'The live Composio account lookup failed: ' + (err?.message || 'unknown error') + '.';
-        }
-      }
-
-      const encoder = new TextEncoder();
-      const stream = new ReadableStream({
-        start(controller) {
-          for (let pos = 0; pos < statusText.length; pos += 32) {
-            controller.enqueue(
-              encoder.encode('data: ' + JSON.stringify({ content: statusText.slice(pos, pos + 32) }) + '\n\n')
-            );
-          }
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-          controller.close();
-        },
-      });
-
-      return new Response(stream, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-          'X-Claude-Skill': 'Composio Connector Status',
-          'X-Claude-Router': 'composio-live-status',
-        },
-      });
-    }
 
     // ========================================================
     // COMPOSIO CONNECTOR CONTEXT (DYNAMIC RUNTIME ONLY)

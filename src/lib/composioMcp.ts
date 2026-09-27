@@ -157,17 +157,10 @@ export async function callComposioMcp(
  */
 export async function listMcpTools(accessToken: string): Promise<McpToolSchema[]> {
   const response = await callComposioMcp(accessToken, 'tools/list', {});
-  if (!response.success || !response.result?.tools) {
-    // Return standard Claude Desktop default Composio tools if list is empty
-    return [
-      { name: 'COMPOSIO SEARCH SKILLS', description: 'Search skills and tools across connected personal accounts.' },
-      { name: 'Search Composio Tools', description: 'Search Composio tools for matching user intent.' },
-      { name: 'Multi Execute Composio Tools', description: 'Execute multiple tools or personal account actions.' },
-      { name: 'Get Tool Schemas', description: 'Get schema definition for tools.' },
-      { name: 'Manage connections', description: 'View or manage personal connected accounts.' },
-    ];
+  if (response.success && Array.isArray(response.result?.tools)) {
+    return response.result.tools;
   }
-  return response.result.tools;
+  return [];
 }
 
 /**

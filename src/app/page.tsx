@@ -624,11 +624,21 @@ export default function Home() {
         thinkingBudget,
         agentPrompt: activeSession.agentPrompt,
         connectors: currentSessionConnectors,
+        composioMcpToken: (typeof window !== 'undefined' ? localStorage.getItem('claude_composio_mcp_token') : '') || undefined,
+        composioMcpRefreshToken: (typeof window !== 'undefined' ? localStorage.getItem('claude_composio_mcp_refresh_token') : '') || undefined,
       };
+
+      const requestHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        const token = localStorage.getItem('claude_composio_mcp_token');
+        if (token) requestHeaders['x-composio-mcp-token'] = token;
+        const refresh = localStorage.getItem('claude_composio_mcp_refresh_token');
+        if (refresh) requestHeaders['x-composio-mcp-refresh-token'] = refresh;
+      }
 
       let response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: requestHeaders,
         body: JSON.stringify(chatBody),
         signal: controller.signal,
       });
@@ -637,7 +647,7 @@ export default function Home() {
         await new Promise((r) => setTimeout(r, 600));
         response = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: requestHeaders,
           body: JSON.stringify(chatBody),
           signal: controller.signal,
         });

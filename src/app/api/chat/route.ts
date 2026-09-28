@@ -416,7 +416,7 @@ function getSafeHttpUrl(raw: string): URL | null {
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; mcpToken?: string; mcpToolNames?: string[]; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
+  connectorContext: { apiKey?: string; mcpToken?: string; mcpRefreshToken?: string; mcpToolNames?: string[]; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
 ): Promise<string> {
   try {
     // Handle Composio "For You" MCP execution
@@ -440,7 +440,8 @@ async function runAgentTool(
 
         // Live MCP tool called by its real name (COMPOSIO_SEARCH_TOOLS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS, ...).
         if (liveNames.includes(name)) {
-          const res = await executeMcpTool(connectorContext.mcpToken, name, args || {});
+          const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           const text = mcpContentToText(res.data);
           return clip(res.success ? (text || JSON.stringify({ successful: true })) : (text || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' })));
         }
@@ -449,20 +450,23 @@ async function runAgentTool(
         if (name === 'Search_Composio_Tools' || name === 'COMPOSIO_SEARCH_SKILLS' || name === 'connector_search' || name === 'composio_search_tools') {
           const query = String(args?.query || args?.search || '');
           const searchTool = pickMcpToolName(liveNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
-          const res = await executeMcpTool(connectorContext.mcpToken, searchTool, { queries: [{ use_case: query }], session: { generate_id: true } });
+          const res = await executeMcpTool(connectorContext.mcpToken, searchTool, { queries: [{ use_case: query }], session: { generate_id: true } }, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
         if (name === 'Multi_Execute_Composio_Tools' || name === 'connector_execute' || name === 'composio_execute_action') {
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
           const payload = args?.action ? { tools: [{ name: args.action, arguments: args.params || args.arguments || {} }] } : args;
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, payload);
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, payload, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
         if (name === 'Manage_connections' || name === 'connector_manage_connections' || name === 'COMPOSIO_MANAGE_CONNECTIONS') {
           const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-          const res = await executeMcpTool(connectorContext.mcpToken, manageTool, args || {});
+          const res = await executeMcpTool(connectorContext.mcpToken, manageTool, args || {}, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -472,7 +476,8 @@ async function runAgentTool(
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
           const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
             tools: [{ name: mcpAction, arguments: args || {} }]
-          });
+          }, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -481,7 +486,8 @@ async function runAgentTool(
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
           const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
             tools: [{ name, arguments: args || {} }]
-          });
+          }, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
       } catch (mcpErr: any) {
@@ -1504,10 +1510,19 @@ export async function POST(req: NextRequest) {
       thinkingBudget = 16000,
       agentPrompt,
       connectors = [],
+      composioMcpToken: bodyMcpToken,
+      composioMcpRefreshToken: bodyMcpRefreshToken,
     } = await req.json();
 
+    const headerMcpToken = req.headers.get('x-composio-mcp-token') || '';
+    const headerMcpRefreshToken = req.headers.get('x-composio-mcp-refresh-token') || '';
+
+    const cookieMcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || '';
+    const cookieMcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || '';
+
     const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default';
-    const composioMcpToken = String(req.cookies.get('composio_mcp_token')?.value || '').trim();
+    let composioMcpToken = String(bodyMcpToken || headerMcpToken || cookieMcpToken || '').trim();
+    let composioMcpRefreshToken = String(bodyMcpRefreshToken || headerMcpRefreshToken || cookieMcpRefreshToken || '').trim();
 
     const isOmniRouteModel = true;
 
@@ -1592,7 +1607,7 @@ export async function POST(req: NextRequest) {
     if (composioMcpToken) {
       try {
         const { listMcpToolsCached, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
-        mcpLiveTools = mcpToolsToOpenAI(await listMcpToolsCached(composioMcpToken));
+        mcpLiveTools = mcpToolsToOpenAI(await listMcpToolsCached(composioMcpToken, composioMcpRefreshToken));
         mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
       } catch (mcpListErr: any) {
         console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
@@ -1652,6 +1667,7 @@ export async function POST(req: NextRequest) {
 
     const toolContext = {
       mcpToken: composioMcpToken,
+      mcpRefreshToken: composioMcpRefreshToken,
       mcpToolNames,
       connectors,
       accounts: [],

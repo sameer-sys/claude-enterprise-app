@@ -38,7 +38,8 @@ function withUserCookie(response: NextResponse, userId: string): NextResponse {
 export async function GET(req: NextRequest) {
   try {
     const entityId = resolveUserId(req);
-    const mcpToken = req.cookies.get('composio_mcp_token')?.value || '';
+    const mcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || req.headers.get('x-composio-mcp-token') || '';
+    const mcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || req.headers.get('x-composio-mcp-refresh-token') || '';
 
     // Check if Composio "For You" MCP is connected
     const mcpConnected = Boolean(mcpToken);
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest) {
       // User is connected to "For You" MCP
       let tools: any[] = [];
       try {
-        tools = await listMcpTools(mcpToken);
+        tools = await listMcpTools(mcpToken, mcpRefreshToken);
       } catch {}
 
       return withUserCookie(
@@ -144,6 +145,7 @@ export async function POST(req: NextRequest) {
     if (action === 'disconnect_mcp') {
       const res = NextResponse.json({ success: true, connected: false });
       res.cookies.set('composio_mcp_token', '', { path: '/', maxAge: 0 });
+      res.cookies.set('composio_mcp_access_token', '', { path: '/', maxAge: 0 });
       res.cookies.set('composio_mcp_refresh_token', '', { path: '/', maxAge: 0 });
       res.cookies.set('composio_mcp_connected', 'false', { path: '/', maxAge: 0 });
       res.cookies.set('sameer_composio_user_id', '', { path: '/', maxAge: 0 });
@@ -152,14 +154,15 @@ export async function POST(req: NextRequest) {
 
     // Execute via "For You" MCP
     if (action === 'execute_mcp') {
-      const mcpToken = req.cookies.get('composio_mcp_token')?.value;
+      const mcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || req.headers.get('x-composio-mcp-token') || body?.mcpToken || '';
+      const mcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || req.headers.get('x-composio-mcp-refresh-token') || body?.mcpRefreshToken || '';
       if (!mcpToken) {
         return NextResponse.json(
           { success: false, error: 'Composio For You is not connected. Sign in via MCP.' },
           { status: 401 }
         );
       }
-      const result = await executeMcpTool(mcpToken, String(toolName || actionName), args || input || {});
+      const result = await executeMcpTool(mcpToken, String(toolName || actionName), args || input || {}, mcpRefreshToken);
       return NextResponse.json(result, { status: result.success ? 200 : 502 });
     }
 

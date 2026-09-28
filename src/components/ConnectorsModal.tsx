@@ -60,6 +60,12 @@ export function createDefaultConnectors(): Connector[] {
   return DEFAULT_CONNECTORS.map((c) => ({ ...c, config: { ...c.config } }));
 }
 
+function isRemoteMcpConnector(connector: Connector): boolean {
+  const type = String(connector?.config?.connectionType || connector?.provider || '').toLowerCase();
+  const url = String(connector?.config?.mcpUrl || connector?.url || '');
+  return type === 'mcp' && !url.startsWith('cli://') && !['cli', 'stdio'].includes(String(connector?.config?.connectionType || '').toLowerCase());
+}
+
 interface PrebuiltCatalogItem {
   id: string;
   name: string;
@@ -153,7 +159,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
       if (Array.isArray(parsed)) persisted.push(...parsed);
     } catch {}
 
-    const merged = [...activeConnectors, ...persisted, ...createDefaultConnectors()];
+    const merged = [...activeConnectors.filter(isRemoteMcpConnector), ...persisted.filter(isRemoteMcpConnector), ...createDefaultConnectors()];
     const seen = new Set<string>();
     return merged.filter((c) => {
       const key = c.id || c.name;
@@ -171,7 +177,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
       const stored = localStorage.getItem('claude_custom_connectors');
       const parsed = stored ? JSON.parse(stored) : [];
       const persisted = Array.isArray(parsed) ? parsed : [];
-      const merged = [...activeConnectors, ...persisted, ...createDefaultConnectors()];
+      const merged = [...activeConnectors.filter(isRemoteMcpConnector), ...persisted.filter(isRemoteMcpConnector), ...createDefaultConnectors()];
       const seen = new Set<string>();
       setCustomConnectors(merged.filter((c: Connector) => {
         const key = c.id || c.name;
@@ -180,7 +186,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         return true;
       }));
     } catch {
-      setCustomConnectors([...activeConnectors, ...createDefaultConnectors()]);
+      setCustomConnectors([...activeConnectors.filter(isRemoteMcpConnector), ...createDefaultConnectors()]);
     }
   }, [isOpen, activeConnectors]);
 
@@ -228,7 +234,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
           setStatusMessage('Successfully connected to Composio "For You"!');
           setCustomConnectors((prev) => {
             const next = prev.map((c) =>
-              c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
+              c.id === 'conn-composio'
                 ? { ...c, status: 'connected' as const }
                 : c
             );
@@ -328,11 +334,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         onAddCustomConnector(newConnector);
       }
 
-      // If it's Composio, initiate the real OAuth PKCE flow
-      if (customUrl.includes('composio.dev') || customName.toLowerCase().includes('composio')) {
-        await startComposioOAuth();
-      }
-
       setSelectedConnector(newConnector);
       setCurrentView('detail');
     } catch (err: any) {
@@ -403,7 +404,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
   const handleDisconnect = async (connectorId: string) => {
     const conn = customConnectors.find((c) => c.id === connectorId);
-    if (conn && (conn.name.toLowerCase().includes('composio') || conn.url?.includes('composio.dev'))) {
+    if (conn?.id === 'conn-composio') {
       try {
         await fetch('/api/composio', {
           method: 'POST',

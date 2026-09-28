@@ -230,6 +230,23 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
   // Listen for OAuth completion message from popup
   useEffect(() => {
+    if (!selectedConnector || selectedConnector.id === 'conn-composio' || !isOpen) {
+      setDiscoveredTools([]);
+      return;
+    }
+    let cancelled = false;
+    fetch('/api/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'check', connector: selectedConnector }),
+    }).then((res) => res.json().catch(() => ({}))).then((data) => {
+      if (cancelled) return;
+      if (data?.success) setDiscoveredTools(Array.isArray(data.tools) ? data.tools.map((item: any) => String(item?.name || '')).filter(Boolean) : []);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedConnector?.id, isOpen]);
+
+  useEffect(() => {
     const handleOAuthMessage = (event: MessageEvent) => {
       if (event.data?.type === 'sameer-remote-mcp-connected') {
         const connectorId = String(event.data?.connectorId || '');
@@ -800,159 +817,126 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-base text-[#ece9e2]">{selectedConnector.name}</h3>
-                      {selectedConnector.id === 'conn-composio' && (
-                        mcpConnected ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-400 font-medium">
-                            Connected (For You)
-                          </span>
-                        ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800 text-amber-400 font-medium">
-                            Sign in needed
-                          </span>
-                        )
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 text-xs text-[#8f8a80]">
-                      <span>{selectedConnector.config?.mcpUrl || selectedConnector.url}</span>
-                      <button 
-                        onClick={() => handleCopyUrl(selectedConnector.config?.mcpUrl || selectedConnector.url || '')}
-                        className="p-1 hover:text-[#ece9e2]"
-                        title="Copy URL"
+                  {selectedConnector.id === 'conn-composio' ? (
+                    mcpConnected ? (
+                      <button
+                        onClick={() => handleDisconnect(selectedConnector.id)}
+                        className="px-3.5 py-1.5 rounded-xl border border-[#38352d] hover:border-red-900/60 bg-[#201e1a] hover:bg-red-950/30 text-xs text-[#b8b2a7] hover:text-red-300 transition-colors"
                       >
-                        {copiedUrl ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        Disconnect
                       </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {selectedConnector.name.toLowerCase().includes('composio') && !mcpConnected && (
-                    <button
-                      onClick={startComposioOAuth}
-                      disabled={isAuthenticating}
-                      className="px-3.5 py-1.5 rounded-xl bg-[#cc785c] hover:bg-[#b86950] text-xs font-semibold text-white flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-                    >
-                      {isAuthenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
-                      <span>Sign In with Composio</span>
-                    </button>
+                    ) : (
+                      <button
+                        onClick={startComposioOAuth}
+                        disabled={isAuthenticating}
+                        className="px-3.5 py-1.5 rounded-xl bg-[#cc785c] hover:bg-[#b86950] text-xs font-semibold text-white flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                      >
+                        {isAuthenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+                        <span>Connect</span>
+                      </button>
+                    )
+                  ) : (
+                    <>
+                      {selectedConnector.status === 'connected' && (
+                        <button
+                          onClick={() => handleDisconnect(selectedConnector.id)}
+                          className="px-3.5 py-1.5 rounded-xl border border-[#38352d] hover:border-red-900/60 bg-[#201e1a] hover:bg-red-950/30 text-xs text-[#b8b2a7] hover:text-red-300 transition-colors"
+                        >
+                          Disconnect
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleRemove(selectedConnector.id)}
+                        className="px-3.5 py-1.5 rounded-xl border border-[#38352d] hover:border-red-900/60 bg-[#201e1a] hover:bg-red-950/30 text-xs text-[#b8b2a7] hover:text-red-300 transition-colors"
+                      >
+                        Remove
+                      </button>
+                      {selectedConnector.status !== 'connected' && (
+                        <button
+                          onClick={() => startRemoteOAuth(selectedConnector)}
+                          disabled={isAuthenticating}
+                          className="px-3.5 py-1.5 rounded-xl bg-[#cc785c] hover:bg-[#b86950] text-xs font-semibold text-white flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                        >
+                          {isAuthenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+                          <span>Connect</span>
+                        </button>
+                      )}
+                    </>
                   )}
-                  <button
-                    onClick={() => handleDisconnect(selectedConnector.id)}
-                    className="px-3.5 py-1.5 rounded-xl border border-[#38352d] hover:border-red-900/60 bg-[#201e1a] hover:bg-red-950/30 text-xs text-[#b8b2a7] hover:text-red-300 transition-colors"
-                  >
-                    Disconnect
-                  </button>
+                </div>
                 </div>
               </div>
 
-              {/* Tool permissions section */}
+              {/* Tool access & permissions */}
               <div className="space-y-4 pt-4 border-t border-[#2d2b25]">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h4 className="text-xs font-semibold text-[#ece9e2]">Tool permissions</h4>
-                    <p className="text-[11px] text-[#6d685f]">Choose when Claude is allowed to use these tools.</p>
+                    <h4 className="text-xs font-semibold text-[#ece9e2]">Tool access</h4>
+                    <p className="text-[11px] text-[#6d685f]">
+                      Control when this connector is loaded in this conversation.
+                    </p>
                   </div>
-                  
-                  {/* Global Permission Dropdown */}
-                  <div className="relative">
-                    <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#38352d] bg-[#22201b] text-xs font-medium text-[#ece9e2]">
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{globalPermission}</span>
-                      <ChevronDown className="w-3 h-3 text-[#8f8a80]" />
-                    </button>
-                  </div>
+                  <select
+                    value={selectedConnector.config?.toolAccess || 'auto'}
+                    onChange={(e) => {
+                      const value = e.target.value as 'auto' | 'always' | 'on_demand';
+                      const nextConfig = { ...(selectedConnector.config || {}), toolAccess: value };
+                      setSelectedConnector({ ...selectedConnector, config: nextConfig });
+                      onUpdateConnectorConfig?.(selectedConnector.id, nextConfig);
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-[#38352d] bg-[#22201b] text-xs font-medium text-[#ece9e2] focus:outline-none"
+                  >
+                    <option value="auto">Auto</option>
+                    <option value="always">Always available</option>
+                    <option value="on_demand">On demand</option>
+                  </select>
                 </div>
 
-                {/* Read-only Tools */}
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs text-[#8f8a80] font-medium py-1">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                    <span>Read-only tools</span>
-                    <span className="text-[10px] px-1.5 rounded-full bg-[#2a2722] text-[#8f8a80]">{readTools.length}</span>
+                {selectedConnector.id === 'conn-composio' ? (
+                  <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] text-xs text-[#9c978b] leading-relaxed">
+                    Composio For You exposes its live tool catalog from the connected account. The agent discovers the exact action and schema before executing account actions.
                   </div>
-
-                  <div className="divide-y divide-[#24221c] border-t border-[#24221c]">
-                    {readTools.map((tool) => (
-                      <div key={tool.name} className="flex items-center justify-between py-2 text-xs">
-                        <span className="text-[#b8b2a7]">{tool.name}</span>
-                        <div className="flex items-center gap-1 bg-[#201e1a] p-0.5 rounded-lg border border-[#2d2b25]">
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('read', tool.name, 'allow')}
-                            className={`p-1 rounded ${tool.mode === 'allow' ? 'bg-[#38352d] text-emerald-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Always allow"
-                          >
-                            <Check className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('read', tool.name, 'ask')}
-                            className={`p-1 rounded ${tool.mode === 'ask' ? 'bg-[#38352d] text-amber-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Ask before running"
-                          >
-                            <Hand className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('read', tool.name, 'block')}
-                            className={`p-1 rounded ${tool.mode === 'block' ? 'bg-[#38352d] text-red-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Block tool"
-                          >
-                            <Ban className="w-3 h-3" />
-                          </button>
-                        </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h5 className="text-xs font-semibold text-[#ece9e2]">Available tools</h5>
+                      <span className="text-[10px] text-[#6d685f]">{discoveredTools.length} discovered</span>
+                    </div>
+                    {discoveredTools.length === 0 ? (
+                      <div className="p-3 rounded-lg bg-[#141310] border border-[#282620] text-[11px] text-[#6d685f]">
+                        Connect the server or reopen this connector to discover its tools.
                       </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Write/delete Tools */}
-                <div className="space-y-1 pt-2">
-                  <div className="flex items-center gap-1.5 text-xs text-[#8f8a80] font-medium py-1">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                    <span>Write/delete tools</span>
-                    <span className="text-[10px] px-1.5 rounded-full bg-[#2a2722] text-[#8f8a80]">{writeTools.length}</span>
-                  </div>
-
-                  <div className="divide-y divide-[#24221c] border-t border-[#24221c]">
-                    {writeTools.map((tool) => (
-                      <div key={tool.name} className="flex items-center justify-between py-2 text-xs">
-                        <span className={`text-[#b8b2a7] ${tool.name === 'Multi Execute Composio Tools' ? 'font-semibold text-[#ece9e2]' : ''}`}>
-                          {tool.name}
-                        </span>
-                        <div className="flex items-center gap-1 bg-[#201e1a] p-0.5 rounded-lg border border-[#2d2b25]">
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('write', tool.name, 'allow')}
-                            className={`p-1 rounded ${tool.mode === 'allow' ? 'bg-[#38352d] text-emerald-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Always allow"
-                          >
-                            <Check className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('write', tool.name, 'ask')}
-                            className={`p-1 rounded ${tool.mode === 'ask' ? 'bg-[#38352d] text-amber-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Ask before running"
-                          >
-                            <Hand className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('write', tool.name, 'block')}
-                            className={`p-1 rounded ${tool.mode === 'block' ? 'bg-[#38352d] text-red-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Block tool"
-                          >
-                            <Ban className="w-3 h-3" />
-                          </button>
-                        </div>
+                    ) : (
+                      <div className="max-h-52 overflow-y-auto divide-y divide-[#24221c] border border-[#282620] rounded-xl">
+                        {discoveredTools.map((toolName) => {
+                          const disabled = new Set(Array.isArray(selectedConnector.config?.disabledTools) ? selectedConnector.config.disabledTools.map(String) : []);
+                          const isBlocked = disabled.has(toolName);
+                          return (
+                            <div key={toolName} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                              <span className={isBlocked ? 'text-[#6d685f] line-through' : 'text-[#b8b2a7]'}>{toolName}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextDisabled = new Set(disabled);
+                                  if (nextDisabled.has(toolName)) nextDisabled.delete(toolName);
+                                  else nextDisabled.add(toolName);
+                                  const nextConfig = { ...(selectedConnector.config || {}), disabledTools: Array.from(nextDisabled) };
+                                  setSelectedConnector({ ...selectedConnector, config: nextConfig });
+                                  onUpdateConnectorConfig?.(selectedConnector.id, nextConfig);
+                                }}
+                                className={"px-2 py-1 rounded-md border text-[10px] " + (isBlocked ? "border-emerald-800 text-emerald-400" : "border-red-900/60 text-red-300")}
+                              >
+                                {isBlocked ? 'Enable' : 'Block'}
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
+                )}
               </div>
-            </div>
+                        </div>
           </div>
         )}
 

@@ -48,7 +48,7 @@ function normalizeConnectors(raw: any[]): Connector[] {
     const type = String(c?.config?.connectionType || c?.provider || '').toLowerCase();
     const url = String(c?.config?.mcpUrl || c?.url || '');
     // Keep only the remote HTTP/HTTPS MCP connectors in the new connector hub.
-    // Legacy CLI/stdio definitions are intentionally not restored.
+    // Legacy local connector definitions are intentionally not restored.
     return type === 'mcp' && !url.startsWith('cli://') && !['cli', 'stdio'].includes(type);
   });
 

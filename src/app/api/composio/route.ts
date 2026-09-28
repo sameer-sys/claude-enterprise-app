@@ -3,6 +3,7 @@ import {
   getMcpOAuthUrl,
   callComposioMcp,
   executeMcpTool,
+  getComposioToolkitConnectionStatuses,
   DEFAULT_COMPOSIO_TOOLKITS,
 } from '@/lib/composioMcp';
 
@@ -77,42 +78,20 @@ export async function GET(req: NextRequest) {
           tools = toolListRes.result.tools;
         }
 
-        const connRes = await executeMcpTool(
+        const statusRes = await getComposioToolkitConnectionStatuses(
           activeMcpToken,
-          'COMPOSIO_MANAGE_CONNECTIONS',
-          { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS },
-          activeRefreshToken
+          activeRefreshToken,
+          DEFAULT_COMPOSIO_TOOLKITS
         );
-        if (connRes.newAccessToken) activeMcpToken = connRes.newAccessToken;
-        if ((connRes as any).newRefreshToken) activeRefreshToken = (connRes as any).newRefreshToken;
-        if (connRes.success && connRes.data) {
-          const raw = connRes.data;
-          let list: any[] = [];
-
-          if (Array.isArray(raw)) {
-            list = raw;
-          } else if (Array.isArray(raw?.connections)) {
-            list = raw.connections;
-          } else if (Array.isArray(raw?.connected_accounts)) {
-            list = raw.connected_accounts;
-          } else if (Array.isArray(raw?.accounts)) {
-            list = raw.accounts;
-          } else if (raw?.results && typeof raw.results === 'object' && !Array.isArray(raw.results)) {
-            for (const [toolkit, entry] of Object.entries(raw.results as Record<string, any>)) {
-              const accounts = Array.isArray((entry as any)?.accounts) ? (entry as any).accounts : [];
-              for (const account of accounts) {
-                const status = String((account as any)?.status || '').toUpperCase();
-                if (status === 'ACTIVE' || status === 'CONNECTED') {
-                  list.push({ ...(account as any), app_name: toolkit });
-                }
-              }
-            }
-          }
-
-          connectedAccounts = list.filter((account: any) => {
-            const status = String(account?.status || 'ACTIVE').toUpperCase();
-            return status === 'ACTIVE' || status === 'CONNECTED';
-          });
+        if (statusRes.newAccessToken) activeMcpToken = statusRes.newAccessToken;
+        if (statusRes.newRefreshToken) activeRefreshToken = statusRes.newRefreshToken;
+        if (statusRes.success) {
+          connectedAccounts = statusRes.statuses.flatMap((entry) =>
+            (entry.accounts || []).map((account) => ({
+              ...account,
+              app_name: entry.toolkit,
+            }))
+          );
         }
       } catch (err: any) {
         console.error('[COMPOSIO STATUS ERR]', err?.message || err);

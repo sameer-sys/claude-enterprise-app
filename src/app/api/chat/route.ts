@@ -823,6 +823,9 @@ export async function POST(req: NextRequest) {
         if (listed.accessToken && listed.accessToken !== composioMcpToken) {
           composioMcpToken = listed.accessToken;
         }
+        if (listed.refreshToken && listed.refreshToken !== composioMcpRefreshToken) {
+          composioMcpRefreshToken = listed.refreshToken;
+        }
         mcpLiveTools = mcpToolsToOpenAI(listed.tools);
         mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
       } catch (mcpListErr: any) {
@@ -857,7 +860,7 @@ export async function POST(req: NextRequest) {
         const message = composioMcpToken
           ? 'Composio "For You" is connected, but its live MCP tools are unavailable right now. Please reconnect in Connectors and try again.'
           : 'Composio "For You" is not connected yet. Click Connectors in the top right, click "+ Add", and sign in with your Composio account to connect.';
-        return streamTextDirectly(message, detectedSkill, toolContext);
+        return streamTextDirectly(message, detectedSkill);
       }
       // The first LLM turn is required to choose a real MCP tool (usually
       // COMPOSIO_SEARCH_TOOLS / COMPOSIO_MANAGE_CONNECTIONS). After a real

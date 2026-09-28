@@ -107,7 +107,7 @@ const DEFAULT_WRITE_TOOLS: ToolPermission[] = [
 ];
 
 export default function ConnectorsModal(props: ConnectorsModalProps) {
-  const { isOpen, onClose, onUpdateConnectorConfig, onAddCustomConnector } = props;
+  const { isOpen, onClose, activeConnectors, onUpdateConnectorConfig, onAddCustomConnector } = props;
 
   // View state: 'list' (Yours/Discover) | 'add' (Add custom connector) | 'detail' (Tools & permissions view)
   const [activeTab, setActiveTab] = useState<'yours' | 'discover'>('yours');
@@ -143,42 +143,80 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   const [statusMessage, setStatusMessage] = useState('');
   const [mcpConnected, setMcpConnected] = useState(false);
 
-  // Connectors list
+  // The parent session is the source of truth for connector configuration.
+  // localStorage is only a migration/backup for custom MCP/CLI definitions.
   const [customConnectors, setCustomConnectors] = useState<Connector[]>(() => {
+    const persisted: Connector[] = [];
     try {
       const stored = localStorage.getItem('claude_custom_connectors');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
+      const parsed = stored ? JSON.parse(stored) : [];
+      if (Array.isArray(parsed)) persisted.push(...parsed);
     } catch {}
-    return [];
+
+    const merged = [...activeConnectors, ...persisted, ...createDefaultConnectors()];
+    const seen = new Set<string>();
+    return merged.filter((c) => {
+      const key = c.id || c.name;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   });
 
-  // Check Composio "For You" MCP status on open
+  // Refresh local connector view from the current session whenever the modal opens.
+  // Never clear this state merely because the page was refreshed.
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      const stored = localStorage.getItem('claude_custom_connectors');
+      const parsed = stored ? JSON.parse(stored) : [];
+      const persisted = Array.isArray(parsed) ? parsed : [];
+      const merged = [...activeConnectors, ...persisted, ...createDefaultConnectors()];
+      const seen = new Set<string>();
+      setCustomConnectors(merged.filter((c: Connector) => {
+        const key = c.id || c.name;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }));
+    } catch {
+      setCustomConnectors([...activeConnectors, ...createDefaultConnectors()]);
+    }
+  }, [isOpen, activeConnectors]);
+
+  // Check the server-side Composio session on open. This is read-only.
   useEffect(() => {
     const checkStatus = async () => {
       try {
         const res = await fetch('/api/composio', { method: 'GET', cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
-          const isConn = Boolean(data.mcpConnected || data.mode === 'for_you');
-          setMcpConnected(isConn);
-          setCustomConnectors((prev) => {
-            const next = prev.map((c) =>
-              c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
-                ? { ...c, status: (isConn ? 'connected' : 'idle') as 'connected' | 'idle' }
-                : c
-            );
-            try { localStorage.setItem('claude_custom_connectors', JSON.stringify(next)); } catch {}
-            return next;
-          });
-        }
+        if (!res.ok) return;
+        const data = await res.json();
+        const isConn = Boolean(data.mcpConnected && data.mode === 'for_you');
+        setMcpConnected(isConn);
+
+        setCustomConnectors((prev) => {
+          const existing = prev.find((c) => c.id === 'conn-composio');
+          const base = createDefaultConnectors()[0];
+          const composio = {
+            ...base,
+            ...(existing || {}),
+            status: (isConn ? 'connected' : 'idle') as 'connected' | 'idle',
+            config: {
+              ...(base.config || {}),
+              ...(existing?.config || {}),
+              composioAccountCount: Array.isArray(data.connectedAccounts) ? data.connectedAccounts.length : 0,
+            },
+          };
+          const rest = prev.filter((c) => c.id !== 'conn-composio');
+          const next = [composio, ...rest];
+          try {
+            localStorage.setItem('claude_custom_connectors', JSON.stringify(next.filter((c) => c.id !== 'conn-composio')));
+          } catch {}
+          return next;
+        });
       } catch {}
     };
-    if (isOpen) {
-      checkStatus();
-    }
+    if (isOpen) checkStatus();
   }, [isOpen]);
 
   // Listen for OAuth completion message from popup

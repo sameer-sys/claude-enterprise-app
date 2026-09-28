@@ -29,40 +29,38 @@ const DEFAULT_SESSION: Session = {
 };
 
 
-function normalizeToComposioOnlyConnectors(raw: any[]): Connector[] {
+function normalizeConnectors(raw: any[]): Connector[] {
   const defaults = createDefaultConnectors();
-  const base = defaults[0] || {
-    id: 'conn-composio',
-    name: 'composio',
-    description: 'Connect your apps, tools, OAuth accounts, and actions via MCP.',
-    icon: 'composio',
-    enabled: true,
-    status: 'idle' as const,
-    category: 'Integrations',
-    section: 'custom' as const,
-    isCustom: true,
-    isVerified: true,
-    provider: 'mcp',
-    capabilities: ['Multi Execute', 'Tool Search', 'Skills', 'OAuth'],
-    config: {
-      connectionType: 'mcp' as const,
-      providerName: 'Composio',
-      mcpUrl: 'https://connect.composio.dev/mcp',
-    },
-    url: 'https://connect.composio.dev/mcp',
-  };
-  const savedHub = Array.isArray(raw) ? raw.find((c: any) => c?.id === 'conn-composio') : null;
+  const base = defaults[0];
+  const input = Array.isArray(raw) ? raw.filter((c: any) => c && typeof c === 'object') : [];
 
-  return [{
+  // Keep the built-in Composio connector plus user-added custom MCP/CLI
+  // connectors. Legacy prebuilt connector cards are intentionally not restored.
+  const savedComposio = input.find((c: any) =>
+    c?.id === 'conn-composio' ||
+    String(c?.name || '').toLowerCase().includes('composio') ||
+    String(c?.url || '').includes('connect.composio.dev')
+  );
+  const custom = input.filter((c: any) =>
+    c?.id !== savedComposio?.id &&
+    c?.isCustom === true
+  );
+
+  const composio: Connector = {
     ...base,
-    ...(savedHub || {}),
+    ...(savedComposio || {}),
+    id: 'conn-composio',
+    name: savedComposio?.name || base.name,
     enabled: true,
-    status: savedHub?.status === 'connected' ? 'connected' : 'idle',
+    status: savedComposio?.status === 'connected' ? 'connected' : 'idle',
     config: {
       ...(base.config || {}),
-      ...(savedHub?.config || {}),
+      ...(savedComposio?.config || {}),
     },
-  }];
+    url: savedComposio?.url || base.url,
+  };
+
+  return [composio, ...custom];
 }
 
 function extractArtifact(content: string): Artifact | undefined {
@@ -141,10 +139,8 @@ export default function Home() {
   // Load from localStorage & Cloud Sync
   useEffect(() => {
     try {
-      // This workspace intentionally exposes a single built-in connector:
-      // Composio. Clear connector data from older builds so stale GitHub/Gmail/
-      // social cards cannot return from browser storage.
-      localStorage.removeItem('claude_custom_connectors');
+      // Restore persisted custom MCP/CLI connectors. OAuth credentials never
+      // live here; Composio auth remains in HttpOnly cookies on the server.
 
       const saved = localStorage.getItem('claude_cloud_sessions');
       if (saved) {
@@ -170,7 +166,7 @@ export default function Home() {
               return c;
             });
 
-            const mergedConns = normalizeToComposioOnlyConnectors(sanitizedConns);
+            const mergedConns = normalizeConnectors(sanitizedConns);
 
             return {
               ...s,
@@ -232,7 +228,7 @@ export default function Home() {
           if (res?.data?.sessions && Array.isArray(res.data.sessions) && res.data.sessions.length > 0) {
             const cloudSessions = res.data.sessions.map((session: any) => ({
               ...session,
-              connectors: normalizeToComposioOnlyConnectors(session.connectors),
+              connectors: normalizeConnectors(session.connectors),
             }));
             setSessions(cloudSessions);
             if (res.data.projects) setProjects(res.data.projects);
@@ -332,16 +328,18 @@ export default function Home() {
         setComposioActiveAccountCount(active.length);
         setSessions((prev) => prev.map((s) => ({
           ...s,
-          connectors: normalizeToComposioOnlyConnectors(s.connectors || []).map((conn) => ({
-            ...conn,
-            status: active.length ? 'connected' : 'ready',
-            config: {
-              ...conn.config,
-
-              composioAccountCount: active.length,
-              connectedAccountIds: active.map((a: any) => a.id),
-            },
-          })),
+          connectors: normalizeConnectors(s.connectors || []).map((conn) => {
+            if (conn.id !== 'conn-composio') return conn;
+            return {
+              ...conn,
+              status: active.length ? 'connected' : 'idle',
+              config: {
+                ...conn.config,
+                composioAccountCount: active.length,
+                connectedAccountIds: active.map((a: any) => a.id),
+              },
+            };
+          }),
         })));
       } catch {}
     };

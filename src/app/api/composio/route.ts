@@ -80,8 +80,8 @@ export async function GET(req: NextRequest) {
         const connRes = await executeMcpTool(
           activeMcpToken,
           'COMPOSIO_MANAGE_CONNECTIONS',
-          { toolkits: DEFAULT_COMPOSIO_TOOLKITS },
-          mcpRefreshToken
+          { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS },
+          activeRefreshToken
         );
         if (connRes.newAccessToken) activeMcpToken = connRes.newAccessToken;
         if ((connRes as any).newRefreshToken) activeRefreshToken = (connRes as any).newRefreshToken;

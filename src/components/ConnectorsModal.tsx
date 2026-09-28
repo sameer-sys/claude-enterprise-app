@@ -487,60 +487,21 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                   />
                 </div>
                 
-                {/* + Add Button with Dropdown */}
-                <div className="relative">
-                  <button
-                    onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#38352d] bg-[#25231e] hover:bg-[#322f29] text-[#ece9e2] transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-[#cc785c]" />
-                    <span>Add</span>
-                    <ChevronDown className="w-3 h-3 text-[#8f8a80]" />
-                  </button>
-
-                  {isAddMenuOpen && (
-                    <div 
-                      className="absolute right-0 top-full mt-1.5 w-60 rounded-xl border border-[#38352d] bg-[#1a1915] shadow-2xl py-1.5 z-50 text-xs text-[#ece9e2] animate-in fade-in zoom-in-95 duration-100"
-                      onMouseLeave={() => setIsAddMenuOpen(false)}
-                    >
-                      <button
-                        onClick={() => {
-                          setAddMode('mcp');
-                          setCurrentView('add');
-                          setIsAddMenuOpen(false);
-                        }}
-                        className="w-full px-3.5 py-2.5 text-left hover:bg-[#25231e] flex items-center gap-3 transition-colors"
-                      >
-                        <div className="w-7 h-7 rounded-lg bg-[#2a2722] border border-[#38352d] flex items-center justify-center shrink-0">
-                          <Zap className="w-3.5 h-3.5 text-[#cc785c]" />
-                        </div>
-                        <div>
-                          <div className="font-semibold text-[#f2eee6]">Add MCP Connector</div>
-                          <div className="text-[11px] text-[#8f8a80]">Remote URL (Composio, Notion, SSE)</div>
-                        </div>
-                      </button>
-
-                      <div className="h-px bg-[#282620] my-1" />
-
-                      <button
-                        onClick={() => {
-                          setAddMode('cli');
-                          setCurrentView('add');
-                          setIsAddMenuOpen(false);
-                        }}
-                        className="w-full px-3.5 py-2.5 text-left hover:bg-[#25231e] flex items-center gap-3 transition-colors"
-                      >
-                        <div className="w-7 h-7 rounded-lg bg-[#222a22] border border-[#2d382d] flex items-center justify-center shrink-0">
-                          <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                        </div>
-                        <div>
-                          <div className="font-semibold text-[#f2eee6]">Add CLI Connector</div>
-                          <div className="text-[11px] text-[#8f8a80]">Local Command, Composio CLI & Stdio</div>
-                        </div>
-                      </button>
-                    </div>
-                  )}
-                </div>
+                {/* + Add Custom Remote MCP */}
+                <button
+                  onClick={() => {
+                    setAddMode('mcp');
+                    setCustomName('');
+                    setCustomUrl('');
+                    setStatusMessage('');
+                    setCurrentView('add');
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#38352d] bg-[#25231e] hover:bg-[#322f29] text-[#ece9e2] transition-colors"
+                  title="Add a remote MCP connector"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#cc785c]" />
+                  <span>Add custom connector</span>
+                </button>
 
                 <button 
                   onClick={onClose}
@@ -567,11 +528,12 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                     </div>
                   ) : (
                     customConnectors
+                      .filter(isRemoteMcpConnector)
                       .filter((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
                       .map((conn) => {
                         const isCli = conn.config?.connectionType === 'cli' || conn.url?.startsWith('cli://');
-                        const isComposio = !isCli && (conn.name.toLowerCase().includes('composio') || conn.url?.includes('composio.dev'));
-                        const isConnected = isCli ? true : (isComposio ? mcpConnected : (conn.status === 'connected'));
+                        const isComposio = conn.id === 'conn-composio';
+                        const isConnected = isComposio ? mcpConnected : (conn.status === 'connected');
 
                         return (
                           <div
@@ -1049,7 +1011,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-bold text-base text-[#ece9e2]">{selectedConnector.name}</h3>
-                      {selectedConnector.name.toLowerCase().includes('composio') && (
+                      {selectedConnector.id === 'conn-composio' && (
                         mcpConnected ? (
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-400 font-medium">
                             Connected (For You)

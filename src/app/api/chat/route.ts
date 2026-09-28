@@ -542,7 +542,38 @@ function formatConnectorResult(requestText: string, result: any): string {
     /\bcomposio\b/i.test(lower);
 
   if (isAccountQuery) {
-    const connections = data.connections || data.connected_accounts || data.accounts || data.items || (Array.isArray(data) ? data : null);
+    // COMPOSIO_MANAGE_CONNECTIONS currently returns:
+    // { results: { toolkit: { status, accounts: [...] } }, summary: {...} }
+    // Normalize that keyed result into one flat list of active accounts.
+    let connections: any[] = [];
+    if (Array.isArray(data)) {
+      connections = data;
+    } else if (Array.isArray(data.connections)) {
+      connections = data.connections;
+    } else if (Array.isArray(data.connected_accounts)) {
+      connections = data.connected_accounts;
+    } else if (Array.isArray(data.accounts)) {
+      connections = data.accounts;
+    } else if (Array.isArray(data.items)) {
+      connections = data.items;
+    } else if (data.results && typeof data.results === 'object' && !Array.isArray(data.results)) {
+      for (const [toolkit, entry] of Object.entries(data.results as Record<string, any>)) {
+        const accounts = Array.isArray((entry as any)?.accounts) ? (entry as any).accounts : [];
+        for (const account of accounts) {
+          connections.push({
+            ...(account || {}),
+            app_name: toolkit,
+          });
+        }
+      }
+    }
+
+    // Do not show INITIATING/INITIALIZING rows as connected apps.
+    connections = connections.filter((c: any) => {
+      const status = String(c?.status || 'ACTIVE').toUpperCase();
+      return status === 'ACTIVE' || status === 'CONNECTED';
+    });
+
     const manageUrl = data.redirect_url || data.manage_url || data.url;
     if (Array.isArray(connections)) {
       if (connections.length === 0) {

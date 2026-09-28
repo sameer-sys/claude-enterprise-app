@@ -371,10 +371,6 @@ oauth token storage          setCustomConnectors((prev) => {
           body: JSON.stringify({ action: 'disconnect_mcp' }),
         });
         setMcpConnected(false);
-        try {
-          localStorage.removeItem('claude_composio_mcp_token');
-          localStorage.removeItem('claude_composio_mcp_refresh_token');
-        } catch {}
       } catch {}
     }
 

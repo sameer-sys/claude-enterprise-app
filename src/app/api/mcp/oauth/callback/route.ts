@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   OAUTH_STATE_COOKIE,
-  MAX_COOKIE_AGE,
   buildCookie,
   decodeJson,
   encodeJson,
@@ -28,7 +27,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(target);
   };
 
-  if (!saved || !state || state !== url.searchParams.get('state')) return redirectBack({ status: 'error', message: 'OAuth state validation failed.' });
+  if (!saved || !state || state !== saved.state) return redirectBack({ status: 'error', message: 'OAuth state validation failed.' });
   if (error) return redirectBack({ status: 'error', connectorId: saved.connectorId, message: url.searchParams.get('error_description') || error });
   if (!code) return redirectBack({ status: 'error', connectorId: saved.connectorId, message: 'OAuth authorization code was not returned.' });
 

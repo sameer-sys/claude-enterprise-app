@@ -107,7 +107,7 @@ const DEFAULT_WRITE_TOOLS: ToolPermission[] = [
 ];
 
 export default function ConnectorsModal(props: ConnectorsModalProps) {
-  const { isOpen, onClose, onUpdateConnectorConfig, onAddCustomConnector } = props;
+  const { isOpen, onClose, activeConnectors, onUpdateConnectorConfig, onAddCustomConnector } = props;
 
   // View state: 'list' (Yours/Discover) | 'add' (Add custom connector) | 'detail' (Tools & permissions view)
   const [activeTab, setActiveTab] = useState<'yours' | 'discover'>('yours');

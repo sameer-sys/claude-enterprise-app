@@ -1254,22 +1254,51 @@ You have live execution tools powered by Composio:
 
 CRITICAL DIRECTIVE ON CONNECTED APPS:
 - You NEVER assume, invent, or hardcode which apps are connected.
-- Your connected apps are strictly determined at runtime by the live Composio account registry.
-- When asked what apps or how many apps you are connected with, report ONLY the live accounts provided in the LIVE CONNECTED APP ACCOUNTS section below. If no accounts are listed there, state that no apps are currently connected in Composio.
+- Your connected apps are strictly determined at runtime by CALLING THE TOOLS — use COMPOSIO_MANAGE_CONNECTIONS or connector_manage_connections to check live.
+- When asked what apps or how many apps you are connected with, ALWAYS call the tool first. Never answer from memory or context alone.
 - When asked to perform an action on any service, invoke the tool call directly.
 - After receiving tool results, present findings clearly, conversationally, and completely in GitHub-flavored Markdown.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {
   const lower = String(text || '').toLowerCase();
+
+  // ── 1. Direct NLP patterns that ALWAYS match regardless of app name ──
+  // These catch natural language about connections, accounts, integrations
+  // for ANY connector (Composio, future MCP connectors, etc.)
+  const directPatterns = [
+    // "what apps/services/accounts are connected"
+    /\b(?:what|which|how many|list|show|tell me|give me|get|check)\b.*\b(?:apps?|services?|accounts?|connections?|connectors?|integrations?|tools?)\b.*\b(?:connected|linked|integrated|authorized|active|available|set up|configured)\b/,
+    // "connected apps/services/accounts" (reversed word order)
+    /\b(?:connected|linked|integrated|authorized|active)\b.*\b(?:apps?|services?|accounts?|connections?|connectors?|integrations?|tools?)\b/,
+    // "what are you connected to/with"
+    /\b(?:what|which)\b.*\b(?:connected|linked|integrated)\b\s*(?:to|with)\b/,
+    // "am I connected to" / "are you connected"
+    /\b(?:am i|are you|is it|are we)\b.*\b(?:connected|linked|integrated)\b/,
+    // Mentions composio / mcp directly
+    /\bcomposio\b/,
+    /\bmcp\b.*\b(?:connect|tool|server|action|app|service)\b/,
+    // "my connections" / "my integrations" / "my linked accounts"
+    /\bmy\b.*\b(?:connections?|integrations?|linked\s+accounts?|connected\s+apps?)\b/,
+    // "connect to" / "disconnect" / "reconnect"
+    /\b(?:connect\s+to|disconnect|reconnect|unlink|relink)\b/,
+    // "what can you do" / "what tools do you have" (capability queries)
+    /\b(?:what|which)\b.*\b(?:can you do|tools?\s+do\s+you|actions?\s+can|capable)\b/,
+  ];
+  if (directPatterns.some((p) => p.test(lower))) return true;
+
+  // ── 2. App-name + action detection (existing logic, expanded) ──
   const appTerms = [
     'gmail','google drive','gdrive','drive','google calendar','calendar','youtube','yt','slack','notion',
     'microsoft 365','m365','instagram','facebook','linkedin','linear','asana','canva','hubspot',
-    'discord','trello','jira','github','git'
+    'discord','trello','jira','github','git','twitter','x.com','dropbox','onedrive','salesforce',
+    'stripe','shopify','airtable','figma','zoom','teams','outlook','todoist','clickup',
+    'composio','mcp'
   ];
   const connectorTerms = [
     'connector','connected app','connected account','connected service',
-    'authorize','authorization','oauth','linked account','access'
+    'authorize','authorization','oauth','linked account','access',
+    'connected with','connected to','integration','linked to','signed in'
   ];
   const actionObjects = [
     'repository','repositories','repo','repos','pull request','pull requests',
@@ -1279,15 +1308,14 @@ function isConnectorRelatedRequest(text: string): boolean {
     'file','files','folder','folders','document','documents','spreadsheet','spreadsheets',
     'playlist','playlists','video','videos','channel','channels',
     'page','pages','post','posts','task','tasks','contact','contacts',
-    'comment','comments',
-    // Code/app-editing nouns - these imply "go do this in my GitHub repo",
-    // not a request for chit-chat, so they must route to Composio too.
+    'comment','comments','app','apps','service','services','account','accounts',
+    'connection','connections','integration','integrations',
     'component','components','layout','layouts','sidebar','navbar','header','footer',
     'ui','screen','screens','function','functions','class','classes','module','modules',
     'endpoint','endpoints','route','routes','code','script','scripts','codebase',
     'my app','my project','my repo','my repository'
   ];
-  const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|retrieve|fetch|load|pull|view|display|browse|access|how many|total|count|number of)\b/i.test(lower);
+  const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|retrieve|fetch|load|pull|view|display|browse|access|how many|total|count|number of|what|which)\b/i.test(lower);
   const mentionsGitHub = /\b(?:github|git|repo|repos|repository|repositories|pull request|pull requests|commit|commits|branch|branches)\b/i.test(lower);
   const mentionsOtherApp = appTerms.some((term) => lower.includes(term));
   const mentionsConnectorObject = actionObjects.some((term) => lower.includes(term));
@@ -1454,6 +1482,7 @@ export async function POST(req: NextRequest) {
       connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n' + [
         "You are connected to the user's personal Composio account through MCP (https://connect.composio.dev/mcp).",
         "The live Composio tools are in your tool list (COMPOSIO_SEARCH_TOOLS, COMPOSIO_GET_TOOL_SCHEMAS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS and others). Call them by their exact names.",
+        "WHEN ASKED ABOUT CONNECTED APPS/ACCOUNTS/SERVICES: Call COMPOSIO_MANAGE_CONNECTIONS to get the REAL list. NEVER guess or say 0.",
         "END-TO-END RULES:",
         "1. Break the request into every step it needs (for example: create a playlist, then add videos to it). Never stop after the first step.",
         "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS when a schema is missing -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the account when several are connected.",
@@ -1462,7 +1491,11 @@ export async function POST(req: NextRequest) {
         "5. Write no reply text until ALL steps are finished or truly blocked. No plans, no 'let me check', no narration between tool calls.",
         "6. Final reply: short and clear, one line per step saying what was done, with real names, counts and links from the results. State plainly anything that failed and why.",
       ].join('\n') + '\n';
-    } else if (composioApiKey) {
+    }
+    // Platform account context: load when (a) no MCP token at all, or (b) MCP token exists but returned 0 tools (fallback)
+    const shouldLoadPlatformContext = composioApiKey && (!composioMcpToken || !connectorContext.includes('MCP CONNECTOR ACTIVE'));
+    // Also load Platform context as supplementary data even in MCP mode if available
+    if (composioApiKey) {
       try {
         const realAccounts = await listConnectedAccounts(composioApiKey);
         const activeAccounts = realAccounts.filter((a: any) => a?.status === 'ACTIVE');
@@ -1475,8 +1508,9 @@ export async function POST(req: NextRequest) {
             return '- ' + toolkit + ' — ' + label + ' (ACTIVE)';
           }).join('\n') + '\n';
           connectorContext += 'CRITICAL: These are the ONLY accounts connected in Composio. If asked what apps or how many apps you are connected with, list ONLY these accounts from Composio. Never mention or hallucinate any other apps.\n';
-        } else {
-          connectorContext += '\n\n[LIVE CONNECTED APP ACCOUNTS FROM COMPOSIO]\nCurrently 0 active accounts in Composio. If asked what apps are connected, state that 0 apps are currently connected.\n';
+        } else if (!composioMcpToken) {
+          // Only say "0 accounts" if we're NOT in MCP mode (MCP has its own way to check via MANAGE_CONNECTIONS)
+          connectorContext += '\n\n[LIVE CONNECTED APP ACCOUNTS FROM COMPOSIO]\nCurrently 0 active accounts in Composio Platform. If MCP tools are available, use COMPOSIO_MANAGE_CONNECTIONS to check for accounts there.\n';
         }
       } catch (err: any) {
         // pass
@@ -1545,6 +1579,12 @@ export async function POST(req: NextRequest) {
         mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
       } catch (mcpListErr: any) {
         console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
+      }
+      // If MCP token exists but returned 0 tools (expired, server error, etc.)
+      // the connector context block above already took the MCP branch and added
+      // no account data. Patch the system prompt so Platform data still appears.
+      if (mcpToolNames.length === 0 && composioApiKey) {
+        console.warn('[MCP FALLBACK] MCP token present but 0 tools returned. Falling through to Platform mode.');
       }
     }
     const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;

@@ -274,6 +274,12 @@ export async function executeMcpTool(
 ): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string; newRefreshToken?: string }> {
   let callArgs = args || {};
   if (/MANAGE_CONNECTIONS/i.test(toolName)) {
+    // The Composio meta-tool defaults to "add". That is dangerous for any
+    // status/account inspection because every refresh would create another
+    // account. Inspection must be explicitly read-only.
+    if (!callArgs.action) {
+      callArgs = { ...callArgs, action: 'list' };
+    }
     if (!callArgs.toolkits || !Array.isArray(callArgs.toolkits) || callArgs.toolkits.length === 0) {
       callArgs = { ...callArgs, toolkits: DEFAULT_COMPOSIO_TOOLKITS };
     }

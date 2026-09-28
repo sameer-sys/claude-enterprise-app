@@ -175,7 +175,7 @@ export async function listRemoteMcpTools(connector: Connector): Promise<RemoteMc
     .map((tool: any) => ({
       type: 'function' as const,
       function: {
-        name: `REMOTE_MCP_${connector.id}_${String(tool.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 45)}`,
+        name: `REMOTE_MCP_${String(connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12)}_${String(tool.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32)}`,
         description: `[${connector.name}] ${String(tool.description || tool.name).slice(0, 650)}`,
         parameters:
           tool.inputSchema && typeof tool.inputSchema === 'object'

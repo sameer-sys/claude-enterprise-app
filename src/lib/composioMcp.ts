@@ -271,7 +271,7 @@ export async function executeMcpTool(
   toolName: string,
   args: Record<string, any> = {},
   refreshToken?: string
-): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string }> {
+): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string; newRefreshToken?: string }> {
   let callArgs = args || {};
   if (/MANAGE_CONNECTIONS/i.test(toolName)) {
     if (!callArgs.toolkits || !Array.isArray(callArgs.toolkits) || callArgs.toolkits.length === 0) {

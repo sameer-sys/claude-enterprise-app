@@ -771,6 +771,8 @@ export async function POST(req: NextRequest) {
     ];
     let forceConnectorTool = false;
 
+    const connectorRequest = isConnectorRelatedRequest(lastText);
+
     // PRIMARY CONNECTOR PATH:
     // Connector requests must enter the real live Composio MCP tool loop.
     // Do not guess an app-specific action from a keyword such as "playlist" or

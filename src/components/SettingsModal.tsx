@@ -1073,7 +1073,7 @@ export default function SettingsModal({
                     <span>Model Context Protocol (MCP) Runtime</span>
                   </div>
                   <p className="text-xs text-[#8a8579] leading-relaxed">
-                    Connect public remote MCP servers over HTTP/HTTPS and use their live tools from chat. Local stdio servers are a separate desktop-only mechanism.
+                    Connect public remote MCP servers over HTTP/HTTPS and use their live tools from chat.
                   </p>
                   <button
                     onClick={() => {

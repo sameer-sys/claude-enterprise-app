@@ -127,8 +127,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   const [writeTools, setWriteTools] = useState<ToolPermission[]>(DEFAULT_WRITE_TOOLS);
   const [globalPermission, setGlobalPermission] = useState<'Always allow' | 'Ask before run' | 'Block write'>('Always allow');
 
-  // Add mode: 'mcp' (Remote URL) | 'cli' (Local Command / Stdio)
-  const [addMode, setAddMode] = useState<'mcp' | 'cli'>('mcp');
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
   // Custom MCP connector form state
@@ -138,11 +136,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   const [oauthClientMode, setOauthClientMode] = useState<'published' | 'auto' | 'custom'>('auto');
   const [remoteAuthToken, setRemoteAuthToken] = useState('');
 
-  // Custom CLI connector form state
-  const [cliName, setCliName] = useState('');
-  const [cliCommand, setCliCommand] = useState('');
-  const [cliArgs, setCliArgs] = useState('');
-  const [cliEnv, setCliEnv] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -365,65 +358,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     }
   };
 
-  const handleCliSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cliName.trim() || !cliCommand.trim()) return;
-
-    setIsSubmitting(true);
-    setStatusMessage('Configuring CLI connector...');
-
-    try {
-      const parsedEnv: Record<string, string> = {};
-      if (cliEnv.trim()) {
-        cliEnv.split('\n').forEach((line) => {
-          const [k, ...v] = line.split('=');
-          if (k && v.length) parsedEnv[k.trim()] = v.join('=').trim();
-        });
-      }
-
-      const newConnector: Connector = {
-        id: `cli-${Date.now()}`,
-        name: cliName.trim(),
-        description: `Local CLI Command: ${cliCommand.trim()} ${cliArgs.trim()}`,
-        icon: 'terminal',
-        enabled: true,
-        status: 'connected',
-        category: 'Developer Tools',
-        section: 'custom',
-        isCustom: true,
-        isVerified: true,
-        provider: 'mcp',
-        capabilities: ['CLI Execution', 'Local Stdio', 'Automations'],
-        config: {
-          connectionType: 'cli',
-          providerName: cliName.trim(),
-          command: cliCommand.trim(),
-          args: cliArgs.trim().split(/\s+/).filter(Boolean),
-          env: parsedEnv,
-        },
-        url: `cli://${cliCommand.trim()}`,
-      };
-
-      const updated = [newConnector, ...customConnectors.filter((c) => c.name.toLowerCase() !== newConnector.name.toLowerCase())];
-      setCustomConnectors(updated);
-      try {
-        localStorage.setItem('claude_custom_connectors', JSON.stringify(updated));
-      } catch {}
-
-      if (onAddCustomConnector) {
-        onAddCustomConnector(newConnector);
-      }
-
-      setStatusMessage('CLI connector successfully configured!');
-      setSelectedConnector(newConnector);
-      setCurrentView('detail');
-    } catch (err: any) {
-      setStatusMessage(`Error: ${err.message}`);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleDisconnect = async (connectorId: string) => {
     const conn = customConnectors.find((c) => c.id === connectorId);
     if (conn?.id === 'conn-composio') {
@@ -512,7 +446,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                 {/* + Add Custom Remote MCP */}
                 <button
                   onClick={() => {
-                    setAddMode('mcp');
                     setCustomName('');
                     setCustomUrl('');
                     setStatusMessage('');
@@ -674,7 +607,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         {/* VIEW 2: ADD CUSTOM CONNECTOR (FRAME 7 & 9 FROM VIDEO)     */}
         {/* ========================================================= */}
         {currentView === 'add' && (
-          <form onSubmit={addMode === 'cli' ? handleCliSubmit : handleAddSubmit} className="flex flex-col h-full">
+          <form onSubmit={handleAddSubmit} className="flex flex-col h-full">
             {/* Header */}
             <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-[#2d2b25]">
               <div className="flex items-center gap-2">

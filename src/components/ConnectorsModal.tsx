@@ -30,6 +30,7 @@ export interface ConnectorsModalProps {
   onToggleConnector: (id: string) => void;
   onUpdateConnectorConfig?: (id: string, config: ConnectorConfig) => void;
   onAddCustomConnector?: (connector: Connector) => void;
+  onRemoveCustomConnector?: (connectorId: string) => void;
   onResetConnectors?: () => void;
   sessionTitle?: string;
   sessionId?: string;
@@ -89,7 +90,7 @@ const DEFAULT_WRITE_TOOLS: ToolPermission[] = [
 ];
 
 export default function ConnectorsModal(props: ConnectorsModalProps) {
-  const { isOpen, onClose, activeConnectors, onUpdateConnectorConfig, onAddCustomConnector } = props;
+  const { isOpen, onClose, activeConnectors, onUpdateConnectorConfig, onAddCustomConnector, onRemoveCustomConnector } = props;
 
   // View state: 'list' (Yours/Discover) | 'add' (Add custom connector) | 'detail' (Tools & permissions view)
   const [currentView, setCurrentView] = useState<'list' | 'add' | 'detail'>('list');
@@ -106,6 +107,11 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   // Custom remote MCP connector form state
   const [customName, setCustomName] = useState('');
   const [customUrl, setCustomUrl] = useState('');
+  const [oauthClientId, setOauthClientId] = useState('');
+  const [oauthClientSecret, setOauthClientSecret] = useState('');
+  const [apiToken, setApiToken] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [discoveredTools, setDiscoveredTools] = useState<string[]>([]);
 
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -192,6 +198,21 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   // Listen for OAuth completion message from popup
   useEffect(() => {
     const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'sameer-remote-mcp-connected') {
+        const connectorId = String(event.data?.connectorId || '');
+        if (event.data?.status === 'success') {
+          setCustomConnectors((prev) => prev.map((c) => c.id === connectorId ? { ...c, status: 'connected' as const } : c));
+          const conn = activeConnectors.find((c) => c.id === connectorId);
+          if (conn) setSelectedConnector({ ...conn, status: 'connected' });
+          setStatusMessage('Remote MCP connector authenticated successfully.');
+        } else {
+          setStatusMessage('OAuth Error: ' + String(event.data?.error || 'Authentication failed.'));
+        }
+        setIsAuthenticating(false);
+        setIsSubmitting(false);
+        return;
+      }
+
       if (event.data?.type === 'sameer-composio-mcp-connected') {
         if (event.data?.status === 'success') {
           setMcpConnected(true);
@@ -256,6 +277,25 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     }
   };
 
+  const startRemoteOAuth = async (connector: Connector) => {
+    setIsAuthenticating(true);
+    setStatusMessage('Starting secure OAuth sign-in…');
+    try {
+      const res = await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'oauth_start', connector }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.authUrl) throw new Error(data.error || 'Could not start MCP OAuth.');
+      const popup = window.open(data.authUrl, 'remote_mcp_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
+      if (!popup) window.open(data.authUrl, '_blank');
+    } catch (err: any) {
+      setStatusMessage('OAuth Error: ' + String(err?.message || 'Could not start OAuth.'));
+      setIsAuthenticating(false);
+    }
+  };
+
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customName.trim() || !customUrl.trim()) return;
@@ -281,9 +321,24 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
           connectionType: 'mcp',
           providerName: customName.trim(),
           mcpUrl: customUrl.trim(),
+          ...(oauthClientId.trim() ? { oauthClientId: oauthClientId.trim() } : {}),
         },
         url: customUrl.trim(),
       };
+
+      const saveRes = await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_credentials',
+          connectorId: newConnector.id,
+          serverUrl: newConnector.url,
+          clientId: oauthClientId.trim(),
+          clientSecret: oauthClientSecret,
+          apiToken: apiToken.trim(),
+        }),
+      });
+      if (!saveRes.ok) throw new Error('Could not save connector credentials securely.');
 
       const probeRes = await fetch('/api/mcp', {
         method: 'POST',
@@ -301,7 +356,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         );
       } else if (probe?.requiresAuth || probeRes.status === 401 || probeRes.status === 403) {
         newConnector.status = 'ready';
-        setStatusMessage('Connector saved. The remote MCP server requires authentication.');
+        setStatusMessage('Connector added. Click Connect to authenticate with the remote MCP server.');
       } else {
         newConnector.status = 'ready';
         setStatusMessage(probe?.error || 'Connector saved. It will be checked again when the agent uses it.');
@@ -328,22 +383,52 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
   const handleDisconnect = async (connectorId: string) => {
     const conn = customConnectors.find((c) => c.id === connectorId);
-    if (conn?.id === 'conn-composio') {
+    if (!conn) return;
+
+    if (conn.id === 'conn-composio') {
       try {
         await fetch('/api/composio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'disconnect_mcp' }),
         });
-        setMcpConnected(false);
       } catch {}
+      setMcpConnected(false);
+      setCustomConnectors((prev) => prev.map((c) => c.id === connectorId ? { ...c, status: 'idle' } : c));
+      setCurrentView('detail');
+      return;
     }
 
+    try {
+      await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect', connectorId: conn.id, serverUrl: conn.url }),
+      });
+    } catch {}
+
+    setCustomConnectors((prev) => prev.map((c) => c.id === connectorId ? { ...c, status: 'ready' } : c));
+    onUpdateConnectorConfig?.(connectorId, { ...(conn.config || {}), disabledTools: [] });
+    setStatusMessage('Connector disconnected. Your server configuration is still saved.');
+  };
+
+  const handleRemove = async (connectorId: string) => {
+    const conn = customConnectors.find((c) => c.id === connectorId);
+    if (!conn) return;
+    if (conn.id === 'conn-composio') return;
+    try {
+      await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect', connectorId: conn.id, serverUrl: conn.url }),
+      });
+    } catch {}
     const updated = customConnectors.filter((c) => c.id !== connectorId);
     setCustomConnectors(updated);
     try {
-      localStorage.setItem('claude_custom_connectors', JSON.stringify(updated));
+      localStorage.setItem('claude_custom_connectors', JSON.stringify(updated.filter((c) => c.id !== 'conn-composio')));
     } catch {}
+    onRemoveCustomConnector?.(connectorId);
     setCurrentView('list');
   };
 

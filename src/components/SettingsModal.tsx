@@ -77,6 +77,7 @@ interface SettingsModalProps {
   activeConnectors?: Connector[];
   onToggleConnector?: (id: string) => void;
   onUpdateConnectorConfig?: (id: string, config: ConnectorConfig) => void;
+  onOpenConnectors?: () => void;
   sessionTitle?: string;
   // Reasoning & Autonomy
   thinkingBudget?: ThinkingBudget;
@@ -104,6 +105,7 @@ export default function SettingsModal({
   activeConnectors = [],
   onToggleConnector,
   onUpdateConnectorConfig,
+  onOpenConnectors,
   sessionTitle = 'Current Chat',
   thinkingBudget = 16000,
   onSelectThinkingBudget,
@@ -293,9 +295,9 @@ export default function SettingsModal({
       ],
     },
     {
-      group: 'Platform',
+      group: 'Developer',
       items: [
-        { id: 'apikeys', label: 'API keys', icon: Key, isExternal: true },
+        { id: 'apikeys', label: 'Provider API keys', icon: Key },
       ],
     },
   ];
@@ -1071,12 +1073,12 @@ export default function SettingsModal({
                     <span>Model Context Protocol (MCP) Runtime</span>
                   </div>
                   <p className="text-xs text-[#8a8579] leading-relaxed">
-                    Full support for stdio and Server-Sent Events (SSE) plugin servers. You can add any PostgreSQL, SQLite, Filesystem, or custom API tool server.
+                    Connect public remote MCP servers over HTTP/HTTPS and use their live tools from chat. Local stdio servers are a separate desktop-only mechanism.
                   </p>
                   <button
                     onClick={() => {
-                      setActiveTab('connectors');
-                      setConnectorViewTab('custom_mcp');
+                      onClose();
+                      onOpenConnectors?.();
                     }}
                     className="px-3.5 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all"
                   >

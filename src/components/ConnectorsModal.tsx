@@ -34,10 +34,29 @@ export interface ConnectorsModalProps {
   sessionId?: string;
 }
 
-export const DEFAULT_CONNECTORS: Connector[] = [];
+export const DEFAULT_CONNECTORS: Connector[] = [{
+  id: 'conn-composio',
+  name: 'composio',
+  description: 'Connect your apps, tools, OAuth accounts, and actions via MCP.',
+  icon: 'composio',
+  enabled: true,
+  status: 'idle',
+  category: 'Integrations',
+  section: 'custom',
+  isCustom: true,
+  isVerified: true,
+  provider: 'mcp',
+  capabilities: ['Multi Execute', 'Tool Search', 'Skills', 'OAuth'],
+  config: { 
+    connectionType: 'mcp', 
+    providerName: 'Composio',
+    mcpUrl: 'https://connect.composio.dev/mcp'
+  },
+  url: 'https://connect.composio.dev/mcp',
+}];
 
 export function createDefaultConnectors(): Connector[] {
-  return [];
+  return DEFAULT_CONNECTORS.map((c) => ({ ...c, config: { ...c.config } }));
 }
 
 interface PrebuiltCatalogItem {

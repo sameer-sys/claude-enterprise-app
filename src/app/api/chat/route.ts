@@ -214,7 +214,6 @@ async function runAgentTool(
         }
 
         if (name === 'Manage_connections' || name === 'connector_manage_connections' || name === 'COMPOSIO_MANAGE_CONNECTIONS') {
-          const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
           const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
           const toolkits = Array.isArray(args?.toolkits) ? args.toolkits.map(String).filter(Boolean) : [];
           if (!toolkits.length) return 'COMPOSIO_MANAGE_CONNECTIONS requires explicit toolkit names.';
@@ -580,7 +579,7 @@ function formatConnectorResult(requestText: string, result: any): string {
     /\bcomposio\b/i.test(lower);
 
   if (isAccountQuery) {
-    // COMPOSIO_MANAGE_CONNECTIONS currently returns:
+    // COMPOSIO_SEARCH_TOOLS returns:
     // { results: { toolkit: { status, accounts: [...] } }, summary: {...} }
     // Normalize that keyed result into one flat list of active accounts.
     let connections: any[] = [];

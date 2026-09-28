@@ -842,10 +842,8 @@ export async function POST(req: NextRequest) {
         };
       }),
     ];
-
-    const GROQ_PARTS = ['gsk_', 'xbRa33OEsjTbAc45', 'IsuZWGdyb3FYzXpKR04B', 'SrPTqoxDfPJTU6s1'];
-    const groqKey = process.env.GROQ_API_KEY || GROQ_PARTS.join('');
-    const omniMasterKey = process.env.OMNIROUTE_API_KEY || 'sk-omniroute-boss-master-2026';
+    const groqKey = process.env.GROQ_API_KEY || '';
+    const omniMasterKey = process.env.OMNIROUTE_API_KEY || '';
     const omniLocalUrl = omniRouteUrl || process.env.OMNIROUTE_URL || 'http://127.0.0.1:20128/v1/chat/completions';
     const isCloudEnv = Boolean(process.env.VERCEL || process.env.AWS_REGION);
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');

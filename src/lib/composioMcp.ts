@@ -147,7 +147,7 @@ export async function callComposioMcp(
   method: string,
   params: any = {},
   refreshToken?: string
-): Promise<{ success: boolean; result?: any; error?: any; newAccessToken?: string }> {
+): Promise<{ success: boolean; result?: any; error?: any; newAccessToken?: string; newRefreshToken?: string }> {
   try {
     const doFetch = async (token: string) => {
       const id = Date.now();
@@ -170,6 +170,7 @@ export async function callComposioMcp(
 
     let activeToken = accessToken;
     let newAccessToken: string | undefined = undefined;
+    let newRefreshToken: string | undefined = undefined;
     let res = await doFetch(activeToken);
 
     // Auto-refresh token if 401 Unauthorized or 403 Forbidden
@@ -179,6 +180,7 @@ export async function callComposioMcp(
       if (refreshed.success && refreshed.tokens?.access_token) {
         activeToken = refreshed.tokens.access_token;
         newAccessToken = activeToken;
+        newRefreshToken = refreshed.tokens.refresh_token || refreshToken;
         res = await doFetch(activeToken);
       }
     }
@@ -212,6 +214,7 @@ export async function callComposioMcp(
         success: false,
         error: payload.error.message || payload.error,
         newAccessToken,
+        newRefreshToken,
       };
     }
 
@@ -219,6 +222,7 @@ export async function callComposioMcp(
       success: true,
       result: payload.result,
       newAccessToken,
+      newRefreshToken,
     };
   } catch (err: any) {
     return {
@@ -294,6 +298,7 @@ export async function executeMcpTool(
       data: content,
       error: mcpContentToText(content) || 'MCP tool reported an error',
       newAccessToken: response.newAccessToken,
+      newRefreshToken: response.newRefreshToken,
     };
   }
 
@@ -301,6 +306,7 @@ export async function executeMcpTool(
     success: true,
     data: content,
     newAccessToken: response.newAccessToken,
+    newRefreshToken: response.newRefreshToken,
   };
 }
 
@@ -398,10 +404,10 @@ export async function listMcpToolsCachedWithAuth(
   accessToken: string,
   refreshToken?: string,
   ttlMs = 5 * 60 * 1000
-): Promise<{ tools: McpToolSchema[]; accessToken: string; refreshed: boolean }> {
+): Promise<{ tools: McpToolSchema[]; accessToken: string; refreshToken?: string; refreshed: boolean }> {
   const hit = MCP_TOOL_CACHE.get(accessToken);
   if (hit && Date.now() - hit.at < ttlMs && hit.tools.length > 0) {
-    return { tools: hit.tools, accessToken, refreshed: false };
+    return { tools: hit.tools, accessToken, refreshToken, refreshed: false };
   }
 
   const response = await callComposioMcp(accessToken, 'tools/list', {}, refreshToken);
@@ -417,6 +423,7 @@ export async function listMcpToolsCachedWithAuth(
   return {
     tools,
     accessToken: activeAccessToken,
+    refreshToken: response.newRefreshToken || refreshToken,
     refreshed: Boolean(response.newAccessToken),
   };
 }

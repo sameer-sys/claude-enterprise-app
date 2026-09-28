@@ -150,10 +150,36 @@ export function getCredentialFromRequest(req: { cookies: { get(name: string): { 
 }
 
 export function setStoredTokenCookie(response: Response, connectorId: string, serverUrl: string, token: RemoteStoredToken): void {
-  response.headers.append('Set-Cookie', `${tokenCookieName(connectorId, serverUrl)}=${encodeURIComponent(encodeJson(token))}; ${buildCookie(encodeJson(token))}`);
+  const encoded = encodeJson(token);
+  response.headers.append('Set-Cookie', `${tokenCookieName(connectorId, serverUrl)}=${encodeURIComponent(encoded)}; ${buildCookie(MAX_COOKIE_AGE)}`);
 }
 
 export function clearTokenCookie(response: Response, connectorId: string, serverUrl: string): void {
-  response.headers.append('Set-Cookie', `${tokenCookieName(connectorId, serverUrl)}=; ${buildCookie('', 0)}`);
-  response.headers.append('Set-Cookie', `${credentialCookieName(connectorId, serverUrl)}=; ${buildCookie('', 0)}`);
+  response.headers.append('Set-Cookie', `${tokenCookieName(connectorId, serverUrl)}=; ${buildCookie(0)}`);
+  response.headers.append('Set-Cookie', `${credentialCookieName(connectorId, serverUrl)}=; ${buildCookie(0)}`);
+}
+
+export async function refreshRemoteAccessToken(token: RemoteStoredToken): Promise<RemoteStoredToken | undefined> {
+  if (!token.refreshToken || !token.tokenEndpoint || !token.clientId) return undefined;
+  try {
+    const form = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: token.refreshToken, client_id: token.clientId });
+    const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' };
+    if (token.clientSecret) {
+      form.delete('client_id');
+      headers.Authorization = 'Basic ' + Buffer.from(token.clientId + ':' + token.clientSecret).toString('base64');
+    }
+    const res = await fetch(token.tokenEndpoint, { method: 'POST', headers, body: form.toString(), cache: 'no-store' });
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.access_token) return undefined;
+    return {
+      ...token,
+      accessToken: String(data.access_token),
+      refreshToken: data.refresh_token ? String(data.refresh_token) : token.refreshToken,
+      tokenType: data.token_type || token.tokenType,
+      expiresAt: data.expires_in ? Date.now() + Number(data.expires_in) * 1000 : token.expiresAt,
+      scope: data.scope || token.scope,
+    };
+  } catch {
+    return undefined;
+  }
 }

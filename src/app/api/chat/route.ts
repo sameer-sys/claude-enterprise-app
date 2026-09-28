@@ -132,7 +132,17 @@ function getSafeHttpUrl(raw: string): URL | null {
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; mcpToken?: string; mcpRefreshToken?: string; mcpToolNames?: string[]; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
+  connectorContext: {
+    apiKey?: string;
+    mcpToken?: string;
+    mcpRefreshToken?: string;
+    mcpToolNames?: string[];
+    remoteMcpTools?: any[];
+    remoteMcpToolRoutes?: Record<string, { connector: any; originalToolName: string }>;
+    connectors?: any[];
+    accounts?: any[];
+    composioUserId?: string;
+  } = {}
 ): Promise<string> {
   try {
     // Handle Composio "For You" MCP execution
@@ -155,6 +165,19 @@ async function runAgentTool(
         const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
 
         // Live MCP tool called by its real name (COMPOSIO_SEARCH_TOOLS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS, ...).
+        const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
+        if (remoteRoute) {
+          const { callRemoteMcpTool } = await import('@/lib/remoteMcp');
+          return clip(
+            await callRemoteMcpTool(
+              remoteRoute.connector,
+              name,
+              remoteRoute.originalToolName,
+              args || {}
+            )
+          );
+        }
+
         if (liveNames.includes(name)) {
           const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
@@ -834,6 +857,47 @@ export async function POST(req: NextRequest) {
     }
     const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
 
+    // Generic remote MCP connectors (non-Composio) are discovered here and
+    // exposed to the model under collision-safe names.
+    let remoteMcpTools: any[] = [];
+    const remoteMcpToolRoutes: Record<string, { connector: any; originalToolName: string }> = {};
+
+    try {
+      const { listRemoteMcpTools } = await import('@/lib/remoteMcp');
+      const remoteConnectors = (Array.isArray(connectors) ? connectors : [])
+        .filter((connector: any) => {
+          const cfg = connector?.config || {};
+          const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+          const isComposio = String(connector?.name || '').toLowerCase().includes('composio') ||
+            String(cfg.mcpUrl || connector?.url || '').includes('connect.composio.dev');
+          return connector?.enabled !== false &&
+            type === 'mcp' &&
+            !isComposio &&
+            Boolean(cfg.mcpUrl || connector?.url);
+        })
+        .slice(0, 5);
+
+      const discovered = await Promise.allSettled(
+        remoteConnectors.map((connector: any) =>
+          listRemoteMcpTools(connector).then((tools: any[]) => ({ connector, tools }))
+        )
+      );
+
+      for (const item of discovered) {
+        if (item.status !== 'fulfilled') continue;
+        for (const tool of item.value.tools) {
+          remoteMcpTools.push(tool);
+          const prefix = `REMOTE_MCP_${String(item.value.connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12)}_`;
+          remoteMcpToolRoutes[tool.function.name] = {
+            connector: item.value.connector,
+            originalToolName: String(tool.function.name).replace(prefix, ''),
+          };
+        }
+      }
+    } catch (remoteMcpErr: any) {
+      console.error('[REMOTE MCP DISCOVERY ERR]', remoteMcpErr?.message || remoteMcpErr);
+    }
+
     // In "For You" mode the real MCP tools replace the guessed Composio wrapper tools.
     const mcpWrapperNames = new Set([
       'connector_search', 'connector_manage_connections', 'connector_execute',
@@ -845,10 +909,18 @@ export async function POST(req: NextRequest) {
     const effectiveTools = [
       ...baseTools,
       ...mcpLiveTools,
+      ...remoteMcpTools,
     ];
     let forceConnectorTool = false;
 
-    const connectorRequest = isConnectorRelatedRequest(lastText);
+    const remoteConnectorMention = (Array.isArray(connectors) ? connectors : [])
+      .some((connector: any) =>
+        connector?.enabled !== false &&
+        String(connector?.name || '').trim() &&
+        lastText.toLowerCase().includes(String(connector.name).trim().toLowerCase())
+      );
+
+    const connectorRequest = isConnectorRelatedRequest(lastText) || remoteConnectorMention;
 
     // PRIMARY CONNECTOR PATH:
     // Connector requests must enter the real live Composio MCP tool loop.
@@ -876,6 +948,8 @@ export async function POST(req: NextRequest) {
       connectors,
       accounts: [],
       composioUserId,
+      remoteMcpTools,
+      remoteMcpToolRoutes,
     };
 
     const { pickMcpToolName } = await import('@/lib/composioMcp');

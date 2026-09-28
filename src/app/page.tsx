@@ -424,6 +424,15 @@ export default function Home() {
     );
   };
 
+  const handleRemoveCustomConnector = (connectorId: string) => {
+    setSessions((prev) => prev.map((s) => s.id === activeSession.id ? { ...s, connectors: (s.connectors || createDefaultConnectors()).filter((c) => c.id !== connectorId) } : s));
+    try {
+      const raw = localStorage.getItem('claude_custom_connectors');
+      const saved: Connector[] = raw ? JSON.parse(raw) : [];
+      localStorage.setItem('claude_custom_connectors', JSON.stringify(saved.filter((c) => c.id !== connectorId)));
+    } catch {}
+  };
+
   const handleCreateProject = (project: Project) => {
     setProjects([project, ...projects]);
     // Auto-open a first session for this PM
@@ -915,6 +924,7 @@ export default function Home() {
         onToggleConnector={handleToggleConnector}
         onUpdateConnectorConfig={handleUpdateConnectorConfig}
         onAddCustomConnector={handleAddCustomConnector}
+        onRemoveCustomConnector={handleRemoveCustomConnector}
         onResetConnectors={handleResetConnectorsForChat}
         sessionTitle={activeSession.title}
         sessionId={activeSession.id}

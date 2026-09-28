@@ -240,7 +240,7 @@ async function runAgentTool(
         console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
       }
     } else {
-      // If NOT connected to Composio "For You" MCP, do not fall back to Platform!
+      // If NOT connected to Composio "For You" MCP, do not fabricate or fall back to another connector runtime.
       const isComposioTool =
         name.startsWith('COMPOSIO_') ||
         name.startsWith('connector_') ||

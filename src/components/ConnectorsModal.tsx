@@ -158,11 +158,10 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const localToken = typeof window !== 'undefined' ? localStorage.getItem('claude_composio_mcp_token') : null;
         const res = await fetch('/api/composio', { method: 'GET', cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
-          const isConn = Boolean(data.mcpConnected || data.mode === 'for_you' || localToken);
+          const isConn = Boolean(data.mcpConnected || data.mode === 'for_you');
           setMcpConnected(isConn);
           setCustomConnectors((prev) => {
             const next = prev.map((c) =>
@@ -173,14 +172,8 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
             try { localStorage.setItem('claude_custom_connectors', JSON.stringify(next)); } catch {}
             return next;
           });
-        } else if (localToken) {
-          setMcpConnected(true);
         }
-      } catch {
-        if (typeof window !== 'undefined' && localStorage.getItem('claude_composio_mcp_token')) {
-          setMcpConnected(true);
-        }
-      }
+      } catch {}
     };
     if (isOpen) {
       checkStatus();
@@ -194,17 +187,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         if (event.data?.status === 'success') {
           setMcpConnected(true);
           setStatusMessage('Successfully connected to Composio "For You"!');
-          if (event.data?.accessToken) {
-            try {
-              localStorage.setItem('claude_composio_mcp_token', event.data.accessToken);
-            } catch {}
-          }
-          if (event.data?.refreshToken) {
-            try {
-              localStorage.setItem('claude_composio_mcp_refresh_token', event.data.refreshToken);
-            } catch {}
-          }
-          setCustomConnectors((prev) => {
+oauth token storage          setCustomConnectors((prev) => {
             const next = prev.map((c) =>
               c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
                 ? { ...c, status: 'connected' as const }

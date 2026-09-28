@@ -664,7 +664,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <h2 className="text-base font-bold text-[#ece9e2]">
-                  {addMode === 'cli' ? 'Add CLI Connector (Local / Stdio)' : 'Add Custom MCP Connector'}
+                  Add custom connector
                 </h2>
               </div>
               <button 
@@ -674,36 +674,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
               >
                 <X className="w-4 h-4" />
               </button>
-            </div>
-
-            {/* Type Switcher Tabs */}
-            <div className="flex items-center px-8 pt-3 pb-2 border-b border-[#282620] bg-[#141310]">
-              <div className="flex items-center bg-[#1e1c18] p-1 rounded-xl border border-[#38352d] w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => setAddMode('mcp')}
-                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    addMode === 'mcp'
-                      ? 'bg-[#38352d] text-[#ece9e2] shadow-sm'
-                      : 'text-[#8f8a80] hover:text-[#ece9e2]'
-                  }`}
-                >
-                  <Zap className="w-3.5 h-3.5 text-[#cc785c]" />
-                  <span>Remote MCP Server</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAddMode('cli')}
-                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    addMode === 'cli'
-                      ? 'bg-[#38352d] text-[#ece9e2] shadow-sm'
-                      : 'text-[#8f8a80] hover:text-[#ece9e2]'
-                  }`}
-                >
-                  <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>CLI / Local Command</span>
-                </button>
-              </div>
             </div>
 
             {/* Scrollable form body */}
@@ -972,7 +942,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                 className="px-5 py-2 text-xs font-semibold rounded-xl bg-[#cc785c] hover:bg-[#b86950] text-white flex items-center gap-2 shadow-sm disabled:opacity-50"
               >
                 {(isSubmitting || isAuthenticating) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>{addMode === 'cli' ? 'Add CLI Connector' : 'Connect'}</span>
+                <span>Add connector</span>
               </button>
             </div>
           </form>

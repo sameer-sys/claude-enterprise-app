@@ -77,6 +77,7 @@ interface SettingsModalProps {
   activeConnectors?: Connector[];
   onToggleConnector?: (id: string) => void;
   onUpdateConnectorConfig?: (id: string, config: ConnectorConfig) => void;
+  onOpenConnectors?: () => void;
   sessionTitle?: string;
   // Reasoning & Autonomy
   thinkingBudget?: ThinkingBudget;
@@ -104,6 +105,7 @@ export default function SettingsModal({
   activeConnectors = [],
   onToggleConnector,
   onUpdateConnectorConfig,
+  onOpenConnectors,
   sessionTitle = 'Current Chat',
   thinkingBudget = 16000,
   onSelectThinkingBudget,
@@ -293,9 +295,9 @@ export default function SettingsModal({
       ],
     },
     {
-      group: 'Platform',
+      group: 'Developer',
       items: [
-        { id: 'apikeys', label: 'API keys', icon: Key, isExternal: true },
+        { id: 'apikeys', label: 'Provider API keys', icon: Key },
       ],
     },
   ];
@@ -1071,12 +1073,12 @@ export default function SettingsModal({
                     <span>Model Context Protocol (MCP) Runtime</span>
                   </div>
                   <p className="text-xs text-[#8a8579] leading-relaxed">
-                    Full support for stdio and Server-Sent Events (SSE) plugin servers. You can add any PostgreSQL, SQLite, Filesystem, or custom API tool server.
+                    Connect public remote MCP servers over HTTP/HTTPS and use their live tools from chat.
                   </p>
                   <button
                     onClick={() => {
-                      setActiveTab('connectors');
-                      setConnectorViewTab('custom_mcp');
+                      onClose();
+                      onOpenConnectors?.();
                     }}
                     className="px-3.5 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all"
                   >
@@ -1164,63 +1166,24 @@ export default function SettingsModal({
                   <div className="max-w-xl mx-auto space-y-4 py-2">
                     <div className="p-4 rounded-xl bg-[#181714] border border-[#2d2b24] space-y-2">
                       <div className="flex items-center space-x-2 text-sm font-semibold text-[#f2eee6]">
-                        <Terminal className="w-4 h-4 text-[#cc785c]" />
-                        <span>Add Model Context Protocol (MCP) Plugin</span>
+                        <Globe className="w-4 h-4 text-[#cc785c]" />
+                        <span>Custom Remote MCP</span>
                       </div>
                       <p className="text-xs text-[#9c978b] leading-relaxed">
-                        Connect any local or remote tool server using Anthropic's official MCP standard. Supports PostgreSQL, SQLite, Brave Search, Puppeteer, or your own custom scripts.
+                        Add a remote MCP server with its name and public HTTP/HTTPS URL. The same connector is available in the main Connectors hub and can be enabled per chat.
                       </p>
                     </div>
-
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-[#dcd8ce] mb-1">
-                          Plugin / Server Name
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Postgres Database Server"
-                          className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#2e2c25] text-xs text-[#ece9e2] focus:outline-none focus:border-[#cc785c]/60"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-[#dcd8ce] mb-1">
-                          Stdio Command
-                        </label>
-                        <input
-                          type="text"
-                          defaultValue="npx -y @modelcontextprotocol/server-postgres postgresql://localhost/mydb"
-                          className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#2e2c25] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]/60"
-                        />
-                        <p className="text-[11px] text-[#78746a] mt-1">
-                          Stdio process executed locally with Model Context Protocol.
-                        </p>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-[#dcd8ce] mb-1">
-                          Or Remote SSE Endpoint URL
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="http://localhost:8080/sse"
-                          className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#2e2c25] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]/60"
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onToggleConnector?.('conn-mcp');
-                          setConnectorViewTab('installed');
-                        }}
-                        className="w-full py-2.5 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all shadow-md flex items-center justify-center space-x-1.5"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Register & Enable MCP Plugin</span>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenConnectors?.();
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all shadow-md flex items-center justify-center space-x-1.5"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Open Connectors</span>
+                    </button>
                   </div>
                 ) : filteredConnectors.length === 0 ? (
                   <div className="text-center py-12 space-y-2">

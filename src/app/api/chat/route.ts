@@ -158,25 +158,22 @@ async function runAgentTool(
       'google_calendar_create_event': 'GOOGLECALENDAR_CREATE_EVENT',
     };
 
+    const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
+    if (remoteRoute) {
+      const { callRemoteMcpTool } = await import('@/lib/remoteMcp');
+      return (await callRemoteMcpTool(
+        remoteRoute.connector,
+        name,
+        remoteRoute.originalToolName,
+        args || {}
+      )).slice(0, 14000);
+    }
+
     if (connectorContext.mcpToken) {
       try {
         const { executeMcpTool, mcpContentToText, pickMcpToolName } = await import('@/lib/composioMcp');
         const liveNames = connectorContext.mcpToolNames || [];
         const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
-
-        // Live MCP tool called by its real name (COMPOSIO_SEARCH_TOOLS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS, ...).
-        const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
-        if (remoteRoute) {
-          const { callRemoteMcpTool } = await import('@/lib/remoteMcp');
-          return clip(
-            await callRemoteMcpTool(
-              remoteRoute.connector,
-              name,
-              remoteRoute.originalToolName,
-              args || {}
-            )
-          );
-        }
 
         if (liveNames.includes(name)) {
           const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
@@ -243,7 +240,7 @@ async function runAgentTool(
         console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
       }
     } else {
-      // If NOT connected to Composio "For You" MCP, do not fall back to Platform!
+      // If NOT connected to Composio "For You" MCP, do not fabricate or fall back to another connector runtime.
       const isComposioTool =
         name.startsWith('COMPOSIO_') ||
         name.startsWith('connector_') ||
@@ -387,10 +384,10 @@ async function runAgentTool(
 
 
 const SYSTEM_PROMPTS: Record<string, string> = {
-  boss: `You are Boss — the autonomous enterprise AI assistant with live hands powered by Composio "For You" MCP and local MCP/CLI connectors.
+  boss: `You are Boss — the autonomous enterprise AI assistant with live hands powered by Composio "For You" MCP and user-added remote MCP connectors.
 
 CONNECTED ACCOUNTS & LIVE TOOLS:
-When connected to Composio "For You" (https://connect.composio.dev/mcp) or MCP/CLI connectors, you have live execution tools:
+When connected to Composio "For You" (https://connect.composio.dev/mcp) or user-added remote MCP connectors, you have live execution tools:
 - COMPOSIO_SEARCH_TOOLS: Search available tools and actions across user's connected services.
 - COMPOSIO_GET_TOOL_SCHEMAS: Get the exact parameters schema for tools.
 - COMPOSIO_MULTI_EXECUTE_TOOL: Execute real actions on accounts connected in Composio "For You".
@@ -835,8 +832,8 @@ export async function POST(req: NextRequest) {
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');
 
     // 1. Tool execution loop: check if request needs web search, git, email, or Composio tools
-    const agentDeadline = requestStartTime + (composioMcpToken ? 200000 : 120000);
-    const maxAgentTurns = composioMcpToken ? 24 : 8;
+    const agentDeadline = requestStartTime + (composioMcpToken || connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || '').toLowerCase() === 'mcp') ? 200000 : 120000);
+    const maxAgentTurns = composioMcpToken || connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || '').toLowerCase() === 'mcp') ? 24 : 8;
     let mcpLiveTools: any[] = [];
     let mcpToolNames: string[] = [];
     if (composioMcpToken) {
@@ -898,7 +895,7 @@ export async function POST(req: NextRequest) {
       console.error('[REMOTE MCP DISCOVERY ERR]', remoteMcpErr?.message || remoteMcpErr);
     }
 
-    // In "For You" mode the real MCP tools replace the guessed Composio wrapper tools.
+    // In "For You" mode the real Composio MCP tools replace the guessed wrapper tools.
     const mcpWrapperNames = new Set([
       'connector_search', 'connector_manage_connections', 'connector_execute',
       'Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections',
@@ -921,6 +918,7 @@ export async function POST(req: NextRequest) {
       );
 
     const connectorRequest = isConnectorRelatedRequest(lastText) || remoteConnectorMention;
+    const hasRemoteMcpTools = remoteMcpTools.length > 0;
 
     // PRIMARY CONNECTOR PATH:
     // Connector requests must enter the real live Composio MCP tool loop.
@@ -928,17 +926,16 @@ export async function POST(req: NextRequest) {
     // "video": multi-step requests need the model to discover the exact tools,
     // schemas, and result-dependent values through Composio.
     if (connectorRequest) {
-      if (!composioMcpToken || !mcpModeActive) {
+      if (!mcpModeActive && !hasRemoteMcpTools) {
         const message = composioMcpToken
           ? 'Composio "For You" is connected, but its live MCP tools are unavailable right now. Please reconnect in Connectors and try again.'
-          : 'Composio "For You" is not connected yet. Click Connectors in the top right, click "+ Add", and sign in with your Composio account to connect.';
+          : 'No active Composio For You or remote MCP connector is available for this request. Open Connectors to connect one.';
         return streamTextDirectly(message, detectedSkill);
       }
-      // The first LLM turn is required to choose a real MCP tool (usually
-      // COMPOSIO_SEARCH_TOOLS / COMPOSIO_MANAGE_CONNECTIONS). After a real
-      // tool executes, later turns use normal auto tool choice so the model
-      // can chain dependent actions and finally produce a concise answer.
-      forceConnectorTool = true;
+
+      // Force the first turn only when the request is for the Composio For You
+      // account. Custom remote MCP servers remain ordinary callable tools.
+      forceConnectorTool = mcpModeActive && !remoteConnectorMention;
     }
 
     const toolContext = {
@@ -996,7 +993,7 @@ export async function POST(req: NextRequest) {
             model: 'openai/gpt-oss-120b',
             messages: fullMessages,
             tools: effectiveTools,
-            tool_choice: ((turn === 0 || forceConnectorTool) && connectorRequest && mcpModeActive)
+            tool_choice: (turn === 0 && forceConnectorTool)
               ? {
                   type: 'function',
                   function: {

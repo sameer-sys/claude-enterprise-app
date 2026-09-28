@@ -44,7 +44,13 @@ function normalizeConnectors(raw: any[]): Connector[] {
   const custom = input.filter((c: any) =>
     c?.id !== savedComposio?.id &&
     c?.isCustom === true
-  );
+  ).filter((c: any) => {
+    const type = String(c?.config?.connectionType || c?.provider || '').toLowerCase();
+    const url = String(c?.config?.mcpUrl || c?.url || '');
+    // Keep only the remote HTTP/HTTPS MCP connectors in the new connector hub.
+    // Legacy local connector definitions are intentionally not restored.
+    return type === 'mcp' && !url.startsWith('cli://') && !['cli', 'stdio'].includes(type);
+  });
 
   const composio: Connector = {
     ...base,
@@ -944,6 +950,7 @@ export default function Home() {
         onToggleConnector={handleToggleConnector}
         onUpdateConnectorConfig={handleUpdateConnectorConfig}
         sessionTitle={activeSession.title}
+        onOpenConnectors={() => setIsConnectorsOpen(true)}
         thinkingBudget={thinkingBudget}
         onSelectThinkingBudget={setThinkingBudget}
         isProactiveMode={isProactiveMode}

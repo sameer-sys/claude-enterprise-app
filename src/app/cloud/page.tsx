@@ -595,8 +595,8 @@ exit
               <Terminal className="w-5 h-5 text-amber-300" />
               <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">Active</span>
             </div>
-            <h4 className="text-sm font-semibold text-[#f2eee6]">Local Filesystem (MCP)</h4>
-            <p className="text-xs text-[#9c978b]">Standard MCP file explorer: inspect project directories and local scripts.</p>
+            <h4 className="text-sm font-semibold text-[#f2eee6]">Remote MCP Servers</h4>
+            <p className="text-xs text-[#9c978b]">Connect a public MCP server and expose its live tools directly in chat.</p>
           </div>
 
           <div className="p-4 rounded-xl bg-[#1c1b18] border border-[#333128] space-y-2">
@@ -623,7 +623,7 @@ exit
               <span className="text-[10px] font-mono text-[#cc785c] bg-[#cc785c]/10 px-2 py-0.5 rounded">Extensible</span>
             </div>
             <h4 className="text-sm font-semibold text-[#f2eee6]">Custom MCP Servers</h4>
-            <p className="text-xs text-[#9c978b]">Plug in any stdio or SSE server: Postgres, SQLite, Puppeteer, or Docker.</p>
+            <p className="text-xs text-[#9c978b]">Plug in any public remote MCP server over HTTP/HTTPS, including Postgres, browser automation, search, or your own tools.</p>
           </div>
         </div>
       </section>

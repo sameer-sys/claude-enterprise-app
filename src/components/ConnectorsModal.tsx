@@ -7,6 +7,8 @@ import {
   ChevronLeft, 
   Copy, 
   ExternalLink, 
+  Hand, 
+  Ban, 
 
   Loader2, 
   Plus, 

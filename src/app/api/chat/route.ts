@@ -491,7 +491,7 @@ function isConnectorRelatedRequest(text: string): boolean {
 
 function attachMcpSession(
   response: Response,
-  context?: { mcpToken?: string; mcpRefreshToken?: string }
+  context?: { mcpToken?: string; mcpRefreshToken?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
 ): Response {
   if (!context?.mcpToken) return response;
 
@@ -515,13 +515,21 @@ function attachMcpSession(
     'composio_mcp_access_token=; Path=/; HttpOnly; SameSite=Lax' + secure + '; Max-Age=0'
   );
 
+  const remoteUpdates = context?.remoteMcpUpdates || {};
+  const contextConnectors = context?.connectors || [];
+  for (const [connectorId, token] of Object.entries(remoteUpdates) as Array<[string, RemoteStoredToken]>) {
+    const connector = contextConnectors.find((item: any) => String(item?.id) === connectorId);
+    const serverUrl = String(connector?.config?.mcpUrl || connector?.url || '').trim();
+    if (serverUrl) setStoredTokenCookie(response, connectorId, serverUrl, token);
+  }
+
   return response;
 }
 
 function streamTextDirectly(
   text: string,
   detectedSkill: string,
-  mcpContext?: { mcpToken?: string; mcpRefreshToken?: string }
+  mcpContext?: { mcpToken?: string; mcpRefreshToken?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
 ): Response {
   const encoder = new TextEncoder();
   return attachMcpSession(new Response(

@@ -4,6 +4,7 @@ import {
   callComposioMcp,
   listMcpTools,
   executeMcpTool,
+  DEFAULT_COMPOSIO_TOOLKITS,
 } from '@/lib/composioMcp';
 
 export const dynamic = 'force-dynamic';
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
       let connectedAccounts: any[] = [];
       try {
         tools = await listMcpTools(mcpToken, mcpRefreshToken);
-        const connRes = await executeMcpTool(mcpToken, 'COMPOSIO_MANAGE_CONNECTIONS', {}, mcpRefreshToken);
+        const connRes = await executeMcpTool(mcpToken, 'COMPOSIO_MANAGE_CONNECTIONS', { toolkits: DEFAULT_COMPOSIO_TOOLKITS }, mcpRefreshToken);
         if (connRes.success && connRes.data) {
           const raw = connRes.data;
           const list = raw?.connections || raw?.connected_accounts || raw?.accounts || (Array.isArray(raw) ? raw : []);

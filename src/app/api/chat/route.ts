@@ -180,8 +180,12 @@ async function runAgentTool(
         }
 
         if (name === 'Manage_connections' || name === 'connector_manage_connections' || name === 'COMPOSIO_MANAGE_CONNECTIONS') {
+          const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
           const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-          const res = await executeMcpTool(connectorContext.mcpToken, manageTool, args || {}, connectorContext.mcpRefreshToken);
+          const toolkits = (Array.isArray(args?.toolkits) && args.toolkits.length > 0)
+            ? args.toolkits
+            : DEFAULT_COMPOSIO_TOOLKITS;
+          const res = await executeMcpTool(connectorContext.mcpToken, manageTool, { ...args, toolkits }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
@@ -500,9 +504,16 @@ function formatConnectorResult(requestText: string, result: any): string {
 
   if (isAccountQuery) {
     const connections = data.connections || data.connected_accounts || data.accounts || data.items || (Array.isArray(data) ? data : null);
+    const manageUrl = data.redirect_url || data.manage_url || data.url;
     if (Array.isArray(connections)) {
       if (connections.length === 0) {
-        return 'You currently have **0 external apps** connected in your personal Composio "For You" session.\n\nTo link YouTube, GitHub, Gmail, or add CLI/MCP tools, click **Connectors** in the top right to authenticate or add custom tools.';
+        let msg = 'You currently have **0 external apps** connected in your personal Composio "For You" session.';
+        if (manageUrl) {
+          msg += `\n\nLink your apps (YouTube, GitHub, Gmail, Slack, etc.) here: [Connect Apps on Composio](${manageUrl})`;
+        } else {
+          msg += '\n\nTo link YouTube, GitHub, Gmail, or add CLI/MCP tools, click **Connectors** in the top right to authenticate or add custom tools.';
+        }
+        return msg;
       }
       const lines = connections.map((c: any, idx: number) => {
         const app = c.app_name || c.appName || c.app || c.name || 'App';
@@ -510,12 +521,15 @@ function formatConnectorResult(requestText: string, result: any): string {
         const status = c.status || 'Active';
         return `${idx + 1}. **${app}**${account ? ` (${account})` : ''} — \`${status}\``;
       });
-      return `Here are your live connected apps from Composio "For You":\n\n` + lines.join('\n');
+      let response = `Here are your live connected apps from Composio "For You":\n\n` + lines.join('\n');
+      if (manageUrl) {
+        response += `\n\nManage or link more apps here: [Composio Connection Manager](${manageUrl})`;
+      }
+      return response;
     }
 
-    if (data.redirect_url || data.manage_url || data.url) {
-      const url = data.redirect_url || data.manage_url || data.url;
-      return `Manage your live connected apps here: [Composio Manage Connections](${url})`;
+    if (manageUrl) {
+      return `Manage your live connected apps here: [Composio Manage Connections](${manageUrl})`;
     }
   }
 
@@ -774,9 +788,9 @@ export async function POST(req: NextRequest) {
           /\bcomposio\b/i.test(lastText);
 
         if (isAccountQuery) {
-          const { pickMcpToolName } = await import('@/lib/composioMcp');
+          const { pickMcpToolName, DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
           const targetTool = pickMcpToolName(mcpToolNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-          const autoResult = await runAgentTool(targetTool, {}, {
+          const autoResult = await runAgentTool(targetTool, { toolkits: DEFAULT_COMPOSIO_TOOLKITS }, {
             mcpToken: composioMcpToken,
             mcpRefreshToken: composioMcpRefreshToken,
             mcpToolNames,
@@ -957,9 +971,9 @@ export async function POST(req: NextRequest) {
 
             // If account query and no tool executed yet, run COMPOSIO_MANAGE_CONNECTIONS now
             if (mcpModeActive && isAccountQuery && mcpToolCallsMade === 0) {
-              const { pickMcpToolName } = await import('@/lib/composioMcp');
+              const { pickMcpToolName, DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
               const targetTool = pickMcpToolName(mcpToolNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-              const autoResult = await runAgentTool(targetTool, {}, toolContext);
+              const autoResult = await runAgentTool(targetTool, { toolkits: DEFAULT_COMPOSIO_TOOLKITS }, toolContext);
               const formatted = formatConnectorResult(lastText, autoResult);
               return streamTextDirectly(formatted, detectedSkill);
             }

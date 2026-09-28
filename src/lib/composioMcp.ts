@@ -239,18 +239,44 @@ export async function listMcpTools(accessToken: string, refreshToken?: string): 
   return [];
 }
 
-/**
- * Execute an MCP tool on the Composio "For You" server
- */
+export const DEFAULT_COMPOSIO_TOOLKITS = [
+  'youtube',
+  'github',
+  'gmail',
+  'googlecalendar',
+  'googledrive',
+  'slack',
+  'notion',
+  'discord',
+  'linear',
+  'asana',
+  'jira',
+  'trello',
+  'hubspot',
+  'salesforce',
+  'shopify',
+  'reddit',
+  'telegram',
+  'whatsapp',
+  'microsoft365',
+];
+
 export async function executeMcpTool(
   accessToken: string,
   toolName: string,
-  args: any = {},
+  args: Record<string, any> = {},
   refreshToken?: string
 ): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string }> {
+  let callArgs = args || {};
+  if (/MANAGE_CONNECTIONS/i.test(toolName)) {
+    if (!callArgs.toolkits || !Array.isArray(callArgs.toolkits) || callArgs.toolkits.length === 0) {
+      callArgs = { ...callArgs, toolkits: DEFAULT_COMPOSIO_TOOLKITS };
+    }
+  }
+
   const response = await callComposioMcp(accessToken, 'tools/call', {
     name: toolName,
-    arguments: args,
+    arguments: callArgs,
   }, refreshToken);
 
   if (!response.success) {

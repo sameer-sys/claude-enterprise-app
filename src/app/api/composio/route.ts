@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  listConnectedAccounts,
-  initiateAppConnection,
-  executeComposioAction,
-  getComposioApiKey,
-  COMPOSIO_APP_MAP,
-} from '@/lib/composio';
-import {
   getMcpOAuthUrl,
   callComposioMcp,
   listMcpTools,
@@ -16,9 +9,27 @@ import {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-async function resolveKey() {
-  return getComposioApiKey();
-}
+const SUPPORTED_APPS = [
+  'github',
+  'gmail',
+  'google_drive',
+  'google_calendar',
+  'youtube',
+  'slack',
+  'notion',
+  'discord',
+  'linear',
+  'asana',
+  'jira',
+  'trello',
+  'hubspot',
+  'salesforce',
+  'shopify',
+  'reddit',
+  'telegram',
+  'whatsapp',
+  'microsoft365',
+];
 
 function resolveUserId(req: NextRequest): string {
   return req.cookies.get('sameer_composio_user_id')?.value || `sameer_${crypto.randomUUID()}`;
@@ -38,10 +49,16 @@ function withUserCookie(response: NextResponse, userId: string): NextResponse {
 export async function GET(req: NextRequest) {
   try {
     const entityId = resolveUserId(req);
-    const mcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || req.headers.get('x-composio-mcp-token') || '';
-    const mcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || req.headers.get('x-composio-mcp-refresh-token') || '';
+    const mcpToken =
+      req.cookies.get('composio_mcp_token')?.value ||
+      req.cookies.get('composio_mcp_access_token')?.value ||
+      req.headers.get('x-composio-mcp-token') ||
+      '';
+    const mcpRefreshToken =
+      req.cookies.get('composio_mcp_refresh_token')?.value ||
+      req.headers.get('x-composio-mcp-refresh-token') ||
+      '';
 
-    // Check if Composio "For You" MCP is connected
     const mcpConnected = Boolean(mcpToken);
 
     if (mcpConnected) {
@@ -59,7 +76,7 @@ export async function GET(req: NextRequest) {
           userId: entityId,
           tools,
           connectedAccounts: [],
-          supportedApps: Object.keys(COMPOSIO_APP_MAP),
+          supportedApps: SUPPORTED_APPS,
         }),
         entityId
       );
@@ -74,8 +91,9 @@ export async function GET(req: NextRequest) {
         userId: entityId,
         tools: [],
         connectedAccounts: [],
-        supportedApps: Object.keys(COMPOSIO_APP_MAP),
-        message: 'Composio "For You" is not connected yet. Click Connectors to connect your personal Composio account.',
+        supportedApps: SUPPORTED_APPS,
+        message:
+          'Composio "For You" is not connected yet. Click Connectors to connect your personal Composio account.',
       }),
       entityId
     );
@@ -90,23 +108,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const {
-      action,
-      appName,
-      redirectUrl,
-      actionName,
-      input,
-      connectedAccountId,
-      toolName,
-      args,
-    } = body || {};
+    const { action, toolName, actionName, input, args } = body || {};
 
     const origin = new URL(req.url).origin;
-    const entityId = resolveUserId(req);
-
-    // ========================================================
-    // 1. "FOR YOU" MCP ACTIONS
-    // ========================================================
 
     // Get OAuth URL for signing in to Composio "For You"
     if (action === 'get_mcp_oauth_url') {
@@ -133,7 +137,10 @@ export async function POST(req: NextRequest) {
 
     // Check "For You" MCP connection status
     if (action === 'check_mcp_status') {
-      const mcpToken = req.cookies.get('composio_mcp_token')?.value;
+      const mcpToken =
+        req.cookies.get('composio_mcp_token')?.value ||
+        req.cookies.get('composio_mcp_access_token')?.value ||
+        req.headers.get('x-composio-mcp-token');
       return NextResponse.json({
         success: true,
         connected: Boolean(mcpToken),
@@ -154,83 +161,43 @@ export async function POST(req: NextRequest) {
 
     // Execute via "For You" MCP
     if (action === 'execute_mcp') {
-      const mcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || req.headers.get('x-composio-mcp-token') || body?.mcpToken || '';
-      const mcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || req.headers.get('x-composio-mcp-refresh-token') || body?.mcpRefreshToken || '';
+      const mcpToken =
+        req.cookies.get('composio_mcp_token')?.value ||
+        req.cookies.get('composio_mcp_access_token')?.value ||
+        req.headers.get('x-composio-mcp-token') ||
+        body?.mcpToken ||
+        '';
+      const mcpRefreshToken =
+        req.cookies.get('composio_mcp_refresh_token')?.value ||
+        req.headers.get('x-composio-mcp-refresh-token') ||
+        body?.mcpRefreshToken ||
+        '';
       if (!mcpToken) {
         return NextResponse.json(
           { success: false, error: 'Composio For You is not connected. Sign in via MCP.' },
           { status: 401 }
         );
       }
-      const result = await executeMcpTool(mcpToken, String(toolName || actionName), args || input || {}, mcpRefreshToken);
-      return NextResponse.json(result, { status: result.success ? 200 : 502 });
-    }
-
-    // ========================================================
-    // 2. PLATFORM ACTIONS (LEGACY FALLBACK)
-    // ========================================================
-    const apiKey = await resolveKey();
-    if (!apiKey) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Composio is not configured. Connect via Composio "For You" or set COMPOSIO_API_KEY.',
-        },
-        { status: 503 }
-      );
-    }
-
-    if (action === 'connect') {
-      if (!appName || !entityId) {
-        return NextResponse.json({ success: false, error: 'appName is required.' }, { status: 400 });
-      }
-      const result = await initiateAppConnection(
-        apiKey,
-        String(appName),
-        String(entityId),
-        redirectUrl || new URL('/api/composio/callback', req.url).toString()
-      );
-      return withUserCookie(NextResponse.json(result, { status: result.success ? 200 : 502 }), entityId);
-    }
-
-    if (action === 'disconnect') {
-      if (!connectedAccountId) {
-        return NextResponse.json({ success: false, error: 'connectedAccountId is required.' }, { status: 400 });
-      }
-      const res = await fetch(
-        'https://backend.composio.dev/api/v3.1/connected_accounts/' + encodeURIComponent(String(connectedAccountId)),
-        {
-          method: 'DELETE',
-          headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-          cache: 'no-store',
-        }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        return NextResponse.json(
-          { success: false, error: data?.error?.message || data?.message || 'Composio disconnect failed.' },
-          { status: res.status }
-        );
-      }
-      return NextResponse.json({ success: true, connectedAccountId });
-    }
-
-    if (action === 'execute') {
-      if (!actionName) {
-        return NextResponse.json({ success: false, error: 'actionName is required.' }, { status: 400 });
-      }
-      const result = await executeComposioAction(
-        apiKey,
-        String(actionName),
-        input || {},
-        connectedAccountId,
-        String(entityId)
+      const result = await executeMcpTool(
+        mcpToken,
+        String(toolName || actionName),
+        args || input || {},
+        mcpRefreshToken
       );
       return NextResponse.json(result, { status: result.success ? 200 : 502 });
     }
 
-    return NextResponse.json({ success: false, error: 'Unknown Composio action.' }, { status: 400 });
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Unsupported action. All operations must connect via Composio "For You" MCP.',
+      },
+      { status: 400 }
+    );
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err?.message || 'Composio request failed.' }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: err?.message || 'Composio request failed.' },
+      { status: 500 }
+    );
   }
 }

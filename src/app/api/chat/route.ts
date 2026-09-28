@@ -145,6 +145,7 @@ async function runAgentTool(
     composioUserId?: string;
     remoteCredentials?: Record<string, RemoteStoredToken | undefined>;
     remoteMcpUpdates?: Record<string, RemoteStoredToken>;
+    requestText?: string;
   } = {}
 ): Promise<string> {
   try {
@@ -188,9 +189,9 @@ async function runAgentTool(
 
         if (liveNames.includes(name)) {
           const isConnectionStatusRequest =
-            isConnectorRelatedRequest(lastText) &&
-            /\b(?:connected|linked|authorized|integrated|active|available|configured|apps?|accounts?|services?|connections?|connectors?|integrations?)\b/i.test(lastText) &&
-            !/\b(?:connect|add|authorize|link|reconnect|rename|remove|disconnect|unlink)\b/i.test(lastText);
+            isConnectorRelatedRequest(String(connectorContext.requestText || '')) &&
+            /\b(?:connected|linked|authorized|integrated|active|available|configured|apps?|accounts?|services?|connections?|connectors?|integrations?)\b/i.test(String(connectorContext.requestText || '')) &&
+            !/\b(?:connect|add|authorize|link|reconnect|rename|remove|disconnect|unlink)\b/i.test(String(connectorContext.requestText || ''));
 
           if (/MANAGE_CONNECTIONS/i.test(name) && isConnectionStatusRequest) {
             const { getComposioToolkitConnectionStatuses, DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
@@ -205,7 +206,7 @@ async function runAgentTool(
             const connected = statusRes.statuses.flatMap((entry: any) =>
               (entry.accounts || []).map((account: any) => ({ ...account, app_name: entry.toolkit }))
             );
-            return formatConnectorResult(lastText, { data: { connected_accounts: connected } });
+            return formatConnectorResult(String(connectorContext.requestText || ''), { data: { connected_accounts: connected } });
           }
 
           const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
@@ -985,7 +986,7 @@ export async function POST(req: NextRequest) {
         lastText.toLowerCase().includes(String(connector.name).trim().toLowerCase())
       );
 
-    const connectorRequest = isConnectorRelatedRequest(lastText) || remoteConnectorMention;
+    const connectorRequest = isConnectorRelatedRequest(String(connectorContext.requestText || '')) || remoteConnectorMention;
     const hasRemoteMcpTools = remoteMcpTools.length > 0;
 
     // PRIMARY CONNECTOR PATH:
@@ -1017,13 +1018,14 @@ export async function POST(req: NextRequest) {
       composioUserId,
       remoteMcpTools,
       remoteMcpToolRoutes,
+      requestText: lastText,
     };
 
     const { pickMcpToolName } = await import('@/lib/composioMcp');
 
-    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-      /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-      /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
+    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(String(connectorContext.requestText || '')) ||
+      /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(String(connectorContext.requestText || '')) ||
+      /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(String(connectorContext.requestText || ''));
 
     // Connected-app queries are deterministic and READ-ONLY.
     // COMPOSIO_MANAGE_CONNECTIONS is deliberately never used for inspection,
@@ -1162,9 +1164,9 @@ export async function POST(req: NextRequest) {
           const checkText = contentText || reasoningText;
 
           const isAccountQuery =
-            /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-            /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lastText) ||
-            /\bcomposio\b/i.test(lastText);
+            /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(String(connectorContext.requestText || '')) ||
+            /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(String(connectorContext.requestText || '')) ||
+            /\bcomposio\b/i.test(String(connectorContext.requestText || ''));
 
           const isPlanningText =
             /(?:User keeps asking|we need to call|must call|produce tool call|only tool call|no prose|\{"tool":|"tool":|according to instruction)/i.test(checkText) ||

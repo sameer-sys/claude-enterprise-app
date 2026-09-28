@@ -47,9 +47,14 @@ function normalizeConnectors(raw: any[]): Connector[] {
   ).filter((c: any) => {
     const type = String(c?.config?.connectionType || c?.provider || '').toLowerCase();
     const url = String(c?.config?.mcpUrl || c?.url || '');
-    // Keep only the remote HTTP/HTTPS MCP connectors in the new connector hub.
-    // Legacy local connector definitions are intentionally not restored.
     return type === 'mcp' && !url.startsWith('cli://') && !['cli', 'stdio'].includes(type);
+  }).map((c: any) => {
+    const safeConfig = { ...(c.config || {}) };
+    // Credentials are server-side HttpOnly cookies; scrub legacy browser copies.
+    delete safeConfig.authToken;
+    delete safeConfig.apiKey;
+    delete safeConfig.clientSecret;
+    return { ...c, config: safeConfig };
   });
 
   const composio: Connector = {

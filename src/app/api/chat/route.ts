@@ -969,7 +969,7 @@ export async function POST(req: NextRequest) {
       );
       const liveResult = await runAgentTool(
         targetTool,
-        { toolkits: DEFAULT_COMPOSIO_TOOLKITS },
+        { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS },
         toolContext
       );
       return streamTextDirectly(
@@ -1118,7 +1118,7 @@ export async function POST(req: NextRequest) {
               );
 
               const autoArgs = isAccountQuery
-                ? { toolkits: DEFAULT_COMPOSIO_TOOLKITS }
+                ? { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS }
                 : {
                     queries: [{ use_case: lastText }],
                     session: { generate_id: true },

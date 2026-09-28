@@ -99,6 +99,47 @@ export async function exchangeMcpCode(
 }
 
 /**
+ * Refresh an expired Composio "For You" access token using refresh_token
+ */
+export async function refreshMcpToken(
+  refreshToken: string
+): Promise<{ success: boolean; tokens?: McpTokenResponse; error?: string }> {
+  try {
+    const res = await fetch(COMPOSIO_MCP_TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: COMPOSIO_MCP_CLIENT_ID,
+        refresh_token: refreshToken,
+      }).toString(),
+      cache: 'no-store',
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.access_token) {
+      return {
+        success: false,
+        error: data?.error_description || data?.error || `Token refresh failed with status ${res.status}`,
+      };
+    }
+
+    return {
+      success: true,
+      tokens: data as McpTokenResponse,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Network error during MCP token refresh',
+    };
+  }
+}
+
+/**
  * Call JSON-RPC 2.0 method on Composio MCP server with user AuthKit JWT
  */
 export async function callComposioMcp(

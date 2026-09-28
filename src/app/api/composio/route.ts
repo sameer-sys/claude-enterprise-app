@@ -59,15 +59,7 @@ export async function GET(req: NextRequest) {
           apiKeyConfigured: Boolean(apiKey),
           userId: entityId,
           tools,
-          connectedAccounts: [
-            {
-              id: 'mcp-composio-for-you',
-              appName: 'Composio For You',
-              appUniqueId: 'composio',
-              status: 'ACTIVE',
-              isDefault: true,
-            },
-          ],
+          connectedAccounts: [],
           supportedApps: Object.keys(COMPOSIO_APP_MAP),
         }),
         entityId

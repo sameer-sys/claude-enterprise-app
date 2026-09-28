@@ -37,7 +37,7 @@ export interface ConnectorsModalProps {
 
 export const DEFAULT_CONNECTORS: Connector[] = [{
   id: 'conn-composio',
-  name: 'composio',
+  name: 'Composio For You',
   description: 'Connect your apps, tools, OAuth accounts, and actions via MCP.',
   icon: 'composio',
   enabled: true,

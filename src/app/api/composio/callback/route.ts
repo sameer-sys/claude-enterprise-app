@@ -39,8 +39,6 @@ export async function GET(req: NextRequest) {
         type: 'sameer-composio-mcp-connected',
         status: 'success',
         provider: 'composio_for_you',
-        accessToken: exchange.tokens.access_token,
-        refreshToken: exchange.tokens.refresh_token || '',
         message: 'Successfully authenticated with Composio For You MCP!',
       });
 
@@ -75,13 +73,14 @@ export async function GET(req: NextRequest) {
         maxAge: 30 * 24 * 3600,
       });
 
-      // Also set client-readable cookie so JS can restore into localStorage across any reload
-      response.cookies.set('composio_mcp_access_token', exchange.tokens.access_token, {
-        httpOnly: false,
+      // Access/refresh tokens remain server-side in HttpOnly cookies. The browser
+      // only receives a non-secret connection status signal.
+      response.cookies.set('composio_mcp_access_token', '', {
+        httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        maxAge: 30 * 24 * 3600,
+        maxAge: 0,
       });
 
       if (exchange.tokens.refresh_token) {

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   getMcpOAuthUrl,
   callComposioMcp,
-  listMcpTools,
   executeMcpTool,
   DEFAULT_COMPOSIO_TOOLKITS,
 } from '@/lib/composioMcp';
@@ -63,31 +62,63 @@ export async function GET(req: NextRequest) {
     const mcpConnected = Boolean(mcpToken);
 
     if (mcpConnected) {
-      // User is connected to "For You" MCP
+      // User is connected to "For You" MCP. Keep the access token server-side
+      // and persist any replacement token returned by the MCP server.
+      let activeMcpToken = mcpToken;
       let tools: any[] = [];
       let connectedAccounts: any[] = [];
+
       try {
-        tools = await listMcpTools(mcpToken, mcpRefreshToken);
-        const connRes = await executeMcpTool(mcpToken, 'COMPOSIO_MANAGE_CONNECTIONS', { toolkits: DEFAULT_COMPOSIO_TOOLKITS }, mcpRefreshToken);
+        const toolListRes = await callComposioMcp(activeMcpToken, 'tools/list', {}, mcpRefreshToken);
+        if (toolListRes.newAccessToken) activeMcpToken = toolListRes.newAccessToken;
+        if (toolListRes.success && Array.isArray(toolListRes.result?.tools)) {
+          tools = toolListRes.result.tools;
+        }
+
+        const connRes = await executeMcpTool(
+          activeMcpToken,
+          'COMPOSIO_MANAGE_CONNECTIONS',
+          { toolkits: DEFAULT_COMPOSIO_TOOLKITS },
+          mcpRefreshToken
+        );
+        if (connRes.newAccessToken) activeMcpToken = connRes.newAccessToken;
         if (connRes.success && connRes.data) {
           const raw = connRes.data;
           const list = raw?.connections || raw?.connected_accounts || raw?.accounts || (Array.isArray(raw) ? raw : []);
-          connectedAccounts = list;
+          connectedAccounts = Array.isArray(list) ? list : [];
         }
-      } catch {}
+      } catch (err: any) {
+        console.error('[COMPOSIO STATUS ERR]', err?.message || err);
+      }
 
-      return withUserCookie(
-        NextResponse.json({
-          configured: true,
-          mode: 'for_you',
-          mcpConnected: true,
-          userId: entityId,
-          tools,
-          connectedAccounts,
-          supportedApps: SUPPORTED_APPS,
-        }),
-        entityId
-      );
+      const response = NextResponse.json({
+        configured: true,
+        mode: 'for_you',
+        mcpConnected: true,
+        userId: entityId,
+        tools,
+        connectedAccounts,
+        supportedApps: SUPPORTED_APPS,
+      });
+
+      if (activeMcpToken && activeMcpToken !== mcpToken) {
+        response.cookies.set('composio_mcp_token', activeMcpToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 30 * 24 * 3600,
+        });
+        response.cookies.set('composio_mcp_access_token', '', {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 0,
+        });
+      }
+
+      return withUserCookie(response, entityId);
     }
 
     // When not connected to For You MCP: strictly unconfigured with 0 accounts
@@ -192,7 +223,24 @@ export async function POST(req: NextRequest) {
         args || input || {},
         mcpRefreshToken
       );
-      return NextResponse.json(result, { status: result.success ? 200 : 502 });
+      const response = NextResponse.json(result, { status: result.success ? 200 : 502 });
+      if (result.newAccessToken) {
+        response.cookies.set('composio_mcp_token', result.newAccessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 30 * 24 * 3600,
+        });
+        response.cookies.set('composio_mcp_access_token', '', {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 0,
+        });
+      }
+      return response;
     }
 
     return NextResponse.json(

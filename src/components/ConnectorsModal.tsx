@@ -371,6 +371,8 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
           connectionType: 'mcp',
           providerName: customName.trim(),
           mcpUrl: customUrl.trim(),
+          toolAccess: 'auto',
+          disabledTools: [],
           ...(oauthClientId.trim() ? { oauthClientId: oauthClientId.trim() } : {}),
         },
         url: customUrl.trim(),

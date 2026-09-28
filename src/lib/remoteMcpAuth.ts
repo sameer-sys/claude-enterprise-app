@@ -133,7 +133,7 @@ export function pkceChallenge(verifier: string): string {
   return crypto.createHash('sha256').update(verifier).digest('base64url');
 }
 
-export function buildCookie(value: string, maxAge = MAX_COOKIE_AGE): string {
+export function buildCookie(maxAge = MAX_COOKIE_AGE): string {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   return `Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=${maxAge}`;
 }

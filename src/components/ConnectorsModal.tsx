@@ -446,10 +446,8 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                                 setCurrentView('detail');
                               }}
                             >
-                              <div className={`w-9 h-9 rounded-lg border flex items-center justify-center font-bold ${
-                                isCli ? 'bg-[#1e281e] border-[#2d3a2d] text-emerald-400' : 'bg-[#2a2722] border-[#38352d] text-[#cc785c]'
-                              }`}>
-                                {isCli ? <Terminal className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+                              <div className="w-9 h-9 rounded-lg border flex items-center justify-center font-bold bg-[#2a2722] border-[#38352d] text-[#cc785c]">
+                                <Zap className="w-4 h-4" />
                               </div>
                               <div>
                                 <div className="flex items-center gap-2">
@@ -535,7 +533,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
               <>
                   <div>
                     <p className="text-xs text-[#8f8a80]">
-                      Connect Claude to your data and tools via Model Context Protocol (MCP). <span className="underline cursor-pointer text-[#ece9e2]">Learn more about connectors</span> or get started with <span className="underline cursor-pointer text-[#ece9e2]" onClick={() => { setActiveTab('discover'); setCurrentView('list'); }}>pre-built ones</span>.
+                      Connect a remote MCP server by entering its name and public HTTP/HTTPS URL.
                     </p>
                   </div>
 

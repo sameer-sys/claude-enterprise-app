@@ -18,7 +18,6 @@ import {
   CheckCircle2,
   Trash2,
   LogIn,
-  Terminal
 } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
 
@@ -101,7 +100,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   const [writeTools, setWriteTools] = useState<ToolPermission[]>(DEFAULT_WRITE_TOOLS);
   const [globalPermission, setGlobalPermission] = useState<'Always allow' | 'Ask before run' | 'Block write'>('Always allow');
 
-  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
   // Custom remote MCP connector form state
   const [customName, setCustomName] = useState('');

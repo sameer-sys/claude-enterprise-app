@@ -30,16 +30,36 @@ const DEFAULT_SESSION: Session = {
 
 
 function normalizeToComposioOnlyConnectors(raw: any[]): Connector[] {
-  const base = createDefaultConnectors()[0];
+  const defaults = createDefaultConnectors();
+  const base = defaults[0] || {
+    id: 'conn-composio',
+    name: 'composio',
+    description: 'Connect your apps, tools, OAuth accounts, and actions via MCP.',
+    icon: 'composio',
+    enabled: true,
+    status: 'idle' as const,
+    category: 'Integrations',
+    section: 'custom' as const,
+    isCustom: true,
+    isVerified: true,
+    provider: 'mcp',
+    capabilities: ['Multi Execute', 'Tool Search', 'Skills', 'OAuth'],
+    config: {
+      connectionType: 'mcp' as const,
+      providerName: 'Composio',
+      mcpUrl: 'https://connect.composio.dev/mcp',
+    },
+    url: 'https://connect.composio.dev/mcp',
+  };
   const savedHub = Array.isArray(raw) ? raw.find((c: any) => c?.id === 'conn-composio') : null;
 
   return [{
     ...base,
     ...(savedHub || {}),
     enabled: true,
-    status: savedHub?.status === 'connected' ? 'connected' : 'ready',
+    status: savedHub?.status === 'connected' ? 'connected' : 'idle',
     config: {
-      ...base.config,
+      ...(base.config || {}),
       ...(savedHub?.config || {}),
     },
   }];

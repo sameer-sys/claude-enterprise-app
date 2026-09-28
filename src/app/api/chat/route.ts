@@ -884,6 +884,27 @@ export async function POST(req: NextRequest) {
       /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
       /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
 
+    // Connected-app queries are deterministic: always ask Composio directly
+    // so the answer cannot degrade into the UI fallback message.
+    if (connectorRequest && isAccountQuery && mcpModeActive) {
+      const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
+      const targetTool = pickMcpToolName(
+        mcpToolNames,
+        [/MANAGE_CONNECTIONS/i],
+        'COMPOSIO_MANAGE_CONNECTIONS'
+      );
+      const liveResult = await runAgentTool(
+        targetTool,
+        { toolkits: DEFAULT_COMPOSIO_TOOLKITS },
+        toolContext
+      );
+      return streamTextDirectly(
+        formatConnectorResult(lastText, liveResult),
+        detectedSkill,
+        toolContext
+      );
+    }
+
     let mcpToolCallsMade = 0;
     let mcpNudges = 0;
 

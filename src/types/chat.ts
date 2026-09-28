@@ -53,6 +53,8 @@ export interface ConnectorConfig {
   protocolVersion?: string;
   /** Per-connector HTTP tool access preferences. */
   toolAccess?: 'auto' | 'always' | 'on_demand';
+  /** Remote MCP tool names disabled for this conversation. */
+  disabledTools?: string[];
   connectedAccountId?: string;
   [key: string]: any;
 }

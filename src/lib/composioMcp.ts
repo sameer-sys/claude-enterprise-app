@@ -191,6 +191,7 @@ export async function callComposioMcp(
         success: false,
         error: `MCP server responded with status ${res.status}: ${errText}`,
         newAccessToken,
+        newRefreshToken,
       };
     }
 

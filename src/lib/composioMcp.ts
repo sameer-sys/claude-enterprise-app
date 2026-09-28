@@ -385,9 +385,38 @@ export async function listMcpToolsCached(
   refreshToken?: string,
   ttlMs = 5 * 60 * 1000
 ): Promise<McpToolSchema[]> {
+  const result = await listMcpToolsCachedWithAuth(accessToken, refreshToken, ttlMs);
+  return result.tools;
+}
+
+/**
+ * Cached tools/list that also tells the caller when a refresh produced a
+ * replacement access token. Hosts should persist that token in their
+ * HttpOnly session cookie before the next request.
+ */
+export async function listMcpToolsCachedWithAuth(
+  accessToken: string,
+  refreshToken?: string,
+  ttlMs = 5 * 60 * 1000
+): Promise<{ tools: McpToolSchema[]; accessToken: string; refreshed: boolean }> {
   const hit = MCP_TOOL_CACHE.get(accessToken);
-  if (hit && Date.now() - hit.at < ttlMs && hit.tools.length > 0) return hit.tools;
-  const tools = await listMcpTools(accessToken, refreshToken);
-  if (tools.length > 0) MCP_TOOL_CACHE.set(accessToken, { at: Date.now(), tools });
-  return tools;
+  if (hit && Date.now() - hit.at < ttlMs && hit.tools.length > 0) {
+    return { tools: hit.tools, accessToken, refreshed: false };
+  }
+
+  const response = await callComposioMcp(accessToken, 'tools/list', {}, refreshToken);
+  const tools = response.success && Array.isArray(response.result?.tools)
+    ? response.result.tools as McpToolSchema[]
+    : [];
+  const activeAccessToken = response.newAccessToken || accessToken;
+
+  if (tools.length > 0) {
+    MCP_TOOL_CACHE.set(activeAccessToken, { at: Date.now(), tools });
+  }
+
+  return {
+    tools,
+    accessToken: activeAccessToken,
+    refreshed: Boolean(response.newAccessToken),
+  };
 }

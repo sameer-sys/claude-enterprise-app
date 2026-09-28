@@ -64,8 +64,15 @@ export async function GET(req: NextRequest) {
     if (mcpConnected) {
       // User is connected to "For You" MCP
       let tools: any[] = [];
+      let connectedAccounts: any[] = [];
       try {
         tools = await listMcpTools(mcpToken, mcpRefreshToken);
+        const connRes = await executeMcpTool(mcpToken, 'COMPOSIO_MANAGE_CONNECTIONS', {}, mcpRefreshToken);
+        if (connRes.success && connRes.data) {
+          const raw = connRes.data;
+          const list = raw?.connections || raw?.connected_accounts || raw?.accounts || (Array.isArray(raw) ? raw : []);
+          connectedAccounts = list;
+        }
       } catch {}
 
       return withUserCookie(
@@ -75,7 +82,7 @@ export async function GET(req: NextRequest) {
           mcpConnected: true,
           userId: entityId,
           tools,
-          connectedAccounts: [],
+          connectedAccounts,
           supportedApps: SUPPORTED_APPS,
         }),
         entityId

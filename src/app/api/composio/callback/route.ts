@@ -52,7 +52,6 @@ export async function GET(req: NextRequest) {
         '</div>' +
         '<script>' +
         '(function(){var message=' + message + ';try{if(window.opener){window.opener.postMessage(message,' + origin + ');}}catch(e){}' +
-        'try{localStorage.setItem("claude_composio_mcp_token",' + JSON.stringify(exchange.tokens.access_token) + ');}catch(e){}' +
         'setTimeout(function(){try{window.close();}catch(e){}setTimeout(function(){if(!window.opener||!window.closed){window.location.replace(' + home + ');}},250);},600);})();' +
         '</script></body></html>';
 

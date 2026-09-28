@@ -384,10 +384,10 @@ async function runAgentTool(
 
 
 const SYSTEM_PROMPTS: Record<string, string> = {
-  boss: `You are Boss — the autonomous enterprise AI assistant with live hands powered by Composio "For You" MCP and local MCP/CLI connectors.
+  boss: `You are Boss — the autonomous enterprise AI assistant with live hands powered by Composio "For You" MCP and user-added remote MCP connectors.
 
 CONNECTED ACCOUNTS & LIVE TOOLS:
-When connected to Composio "For You" (https://connect.composio.dev/mcp) or MCP/CLI connectors, you have live execution tools:
+When connected to Composio "For You" (https://connect.composio.dev/mcp) or user-added remote MCP connectors, you have live execution tools:
 - COMPOSIO_SEARCH_TOOLS: Search available tools and actions across user's connected services.
 - COMPOSIO_GET_TOOL_SCHEMAS: Get the exact parameters schema for tools.
 - COMPOSIO_MULTI_EXECUTE_TOOL: Execute real actions on accounts connected in Composio "For You".

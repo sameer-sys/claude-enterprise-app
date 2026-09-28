@@ -214,11 +214,9 @@ async function runAgentTool(
         }
 
         if (name === 'Manage_connections' || name === 'connector_manage_connections' || name === 'COMPOSIO_MANAGE_CONNECTIONS') {
-          const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
           const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-          const toolkits = (Array.isArray(args?.toolkits) && args.toolkits.length > 0)
-            ? args.toolkits
-            : DEFAULT_COMPOSIO_TOOLKITS;
+          const toolkits = Array.isArray(args?.toolkits) ? args.toolkits.map(String).filter(Boolean) : [];
+          if (!toolkits.length) return 'COMPOSIO_MANAGE_CONNECTIONS requires explicit toolkit names.';
           const res = await executeMcpTool(connectorContext.mcpToken, manageTool, { ...args, toolkits }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
@@ -581,7 +579,7 @@ function formatConnectorResult(requestText: string, result: any): string {
     /\bcomposio\b/i.test(lower);
 
   if (isAccountQuery) {
-    // COMPOSIO_MANAGE_CONNECTIONS currently returns:
+    // COMPOSIO_SEARCH_TOOLS returns:
     // { results: { toolkit: { status, accounts: [...] } }, summary: {...} }
     // Normalize that keyed result into one flat list of active accounts.
     let connections: any[] = [];
@@ -789,7 +787,7 @@ export async function POST(req: NextRequest) {
       connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n' + [
         "You are connected to the user's personal Composio account through MCP (https://connect.composio.dev/mcp).",
         "The live Composio tools are in your tool list (COMPOSIO_SEARCH_TOOLS, COMPOSIO_GET_TOOL_SCHEMAS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS and others). Call them by their exact names.",
-        "WHEN ASKED ABOUT CONNECTED APPS/ACCOUNTS/SERVICES: Call COMPOSIO_MANAGE_CONNECTIONS to get the REAL list of connected accounts. NEVER guess, assume, or report accounts that are not in the response.",
+        "WHEN ASKED ABOUT CONNECTED APPS/ACCOUNTS/SERVICES: Use COMPOSIO_SEARCH_TOOLS to inspect toolkit connection status. NEVER use COMPOSIO_MANAGE_CONNECTIONS just to inspect status because it can initiate auth for missing toolkits.",
         "END-TO-END RULES:",
         "1. Break the request into every step it needs (for example: create a playlist, then add videos to it). Never stop after the first step.",
         "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS when a schema is missing -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the account when several are connected.",
@@ -1005,25 +1003,33 @@ export async function POST(req: NextRequest) {
       /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
       /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
 
-    // Connected-app queries are deterministic: always ask Composio directly
-    // so the answer cannot degrade into the UI fallback message.
+    // Connected-app queries are deterministic and READ-ONLY.
+    // COMPOSIO_MANAGE_CONNECTIONS is deliberately never used for inspection,
+    // because missing toolkits can trigger new auth/account creation attempts.
     if (connectorRequest && isAccountQuery && mcpModeActive) {
-      const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
-      const targetTool = pickMcpToolName(
-        mcpToolNames,
-        [/MANAGE_CONNECTIONS/i],
-        'COMPOSIO_MANAGE_CONNECTIONS'
+      const { getComposioToolkitConnectionStatuses, DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
+      const statusRes = await getComposioToolkitConnectionStatuses(
+        toolContext.mcpToken,
+        toolContext.mcpRefreshToken,
+        DEFAULT_COMPOSIO_TOOLKITS
       );
-      const liveResult = await runAgentTool(
-        targetTool,
-        { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS },
-        toolContext
-      );
-      return streamTextDirectly(
-        formatConnectorResult(lastText, liveResult),
-        detectedSkill,
-        toolContext
-      );
+
+      if (statusRes.newAccessToken) toolContext.mcpToken = statusRes.newAccessToken;
+      if (statusRes.newRefreshToken) toolContext.mcpRefreshToken = statusRes.newRefreshToken;
+
+      if (statusRes.success) {
+        const connectedAccounts = statusRes.statuses.flatMap((entry: any) =>
+          (entry.accounts || []).map((account: any) => ({
+            ...account,
+            app_name: entry.toolkit,
+          }))
+        );
+        return streamTextDirectly(
+          formatConnectorResult(lastText, { data: { connected_accounts: connectedAccounts } }),
+          detectedSkill,
+          toolContext
+        );
+      }
     }
 
     let mcpToolCallsMade = 0;
@@ -1164,13 +1170,15 @@ export async function POST(req: NextRequest) {
                 isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
               );
 
-              const autoArgs = isAccountQuery
-                ? { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS }
-                : {
-                    queries: [{ use_case: lastText }],
-                    session: { generate_id: true },
-                    model: 'gpt-5.6',
-                  };
+              const autoArgs = {
+                queries: isAccountQuery
+                  ? DEFAULT_COMPOSIO_TOOLKITS.map((toolkit: string) => ({
+                      use_case: 'Check whether ' + toolkit + ' is actively connected and identify a simple read-only tool for this service.',
+                    }))
+                  : [{ use_case: lastText }],
+                session: { generate_id: true },
+                model: 'gpt-5.6',
+              };
 
               const autoResult = await runAgentTool(targetTool, autoArgs, toolContext);
               mcpToolCallsMade++;

@@ -266,6 +266,115 @@ export const DEFAULT_COMPOSIO_TOOLKITS = [
   'microsoft365',
 ];
 
+export interface ComposioToolkitConnectionStatus {
+  toolkit: string;
+  has_active_connection: boolean;
+  accounts?: Array<{
+    id?: string;
+    status?: string;
+    is_default?: boolean;
+    account_type?: string;
+  }>;
+}
+
+function parseMcpJson(data: any): any {
+  if (data && typeof data === 'object' && !Array.isArray(data)) return data;
+  if (typeof data === 'string') {
+    try { return JSON.parse(data); } catch { return null; }
+  }
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const text = typeof item === 'string' ? item : item?.text;
+      if (typeof text !== 'string') continue;
+      try { return JSON.parse(text); } catch {}
+    }
+  }
+  return null;
+}
+
+/**
+ * Read-only connected-app status for Composio For You.
+ *
+ * IMPORTANT: do not use COMPOSIO_MANAGE_CONNECTIONS for status inspection.
+ * Composio documents that Manage Connections can initiate authentication when
+ * a toolkit has no active connection. COMPOSIO_SEARCH_TOOLS instead reports
+ * toolkit connection status without starting new auth flows.
+ */
+export async function getComposioToolkitConnectionStatuses(
+  accessToken: string,
+  refreshToken?: string,
+  toolkits: string[] = DEFAULT_COMPOSIO_TOOLKITS
+): Promise<{
+  success: boolean;
+  statuses: ComposioToolkitConnectionStatus[];
+  error?: string;
+  newAccessToken?: string;
+  newRefreshToken?: string;
+}> {
+  const requestedToolkits = Array.from(
+    new Set((Array.isArray(toolkits) ? toolkits : []).map(String).map((v) => v.trim()).filter(Boolean))
+  );
+  if (!requestedToolkits.length) {
+    return { success: true, statuses: [] };
+  }
+
+  const result = await executeMcpTool(accessToken, 'COMPOSIO_SEARCH_TOOLS', {
+    queries: requestedToolkits.map((toolkit) => ({
+      use_case: 'Check whether ' + toolkit + ' is actively connected and identify a simple read-only tool for this service.',
+    })),
+    session: { generate_id: true },
+    search_strategy: 'auto',
+    model: 'gpt-5.6',
+  }, refreshToken);
+
+  if (!result.success) {
+    return {
+      success: false,
+      statuses: [],
+      error: result.error || 'Composio connection status lookup failed.',
+      newAccessToken: result.newAccessToken,
+      newRefreshToken: result.newRefreshToken,
+    };
+  }
+
+  const parsed = parseMcpJson(result.data);
+  const statuses = parsed?.data?.toolkit_connection_statuses ||
+    parsed?.toolkit_connection_statuses ||
+    [];
+
+  if (!Array.isArray(statuses)) {
+    return {
+      success: false,
+      statuses: [],
+      error: 'Composio did not return toolkit connection statuses.',
+      newAccessToken: result.newAccessToken,
+      newRefreshToken: result.newRefreshToken,
+    };
+  }
+
+  return {
+    success: true,
+    statuses: statuses
+      .filter((entry: any) => entry && typeof entry.toolkit === 'string')
+      .map((entry: any) => ({
+        toolkit: String(entry.toolkit),
+        has_active_connection: Boolean(entry.has_active_connection),
+        accounts: Array.isArray(entry.accounts)
+          ? entry.accounts
+              .filter((account: any) => String(account?.status || '').toUpperCase() === 'ACTIVE')
+              .map((account: any) => ({
+                id: account?.id ? String(account.id) : undefined,
+                status: account?.status ? String(account.status) : 'ACTIVE',
+                is_default: Boolean(account?.is_default),
+                account_type: account?.account_type ? String(account.account_type) : undefined,
+              }))
+          : [],
+      })),
+    newAccessToken: result.newAccessToken,
+    newRefreshToken: result.newRefreshToken,
+  };
+}
+
 export async function executeMcpTool(
   accessToken: string,
   toolName: string,
@@ -274,14 +383,14 @@ export async function executeMcpTool(
 ): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string; newRefreshToken?: string }> {
   let callArgs = args || {};
   if (/MANAGE_CONNECTIONS/i.test(toolName)) {
-    // The Composio meta-tool defaults to "add". That is dangerous for any
-    // status/account inspection because every refresh would create another
-    // account. Inspection must be explicitly read-only.
-    if (!callArgs.action) {
-      callArgs = { ...callArgs, action: 'list' };
-    }
-    if (!callArgs.toolkits || !Array.isArray(callArgs.toolkits) || callArgs.toolkits.length === 0) {
-      callArgs = { ...callArgs, toolkits: DEFAULT_COMPOSIO_TOOLKITS };
+    // Never invent a default toolkit list or an implicit action here.
+    // Manage Connections is an auth-capable tool, so callers must supply the
+    // exact toolkit(s) they intentionally want to manage.
+    if (!Array.isArray(callArgs.toolkits) || callArgs.toolkits.length === 0) {
+      return {
+        success: false,
+        error: 'COMPOSIO_MANAGE_CONNECTIONS requires explicit toolkit names.',
+      };
     }
   }
 

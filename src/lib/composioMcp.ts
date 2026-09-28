@@ -145,31 +145,50 @@ export async function refreshMcpToken(
 export async function callComposioMcp(
   accessToken: string,
   method: string,
-  params: any = {}
-): Promise<{ success: boolean; result?: any; error?: any }> {
+  params: any = {},
+  refreshToken?: string
+): Promise<{ success: boolean; result?: any; error?: any; newAccessToken?: string }> {
   try {
-    const id = Date.now();
-    const res = await fetch(COMPOSIO_MCP_SERVER_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id,
-        method,
-        params,
-      }),
-      cache: 'no-store',
-    });
+    const doFetch = async (token: string) => {
+      const id = Date.now();
+      return fetch(COMPOSIO_MCP_SERVER_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          method,
+          params,
+        }),
+        cache: 'no-store',
+      });
+    };
+
+    let activeToken = accessToken;
+    let newAccessToken: string | undefined = undefined;
+    let res = await doFetch(activeToken);
+
+    // Auto-refresh token if 401 Unauthorized or 403 Forbidden
+    if ((res.status === 401 || res.status === 403) && refreshToken) {
+      console.warn('[MCP AUTO-REFRESH] Access token expired or invalid. Attempting refresh...');
+      const refreshed = await refreshMcpToken(refreshToken);
+      if (refreshed.success && refreshed.tokens?.access_token) {
+        activeToken = refreshed.tokens.access_token;
+        newAccessToken = activeToken;
+        res = await doFetch(activeToken);
+      }
+    }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       return {
         success: false,
         error: `MCP server responded with status ${res.status}: ${errText}`,
+        newAccessToken,
       };
     }
 
@@ -192,12 +211,14 @@ export async function callComposioMcp(
       return {
         success: false,
         error: payload.error.message || payload.error,
+        newAccessToken,
       };
     }
 
     return {
       success: true,
       result: payload.result,
+      newAccessToken,
     };
   } catch (err: any) {
     return {
@@ -210,8 +231,8 @@ export async function callComposioMcp(
 /**
  * List available tools from the Composio "For You" MCP server
  */
-export async function listMcpTools(accessToken: string): Promise<McpToolSchema[]> {
-  const response = await callComposioMcp(accessToken, 'tools/list', {});
+export async function listMcpTools(accessToken: string, refreshToken?: string): Promise<McpToolSchema[]> {
+  const response = await callComposioMcp(accessToken, 'tools/list', {}, refreshToken);
   if (response.success && Array.isArray(response.result?.tools)) {
     return response.result.tools;
   }
@@ -224,28 +245,36 @@ export async function listMcpTools(accessToken: string): Promise<McpToolSchema[]
 export async function executeMcpTool(
   accessToken: string,
   toolName: string,
-  args: any = {}
-): Promise<{ success: boolean; data?: any; error?: string }> {
+  args: any = {},
+  refreshToken?: string
+): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string }> {
   const response = await callComposioMcp(accessToken, 'tools/call', {
     name: toolName,
     arguments: args,
-  });
+  }, refreshToken);
 
   if (!response.success) {
     return {
       success: false,
       error: response.error?.message || String(response.error || 'MCP execution failed'),
+      newAccessToken: response.newAccessToken,
     };
   }
 
   const content = response.result?.content || response.result;
   if (response.result?.isError) {
-    return { success: false, data: content, error: mcpContentToText(content) || 'MCP tool reported an error' };
+    return {
+      success: false,
+      data: content,
+      error: mcpContentToText(content) || 'MCP tool reported an error',
+      newAccessToken: response.newAccessToken,
+    };
   }
 
   return {
     success: true,
     data: content,
+    newAccessToken: response.newAccessToken,
   };
 }
 
@@ -325,10 +354,14 @@ const MCP_TOOL_CACHE = new Map<string, { at: number; tools: McpToolSchema[] }>()
 /**
  * tools/list with a short in-memory cache so every chat request does not pay for it.
  */
-export async function listMcpToolsCached(accessToken: string, ttlMs = 5 * 60 * 1000): Promise<McpToolSchema[]> {
+export async function listMcpToolsCached(
+  accessToken: string,
+  refreshToken?: string,
+  ttlMs = 5 * 60 * 1000
+): Promise<McpToolSchema[]> {
   const hit = MCP_TOOL_CACHE.get(accessToken);
   if (hit && Date.now() - hit.at < ttlMs && hit.tools.length > 0) return hit.tools;
-  const tools = await listMcpTools(accessToken);
+  const tools = await listMcpTools(accessToken, refreshToken);
   if (tools.length > 0) MCP_TOOL_CACHE.set(accessToken, { at: Date.now(), tools });
   return tools;
 }

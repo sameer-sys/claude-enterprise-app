@@ -416,28 +416,41 @@ function getSafeHttpUrl(raw: string): URL | null {
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; mcpToken?: string; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
+  connectorContext: { apiKey?: string; mcpToken?: string; mcpToolNames?: string[]; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
 ): Promise<string> {
   try {
     // Handle Composio "For You" MCP execution
     if (connectorContext.mcpToken) {
       try {
-        const { executeMcpTool } = await import('@/lib/composioMcp');
+        const { executeMcpTool, mcpContentToText, pickMcpToolName } = await import('@/lib/composioMcp');
+        const liveNames = connectorContext.mcpToolNames || [];
+        const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
 
+        // Live MCP tool called by its real name (COMPOSIO_SEARCH_TOOLS, COMPOSIO_MULTI_EXECUTE_TOOL, ...).
+        if (liveNames.includes(name)) {
+          const res = await executeMcpTool(connectorContext.mcpToken, name, args || {});
+          const text = mcpContentToText(res.data);
+          return clip(res.success ? (text || JSON.stringify({ successful: true })) : (text || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' })));
+        }
+
+        // Legacy wrapper names still resolve to the real MCP tools.
         if (name === 'Search_Composio_Tools' || name === 'COMPOSIO_SEARCH_SKILLS' || name === 'connector_search') {
           const query = String(args?.query || args?.search || '');
-          const res = await executeMcpTool(connectorContext.mcpToken, 'COMPOSIO SEARCH SKILLS', { query });
-          return typeof res.data === 'string' ? res.data : JSON.stringify(res.data || { error: res.error });
+          const searchTool = pickMcpToolName(liveNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
+          const res = await executeMcpTool(connectorContext.mcpToken, searchTool, { queries: [{ use_case: query }], session: { generate_id: true } });
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
         if (name === 'Multi_Execute_Composio_Tools' || name === 'connector_execute') {
-          const res = await executeMcpTool(connectorContext.mcpToken, 'Multi Execute Composio Tools', args);
-          return typeof res.data === 'string' ? res.data : JSON.stringify(res.data || { error: res.error });
+          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, args);
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
         if (name === 'Manage_connections' || name === 'connector_manage_connections') {
-          const res = await executeMcpTool(connectorContext.mcpToken, 'Manage connections', args || {});
-          return typeof res.data === 'string' ? res.data : JSON.stringify(res.data || { error: res.error });
+          const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
+          const res = await executeMcpTool(connectorContext.mcpToken, manageTool, args || {});
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
       } catch (mcpErr: any) {
         console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
@@ -1438,10 +1451,17 @@ export async function POST(req: NextRequest) {
     // ========================================================
     let connectorContext = '';
     if (composioMcpToken) {
-      connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n';
-      connectorContext += 'You are connected to the user\'s personal Composio account via Model Context Protocol at https://connect.composio.dev/mcp.\n';
-      connectorContext += 'Personal MCP tools available: Multi_Execute_Composio_Tools, Search_Composio_Tools, Manage_connections.\n';
-      connectorContext += 'When asked to perform actions on user accounts (YouTube, GitHub, Drive, Mail, etc.), execute the appropriate tool via MCP.\n';
+      connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n' + [
+        "You are connected to the user's personal Composio account through MCP (https://connect.composio.dev/mcp).",
+        "The live Composio tools are in your tool list (COMPOSIO_SEARCH_TOOLS, COMPOSIO_GET_TOOL_SCHEMAS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS and others). Call them by their exact names.",
+        "END-TO-END RULES:",
+        "1. Break the request into every step it needs (for example: create a playlist, then add videos to it). Never stop after the first step.",
+        "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS when a schema is missing -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the account when several are connected.",
+        "3. Independent actions go together in ONE multi-execute call. Steps that need an earlier result (a new playlist id, a list of video ids) run in a later call using the real values returned earlier.",
+        "4. Never invent ids, slugs or arguments. Use only values returned by tools. If an app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and give the user the link.",
+        "5. Write no reply text until ALL steps are finished or truly blocked. No plans, no 'let me check', no narration between tool calls.",
+        "6. Final reply: short and clear, one line per step saying what was done, with real names, counts and links from the results. State plainly anything that failed and why.",
+      ].join('\n') + '\n';
     } else if (composioApiKey) {
       try {
         const realAccounts = await listConnectedAccounts(composioApiKey);
@@ -1512,10 +1532,22 @@ export async function POST(req: NextRequest) {
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');
 
     // 1. Tool execution loop: check if request needs web search, git, email, or Composio tools
-    const agentDeadline = requestStartTime + 120000;
-    const maxAgentTurns = 8;
+    const agentDeadline = requestStartTime + (composioMcpToken ? 200000 : 120000);
+    const maxAgentTurns = composioMcpToken ? 24 : 8;
     let connectorAccounts: any[] = [];
     let dynamicComposioTools: any[] = [];
+    let mcpLiveTools: any[] = [];
+    let mcpToolNames: string[] = [];
+    if (composioMcpToken) {
+      try {
+        const { listMcpToolsCached, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
+        mcpLiveTools = mcpToolsToOpenAI(await listMcpToolsCached(composioMcpToken));
+        mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
+      } catch (mcpListErr: any) {
+        console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
+      }
+    }
+    const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
     if (composioApiKey) {
       try {
         const { listConnectedAccounts, fetchComposioToolsForToolkits } = await import('@/lib/composio');
@@ -1536,8 +1568,17 @@ export async function POST(req: NextRequest) {
     // Without this, the router only sees our wrapper tools and can never directly
     // call the real action slug discovered from Composio.
     const reservedToolNames = new Set(AGENT_TOOLS.map((t: any) => String(t?.function?.name || '')));
+    // In "For You" mode the real MCP tools replace the guessed Composio wrapper tools.
+    const mcpWrapperNames = new Set([
+      'connector_search', 'connector_manage_connections', 'connector_execute',
+      'Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections',
+    ]);
+    const baseTools = mcpModeActive
+      ? AGENT_TOOLS.filter((t: any) => !mcpWrapperNames.has(String(t?.function?.name || '')))
+      : AGENT_TOOLS;
     const effectiveTools = [
-      ...AGENT_TOOLS,
+      ...baseTools,
+      ...mcpLiveTools,
       ...dynamicComposioTools.filter((t: any) => {
         const name = String(t?.function?.name || '');
         return name && !reservedToolNames.has(name);
@@ -1648,10 +1689,15 @@ export async function POST(req: NextRequest) {
     const toolContext = {
       apiKey: composioApiKey,
       mcpToken: composioMcpToken,
+      mcpToolNames,
       connectors,
       accounts: connectorAccounts,
       composioUserId,
     };
+
+    let mcpToolCallsMade = 0;
+    let mcpNudges = 0;
+    let mcpVerified = false;
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -1723,10 +1769,32 @@ export async function POST(req: NextRequest) {
         const toolCalls = agentMsg?.tool_calls;
 
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+          if (mcpModeActive) {
+            const mcpText = String(agentMsg?.content || '').trim();
+            if (mcpToolCallsMade === 0 && mcpNudges < 2 && isConnectorRelatedRequest(lastText)) {
+              mcpNudges++;
+              forceConnectorTool = true;
+              fullMessages.push({
+                role: 'system',
+                content: 'You have not called any Composio tool yet. Do not narrate or plan. Call COMPOSIO_SEARCH_TOOLS now, then execute the real tools.',
+              });
+              continue;
+            }
+            if (mcpToolCallsMade > 0 && !mcpVerified && mcpText && turn < maxAgentTurns - 2) {
+              mcpVerified = true;
+              fullMessages.push({ role: 'assistant', content: mcpText });
+              fullMessages.push({
+                role: 'system',
+                content: 'Completion check: list every step the user asked for and confirm each one has a successful tool result above. If ANY step is not done, or failed and can be retried, call the tools now to finish it. Only when every step is done, reply with the final answer: one line per step with real names, counts and links from the tool results. If something could not be done, say exactly what and why.',
+              });
+              forceConnectorTool = false;
+              continue;
+            }
+          }
           // Hard fallback: connector requests must never degrade into narration.
           // Handle obvious built-in reads directly; otherwise search Composio and
           // force the next agent turn to issue the real connector action.
-          if (isConnectorRelatedRequest(lastText) && (composioMcpToken || composioApiKey)) {
+          if (!mcpModeActive && isConnectorRelatedRequest(lastText) && (composioMcpToken || composioApiKey)) {
             if (/\bplaylists?\b/i.test(lastText)) {
               const ytResult = await runAgentTool('youtube_list_playlists', {}, toolContext);
               const healId = 'call_hard_yt_' + Date.now();
@@ -1795,7 +1863,7 @@ export async function POST(req: NextRequest) {
             checkText.includes('{"tool":') ||
             checkText.includes('"action":');
 
-          if (isPlanningText && (composioMcpToken || composioApiKey)) {
+          if (!mcpModeActive && isPlanningText && (composioMcpToken || composioApiKey)) {
             // Embedded JSON tool call parsing
             const jsonMatch = checkText.match(/\{[\s\S]*"action"[\s\S]*\}/);
             if (jsonMatch) {
@@ -1943,7 +2011,10 @@ export async function POST(req: NextRequest) {
             tool_call_id: call.id,
             content: result,
           });
+          if (mcpToolNames.includes(String(toolName))) mcpToolCallsMade++;
         }
+        // Once a real MCP tool has run, let the model decide: keep calling tools or finish.
+        if (mcpModeActive && mcpToolCallsMade > 0) forceConnectorTool = false;
       } catch (e) {
         break;
       }

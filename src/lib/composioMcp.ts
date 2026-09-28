@@ -113,7 +113,7 @@ export async function callComposioMcp(
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        'Accept': 'application/json, text/event-stream',
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
@@ -132,7 +132,21 @@ export async function callComposioMcp(
       };
     }
 
-    const payload = await res.json().catch(() => ({}));
+    let payload: any = {};
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('text/event-stream')) {
+      // Streamable-HTTP MCP servers may answer with an SSE frame instead of plain JSON.
+      const raw = await res.text().catch(() => '');
+      for (const line of raw.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const parsed = JSON.parse(line.slice(5).trim());
+          if (parsed && (parsed.result !== undefined || parsed.error)) payload = parsed;
+        } catch {}
+      }
+    } else {
+      payload = await res.json().catch(() => ({}));
+    }
     if (payload.error) {
       return {
         success: false,
@@ -183,8 +197,97 @@ export async function executeMcpTool(
     };
   }
 
+  const content = response.result?.content || response.result;
+  if (response.result?.isError) {
+    return { success: false, data: content, error: mcpContentToText(content) || 'MCP tool reported an error' };
+  }
+
   return {
     success: true,
-    data: response.result?.content || response.result,
+    data: content,
   };
+}
+
+
+/**
+ * Flatten MCP `content` blocks (or any value) into plain text for the model.
+ */
+export function mcpContentToText(data: any): string {
+  if (data === undefined || data === null) return '';
+  if (typeof data === 'string') return data;
+  if (Array.isArray(data)) {
+    return data
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item.text === 'string') return item.text;
+        return JSON.stringify(item);
+      })
+      .join('\n');
+  }
+  return JSON.stringify(data);
+}
+
+/**
+ * Pick the real tool name from the live MCP tool list, falling back to a known slug.
+ */
+export function pickMcpToolName(available: string[], patterns: RegExp[], fallback: string): string {
+  for (const pattern of patterns) {
+    const hit = available.find((name) => pattern.test(name));
+    if (hit) return hit;
+  }
+  return fallback;
+}
+
+function trimSchemaText(node: any, max: number): any {
+  if (Array.isArray(node)) return node.map((n) => trimSchemaText(n, max));
+  if (node && typeof node === 'object') {
+    const out: Record<string, any> = {};
+    for (const [key, value] of Object.entries(node)) {
+      if (key === '$schema') continue;
+      if (key === 'description' && typeof value === 'string') {
+        out[key] = value.length > max ? value.slice(0, max) + '...' : value;
+      } else if (key === 'examples') {
+        continue;
+      } else {
+        out[key] = trimSchemaText(value, max);
+      }
+    }
+    return out;
+  }
+  return node;
+}
+
+/**
+ * Convert live MCP tool schemas to OpenAI-style function tools, keeping the
+ * exact MCP tool names so calls can be passed straight back to the server.
+ */
+export function mcpToolsToOpenAI(tools: McpToolSchema[]): any[] {
+  return tools
+    .filter((tool) => tool && typeof tool.name === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(tool.name))
+    .map((tool) => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: String(tool.description || tool.name).slice(0, 700),
+        parameters: trimSchemaText(
+          tool.inputSchema && typeof tool.inputSchema === 'object'
+            ? tool.inputSchema
+            : { type: 'object', properties: {} },
+          220
+        ),
+      },
+    }));
+}
+
+const MCP_TOOL_CACHE = new Map<string, { at: number; tools: McpToolSchema[] }>();
+
+/**
+ * tools/list with a short in-memory cache so every chat request does not pay for it.
+ */
+export async function listMcpToolsCached(accessToken: string, ttlMs = 5 * 60 * 1000): Promise<McpToolSchema[]> {
+  const hit = MCP_TOOL_CACHE.get(accessToken);
+  if (hit && Date.now() - hit.at < ttlMs && hit.tools.length > 0) return hit.tools;
+  const tools = await listMcpTools(accessToken);
+  if (tools.length > 0) MCP_TOOL_CACHE.set(accessToken, { at: Date.now(), tools });
+  return tools;
 }

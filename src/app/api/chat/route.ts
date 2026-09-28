@@ -354,10 +354,10 @@ async function runAgentTool(
 
 
 const SYSTEM_PROMPTS: Record<string, string> = {
-  boss: `You are Boss — the autonomous enterprise AI assistant with live hands powered by Composio "For You" MCP.
+  boss: `You are Boss — the autonomous enterprise AI assistant with live hands powered by Composio "For You" MCP and local MCP/CLI connectors.
 
 CONNECTED ACCOUNTS & LIVE TOOLS:
-When connected to Composio "For You" (https://connect.composio.dev/mcp), you have live MCP execution tools:
+When connected to Composio "For You" (https://connect.composio.dev/mcp) or MCP/CLI connectors, you have live execution tools:
 - COMPOSIO_SEARCH_TOOLS: Search available tools and actions across user's connected services.
 - COMPOSIO_GET_TOOL_SCHEMAS: Get the exact parameters schema for tools.
 - COMPOSIO_MULTI_EXECUTE_TOOL: Execute real actions on accounts connected in Composio "For You".
@@ -365,12 +365,9 @@ When connected to Composio "For You" (https://connect.composio.dev/mcp), you hav
 - web_search: Search the live web for facts, news, and current information.
 - web_fetch: Fetch readable content from any URL.
 
-CRITICAL DIRECTIVE ON CONNECTED APPS:
-- You NEVER assume, invent, or hardcode which apps are connected.
-- Your connected apps are strictly determined at runtime by CALLING COMPOSIO_MANAGE_CONNECTIONS to check live.
-- When asked what apps or how many apps you are connected with, ALWAYS call COMPOSIO_MANAGE_CONNECTIONS first. Never answer from memory or context alone.
-- When asked to perform an action on any service, invoke the tool call directly.
-- After receiving tool results, present findings clearly, conversationally, and completely in GitHub-flavored Markdown.`,
+CONNECTED APPS DIRECTIVE:
+- When asked what apps or services are connected, inspect them using COMPOSIO_MANAGE_CONNECTIONS.
+- Deliver clear, conversational answers with real account details. Never output internal planning notes, meta-instructions, or JSON tool definitions in your final reply.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {
@@ -451,12 +448,76 @@ function isConnectorRelatedRequest(text: string): boolean {
   );
 }
 
+function streamTextDirectly(text: string, detectedSkill: string): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (let i = 0; i < text.length; i += 32) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: text.slice(i, i + 32) })}\n\n`));
+        }
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    }),
+    {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Claude-Skill': detectedSkill,
+        'X-Claude-Router': 'boss-agent-direct',
+      },
+    }
+  );
+}
+
 function formatConnectorResult(requestText: string, result: any): string {
-  const data = result?.data ?? result;
+  let data = result?.data ?? result;
   const lower = String(requestText || '').toLowerCase();
   if (data == null) return 'Done.';
-  if (typeof data === 'string' || typeof data === 'number' || typeof data === 'boolean') return String(data);
+
+  if (typeof data === 'string') {
+    const trimmed = data.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        data = JSON.parse(trimmed);
+      } catch {
+        return trimmed;
+      }
+    } else {
+      return trimmed;
+    }
+  }
+
   if (typeof data !== 'object') return String(data);
+
+  // Check for connected accounts listing
+  const isAccountQuery =
+    /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lower) ||
+    /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lower) ||
+    /\bcomposio\b/i.test(lower);
+
+  if (isAccountQuery) {
+    const connections = data.connections || data.connected_accounts || data.accounts || data.items || (Array.isArray(data) ? data : null);
+    if (Array.isArray(connections)) {
+      if (connections.length === 0) {
+        return 'You currently have **0 external apps** connected in your personal Composio "For You" session.\n\nTo link YouTube, GitHub, Gmail, or add CLI/MCP tools, click **Connectors** in the top right to authenticate or add custom tools.';
+      }
+      const lines = connections.map((c: any, idx: number) => {
+        const app = c.app_name || c.appName || c.app || c.name || 'App';
+        const account = c.user_id || c.email || c.account_identifier || c.id || '';
+        const status = c.status || 'Active';
+        return `${idx + 1}. **${app}**${account ? ` (${account})` : ''} — \`${status}\``;
+      });
+      return `Here are your live connected apps from Composio "For You":\n\n` + lines.join('\n');
+    }
+
+    if (data.redirect_url || data.manage_url || data.url) {
+      const url = data.redirect_url || data.manage_url || data.url;
+      return `Manage your live connected apps here: [Composio Manage Connections](${url})`;
+    }
+  }
 
   const directCount = data.total_count ?? data.totalCount ?? data.repository_count ?? data.repositoryCount ?? data.count;
   if (directCount != null && /\b(how many|total|count|number of)\b/i.test(lower)) {
@@ -624,7 +685,7 @@ export async function POST(req: NextRequest) {
 3. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation in a code block.
 4. Be direct, authoritative, and completely honest. Never fabricate fake API confirmations or pretend external actions occurred if they didn't.
 5. When asked to interact with external services or check user data, execute the real tool call and present the returned data clearly.
-6. CRITICAL: Never write sentences describing a tool call you are about to make. If an action on a connected app is needed, respond with ONLY a tool_call — zero prose before or after it. If you are unsure which tool, call connector_search first, silently.\n`;
+6. Present your final answer directly to the user in clean Markdown. Never explain your thought process or output raw JSON tool definitions in prose.\n`;
 
     const baseSystemPrompt =
       agentPrompt ||
@@ -812,123 +873,74 @@ export async function POST(req: NextRequest) {
 
         const agentData = await agentResp.json();
         const agentMsg = agentData?.choices?.[0]?.message;
-        const toolCalls = agentMsg?.tool_calls;
+        let toolCalls = agentMsg?.tool_calls;
+
+        // Catch text-formatted JSON tool calls if model didn't emit native tool_calls
+        if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+          const rawText = String(agentMsg?.content || agentMsg?.reasoning || agentMsg?.reasoning_content || '');
+          const jsonToolMatch = rawText.match(/\{\s*"(?:tool|name|action)"\s*:\s*"([A-Za-z0-9_]+)"\s*,\s*"(?:arguments|params|parameters)"\s*:\s*(\{[\s\S]*?\})\s*\}/);
+          if (jsonToolMatch) {
+            const parsedName = jsonToolMatch[1];
+            let parsedArgs = {};
+            try { parsedArgs = JSON.parse(jsonToolMatch[2]); } catch {}
+            toolCalls = [{
+              id: 'call_text_parsed_' + Date.now(),
+              type: 'function',
+              function: {
+                name: parsedName,
+                arguments: JSON.stringify(parsedArgs)
+              }
+            }];
+          }
+        }
 
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-          if (mcpModeActive) {
-            const mcpText = String(agentMsg?.content || '').trim();
-            const mcpReasoning = String(agentMsg?.reasoning || agentMsg?.reasoning_content || '').trim();
-            const combinedMcp = mcpText || mcpReasoning;
-            const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-                                   /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lastText) ||
-                                   /\bcomposio\b/i.test(lastText);
-
-            if (mcpToolCallsMade === 0 && isConnectorRelatedRequest(lastText)) {
-              // If model emitted planning text or if nudged already, auto-dispatch the live MCP tool directly!
-              const isPlanning = combinedMcp.includes('COMPOSIO_') ||
-                                 /(?:we need to|we should|let's call|i will call|calling|must call|manage_connections)/i.test(combinedMcp) ||
-                                 mcpNudges >= 1;
-
-              if (isPlanning) {
-                const { pickMcpToolName } = await import('@/lib/composioMcp');
-                const targetTool = isAccountQuery
-                  ? pickMcpToolName(mcpToolNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS')
-                  : pickMcpToolName(mcpToolNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
-                const targetArgs = isAccountQuery
-                  ? {}
-                  : { queries: [{ use_case: lastText }], session: { generate_id: true } };
-
-                const autoResult = await runAgentTool(targetTool, targetArgs, toolContext);
-                const healId = 'call_auto_mcp_' + Date.now();
-                mcpToolCallsMade++;
-                fullMessages.push({
-                  role: 'assistant',
-                  content: null,
-                  tool_calls: [{
-                    id: healId,
-                    type: 'function',
-                    function: { name: targetTool, arguments: JSON.stringify(targetArgs) }
-                  }]
-                });
-                fullMessages.push({ role: 'tool', tool_call_id: healId, content: autoResult });
-                forceConnectorTool = false;
-                continue;
-              }
-
-              mcpNudges++;
-              forceConnectorTool = true;
-              fullMessages.push({
-                role: 'system',
-                content: isAccountQuery
-                  ? 'You have not called any Composio tool yet. Do not narrate or assume. Call COMPOSIO_MANAGE_CONNECTIONS now to inspect the live connected accounts.'
-                  : 'You have not called any Composio tool yet. Do not narrate or plan. Call COMPOSIO_SEARCH_TOOLS now, then execute the real tools.',
-              });
-              continue;
-            }
-
-            if (mcpToolCallsMade > 0 && !mcpVerified && mcpText && turn < maxAgentTurns - 2) {
-              mcpVerified = true;
-              fullMessages.push({ role: 'assistant', content: mcpText });
-              fullMessages.push({
-                role: 'system',
-                content: 'Completion check: list every step the user asked for and confirm each one has a successful tool result above. If ANY step is not done, or failed and can be retried, call the tools now to finish it. Only when every step is done, reply with the final answer: one line per step with real names, counts and links from the tool results. If something could not be done, say exactly what and why.',
-              });
-              forceConnectorTool = false;
-              continue;
-            }
-          }
-
-
           const contentText = String(agentMsg?.content || '').trim();
           const reasoningText = String(agentMsg?.reasoning || agentMsg?.reasoning_content || '').trim();
-          // IMPORTANT: gpt-oss-120b often puts its planning narration in the
-          // separate `reasoning` field while leaving `content` empty. Any
-          // planning-text / tool-slug detection MUST check both fields, or a
-          // reasoning-only turn slips past every check below and gets
-          // streamed to the user as if it were a real final answer.
           const checkText = contentText || reasoningText;
-          const mentionedToolSlugMatch = checkText.match(/\b([A-Z][A-Z0-9]{2,}_[A-Z0-9_]{2,})\b/);
+
+          const isAccountQuery =
+            /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+            /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lastText) ||
+            /\bcomposio\b/i.test(lastText);
+
           const isPlanningText =
-            !contentText && Boolean(reasoningText) ||
-            /(?:we need to|we should|let's call|i will call|calling|we must|must call|action likely|use composio|should output tool call|user wants|user asks|need to call|need to find|first, need to|first need to|use composio_|to search actions|search actions for)/i.test(checkText) ||
-            /(?:we are in a loop|according to instructions|to find action|no extra text before tool call)/i.test(checkText) ||
-            /(?:let me check|let me look|let me fetch|let me get|checking your|looking that up|one moment|i'll check|i'll look|i'll fetch|i'll get|give me a moment|fetching your|retrieving your)/i.test(checkText) ||
-            Boolean(mentionedToolSlugMatch) ||
-            checkText.includes('{"tool":') ||
-            checkText.includes('"action":');
+            /(?:User keeps asking|we need to call|must call|produce tool call|only tool call|no prose|\{"tool":|"tool":|according to instruction)/i.test(checkText) ||
+            (!contentText && Boolean(reasoningText)) ||
+            /(?:we need to|we should|let's call|i will call|calling|we must|action likely|use composio|should output tool call|user wants|user asks|need to call|need to find|first, need to|first need to|use composio_|to search actions|search actions for)/i.test(checkText);
 
-
-
-          // Not planning text: stream the model's actual answer directly.
-          // NEVER fall back to raw reasoning here - reasoning is internal
-          // thinking, not a real answer, and streaming it verbatim was the
-          // bug that leaked "We need to call X..." straight to the user.
-          const textToStream = contentText;
-          if (textToStream) {
-            return new Response(
-              new ReadableStream({
-                start(controller) {
-                  const encoder = new TextEncoder();
-                  if (agentMsg?.reasoning && contentText) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ thinking: agentMsg.reasoning })}\n\n`));
-                  }
-                  for (let i = 0; i < textToStream.length; i += 32) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: textToStream.slice(i, i + 32) })}\n\n`));
-                  }
-                  controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-                  controller.close();
-                }
-              }),
-              {
-                headers: {
-                  'Content-Type': 'text/event-stream',
-                  'Cache-Control': 'no-cache',
-                  Connection: 'keep-alive',
-                  'X-Claude-Skill': detectedSkill,
-                  'X-Claude-Router': 'boss-agent-direct',
-                },
+          if (isPlanningText) {
+            // Check if there was already a tool result we can summarize or format
+            const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+            if (lastToolMsg && typeof lastToolMsg.content === 'string') {
+              const formatted = formatConnectorResult(lastText, lastToolMsg.content);
+              if (formatted) {
+                return streamTextDirectly(formatted, detectedSkill);
               }
-            );
+            }
+
+            // If account query and no tool executed yet, run COMPOSIO_MANAGE_CONNECTIONS now
+            if (mcpModeActive && isAccountQuery && mcpToolCallsMade === 0) {
+              const { pickMcpToolName } = await import('@/lib/composioMcp');
+              const targetTool = pickMcpToolName(mcpToolNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
+              const autoResult = await runAgentTool(targetTool, {}, toolContext);
+              const formatted = formatConnectorResult(lastText, autoResult);
+              return streamTextDirectly(formatted, detectedSkill);
+            }
+
+            mcpNudges++;
+            forceConnectorTool = true;
+            fullMessages.push({
+              role: 'system',
+              content: isAccountQuery
+                ? 'Call COMPOSIO_MANAGE_CONNECTIONS now.'
+                : 'Call the required tool now.',
+            });
+            continue;
+          }
+
+          if (contentText) {
+            return streamTextDirectly(contentText, detectedSkill);
           }
           break;
         }
@@ -1024,13 +1036,18 @@ export async function POST(req: NextRequest) {
                 if (!trimmed || !trimmed.startsWith('data: ')) continue;
                 const dataStr = trimmed.replace('data: ', '');
                 if (dataStr === '[DONE]') {
-                  if (accumulatedContent.trim().length === 0) {
+                  let finalOutput = accumulatedContent.trim();
+                  if (/(?:User keeps asking|we need to call|must call|produce tool call|only tool call|no prose|\{"tool":|"tool":|according to instruction)/i.test(finalOutput)) {
+                    finalOutput = '';
+                  }
+
+                  if (!finalOutput) {
                     const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
-                    const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
-                      ? lastToolMsg.content.trim()
-                      : (accumulatedReasoning.trim() || 'Action completed.');
+                    finalOutput = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
+                      ? formatConnectorResult(lastText, lastToolMsg.content.trim())
+                      : 'I checked your active connectors. Click Connectors in the top right to view or manage your connected accounts and CLI tools.';
                     controller.enqueue(
-                      encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
+                      encoder.encode(`data: ${JSON.stringify({ content: finalOutput })}\n\n`)
                     );
                   }
                   controller.enqueue(encoder.encode('data: [DONE]\n\n'));

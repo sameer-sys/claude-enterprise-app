@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendRealEmail } from '@/lib/mailer';
 import { fetchLatestEmails } from '@/lib/imapReader';
+import { getCredentialFromRequest, getStoredTokenFromRequest, type RemoteStoredToken, setStoredTokenCookie } from '@/lib/remoteMcpAuth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -142,6 +143,8 @@ async function runAgentTool(
     connectors?: any[];
     accounts?: any[];
     composioUserId?: string;
+    remoteCredentials?: Record<string, RemoteStoredToken | undefined>;
+    remoteMcpUpdates?: Record<string, RemoteStoredToken>;
   } = {}
 ): Promise<string> {
   try {
@@ -161,11 +164,19 @@ async function runAgentTool(
     const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
     if (remoteRoute) {
       const { callRemoteMcpTool } = await import('@/lib/remoteMcp');
+      const connectorId = String(remoteRoute.connector?.id || '');
       return (await callRemoteMcpTool(
         remoteRoute.connector,
         name,
         remoteRoute.originalToolName,
-        args || {}
+        args || {},
+        {
+          credentials: connectorContext.remoteCredentials?.[connectorId],
+          onCredentialsUpdated: (next) => {
+            if (connectorContext.remoteMcpUpdates && connectorId) connectorContext.remoteMcpUpdates[connectorId] = next;
+            if (connectorContext.remoteCredentials && connectorId) connectorContext.remoteCredentials[connectorId] = next;
+          },
+        }
       )).slice(0, 14000);
     }
 
@@ -854,6 +865,22 @@ export async function POST(req: NextRequest) {
     }
     const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
 
+    const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};
+    const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};
+    const runtimeConnectors = (Array.isArray(connectors) ? connectors : []).map((connector: any) => {
+      const cfg = connector?.config || {};
+      const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+      const url = String(cfg.mcpUrl || connector?.url || '').trim();
+      const isComposio = String(connector?.name || '').toLowerCase().includes('composio') || url.includes('connect.composio.dev');
+      if (type !== 'mcp' || isComposio || !url || !connector?.id) return connector;
+      const stored = getStoredTokenFromRequest({ cookies: req.cookies }, String(connector.id), url);
+      const credential = getCredentialFromRequest({ cookies: req.cookies }, String(connector.id), url);
+      const merged = { ...(credential || {}), ...(stored || {}) };
+      if (!merged.accessToken && !merged.refreshToken && !merged.clientId && !merged.clientSecret) return connector;
+      remoteCredentials[String(connector.id)] = merged;
+      return { ...connector, config: { ...cfg, ...(merged.accessToken ? { authToken: merged.accessToken } : {}) } };
+    });
+
     // Generic remote MCP connectors (non-Composio) are discovered here and
     // exposed to the model under collision-safe names.
     let remoteMcpTools: any[] = [];
@@ -861,7 +888,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const { listRemoteMcpTools } = await import('@/lib/remoteMcp');
-      const remoteConnectors = (Array.isArray(connectors) ? connectors : [])
+      const remoteConnectors = runtimeConnectors
         .filter((connector: any) => {
           const cfg = connector?.config || {};
           const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
@@ -882,12 +909,27 @@ export async function POST(req: NextRequest) {
 
       for (const item of discovered) {
         if (item.status !== 'fulfilled') continue;
-        for (const tool of item.value.tools) {
+        const connector = item.value.connector;
+        const access = String(connector?.config?.toolAccess || 'auto');
+        const disabled = new Set(
+          Array.isArray(connector?.config?.disabledTools) ? connector.config.disabledTools.map(String) : []
+        );
+        const queryWords = String(lastText || '').toLowerCase().split(/[^a-z0-9]+/).filter((word: string) => word.length >= 3);
+        const selectedTools = item.value.tools.filter((tool: any) => {
+          const original = String(tool.originalName || tool.function?.name || '').trim();
+          if (disabled.has(original)) return false;
+          if (access !== 'on_demand') return true;
+          const connectorName = String(connector?.name || '').toLowerCase();
+          if (connectorName && queryWords.some((word: string) => connectorName.includes(word))) return true;
+          const haystack = (String(tool.function?.name || '') + ' ' + String(tool.function?.description || '')).toLowerCase();
+          return queryWords.some((word: string) => haystack.includes(word));
+        });
+        for (const tool of selectedTools) {
           remoteMcpTools.push(tool);
-          const prefix = `REMOTE_MCP_${String(item.value.connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12)}_`;
+          const prefix = `REMOTE_MCP_${String(connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12)}_`;
           remoteMcpToolRoutes[tool.function.name] = {
-            connector: item.value.connector,
-            originalToolName: String(tool.function.name).replace(prefix, ''),
+            connector,
+            originalToolName: String(tool.originalName || tool.function.name).replace(prefix, ''),
           };
         }
       }
@@ -942,8 +984,10 @@ export async function POST(req: NextRequest) {
       mcpToken: composioMcpToken,
       mcpRefreshToken: composioMcpRefreshToken,
       mcpToolNames,
-      connectors,
+      connectors: runtimeConnectors,
       accounts: [],
+      remoteCredentials,
+      remoteMcpUpdates,
       composioUserId,
       remoteMcpTools,
       remoteMcpToolRoutes,

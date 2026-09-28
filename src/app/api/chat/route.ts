@@ -1178,7 +1178,7 @@ export async function POST(req: NextRequest) {
             },
           });
 
-          return new Response(upstreamResponse.body.pipeThrough(transformStream), {
+          return attachMcpSession(new Response(upstreamResponse.body.pipeThrough(transformStream), {
             headers: {
               'Content-Type': 'text/event-stream',
               'Cache-Control': 'no-cache',
@@ -1186,7 +1186,7 @@ export async function POST(req: NextRequest) {
               'X-Claude-Skill': detectedSkill,
               'X-Claude-Router': `${endpoint.tag}-${targetModel}`,
             },
-          });
+          }), toolContext);
         } catch (streamErr) {
           // Continue to next model / endpoint
         }
@@ -1328,7 +1328,7 @@ export async function POST(req: NextRequest) {
                 },
               });
 
-              return new Response(geminiResponse.body?.pipeThrough(transformStream), {
+              return attachMcpSession(new Response(geminiResponse.body?.pipeThrough(transformStream), {
                 headers: {
                   'Content-Type': 'text/event-stream',
                   'Cache-Control': 'no-cache',
@@ -1336,7 +1336,7 @@ export async function POST(req: NextRequest) {
                   'X-Claude-Skill': detectedSkill,
                   'X-Claude-Router': candidate,
                 },
-              });
+              }), toolContext);
             }
           } catch (modelErr) {
             // try next candidate
@@ -1395,7 +1395,7 @@ export async function POST(req: NextRequest) {
             },
           });
 
-          return new Response(stream, {
+          return attachMcpSession(new Response(stream, {
             headers: {
               'Content-Type': 'text/event-stream',
               'Cache-Control': 'no-cache',
@@ -1403,7 +1403,7 @@ export async function POST(req: NextRequest) {
               'X-Claude-Skill': detectedSkill,
               'X-Claude-Router': 'cloud-instant-stream',
             },
-          });
+          }), toolContext);
         }
       }
     } catch (e) {
@@ -1427,7 +1427,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return new Response(stream, {
+    return attachMcpSession(new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -1435,7 +1435,7 @@ export async function POST(req: NextRequest) {
         'X-Claude-Skill': detectedSkill,
         'X-Claude-Router': 'claude-enterprise-edge',
       },
-    });
+    }), toolContext);
   } catch (error: any) {
     const encoder = new TextEncoder();
     const safeMsg = `Hello! I am Boss. I am standing by and ready to help you. How can I assist you?`;

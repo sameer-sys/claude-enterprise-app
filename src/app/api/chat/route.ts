@@ -158,6 +158,7 @@ async function runAgentTool(
         if (liveNames.includes(name)) {
           const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           const text = mcpContentToText(res.data);
           return clip(res.success ? (text || JSON.stringify({ successful: true })) : (text || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' })));
         }
@@ -168,6 +169,7 @@ async function runAgentTool(
           const searchTool = pickMcpToolName(liveNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
           const res = await executeMcpTool(connectorContext.mcpToken, searchTool, { queries: [{ use_case: query }], session: { generate_id: true } }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -176,6 +178,7 @@ async function runAgentTool(
           const payload = args?.action ? { tools: [{ name: args.action, arguments: args.params || args.arguments || {} }] } : args;
           const res = await executeMcpTool(connectorContext.mcpToken, execTool, payload, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -187,6 +190,7 @@ async function runAgentTool(
             : DEFAULT_COMPOSIO_TOOLKITS;
           const res = await executeMcpTool(connectorContext.mcpToken, manageTool, { ...args, toolkits }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -198,6 +202,7 @@ async function runAgentTool(
             tools: [{ name: mcpAction, arguments: args || {} }]
           }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -208,6 +213,7 @@ async function runAgentTool(
             tools: [{ name, arguments: args || {} }]
           }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
       } catch (mcpErr: any) {
@@ -452,9 +458,42 @@ function isConnectorRelatedRequest(text: string): boolean {
   );
 }
 
-function streamTextDirectly(text: string, detectedSkill: string): Response {
+function attachMcpSession(
+  response: Response,
+  context?: { mcpToken?: string; mcpRefreshToken?: string }
+): Response {
+  if (!context?.mcpToken) return response;
+
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const base = '; Path=/; HttpOnly; SameSite=Lax' + secure;
+
+  response.headers.append(
+    'Set-Cookie',
+    'composio_mcp_token=' + encodeURIComponent(context.mcpToken) + base + '; Max-Age=' + 30 * 24 * 3600
+  );
+
+  if (context.mcpRefreshToken) {
+    response.headers.append(
+      'Set-Cookie',
+      'composio_mcp_refresh_token=' + encodeURIComponent(context.mcpRefreshToken) + base + '; Max-Age=' + 90 * 24 * 3600
+    );
+  }
+
+  response.headers.append(
+    'Set-Cookie',
+    'composio_mcp_access_token=; Path=/; HttpOnly; SameSite=Lax' + secure + '; Max-Age=0'
+  );
+
+  return response;
+}
+
+function streamTextDirectly(
+  text: string,
+  detectedSkill: string,
+  mcpContext?: { mcpToken?: string; mcpRefreshToken?: string }
+): Response {
   const encoder = new TextEncoder();
-  return new Response(
+  return attachMcpSession(new Response(
     new ReadableStream({
       start(controller) {
         for (let i = 0; i < text.length; i += 32) {
@@ -473,7 +512,7 @@ function streamTextDirectly(text: string, detectedSkill: string): Response {
         'X-Claude-Router': 'boss-agent-direct',
       },
     }
-  );
+  ), mcpContext);
 }
 
 function formatConnectorResult(requestText: string, result: any): string {
@@ -787,7 +826,7 @@ export async function POST(req: NextRequest) {
         const message = composioMcpToken
           ? 'Composio "For You" is connected, but its live MCP tools are unavailable right now. Please reconnect in Connectors and try again.'
           : 'Composio "For You" is not connected yet. Click Connectors in the top right, click "+ Add", and sign in with your Composio account to connect.';
-        return streamTextDirectly(message, detectedSkill);
+        return streamTextDirectly(message, detectedSkill, toolContext);
       }
       // The first LLM turn is required to choose a real MCP tool (usually
       // COMPOSIO_SEARCH_TOOLS / COMPOSIO_MANAGE_CONNECTIONS). After a real
@@ -934,7 +973,7 @@ export async function POST(req: NextRequest) {
             if (lastToolMsg && typeof lastToolMsg.content === 'string') {
               const formatted = formatConnectorResult(lastText, lastToolMsg.content);
               if (formatted) {
-                return streamTextDirectly(formatted, detectedSkill);
+                return streamTextDirectly(formatted, detectedSkill, toolContext);
               }
             }
 
@@ -962,7 +1001,7 @@ export async function POST(req: NextRequest) {
 
               if (isAccountQuery) {
                 const formatted = formatConnectorResult(lastText, autoResult);
-                return streamTextDirectly(formatted, detectedSkill);
+                return streamTextDirectly(formatted, detectedSkill, toolContext);
               }
 
               fullMessages.push({
@@ -988,7 +1027,7 @@ export async function POST(req: NextRequest) {
           }
 
           if (contentText) {
-            return streamTextDirectly(contentText, detectedSkill);
+            return streamTextDirectly(contentText, detectedSkill, toolContext);
           }
           break;
         }

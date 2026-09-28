@@ -260,14 +260,23 @@ export async function POST(req: NextRequest) {
         mcpRefreshToken
       );
       const response = NextResponse.json(result, { status: result.success ? 200 : 502 });
-      if (result.newAccessToken) {
-        response.cookies.set('composio_mcp_token', result.newAccessToken, {
+      if (result.newAccessToken || (result as any).newRefreshToken) {
+        response.cookies.set('composio_mcp_token', result.newAccessToken || mcpToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
           sameSite: 'lax',
           path: '/',
           maxAge: 30 * 24 * 3600,
         });
+        if ((result as any).newRefreshToken) {
+          response.cookies.set('composio_mcp_refresh_token', (result as any).newRefreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 90 * 24 * 3600,
+          });
+        }
         response.cookies.set('composio_mcp_access_token', '', {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',

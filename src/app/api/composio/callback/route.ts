@@ -16,6 +16,8 @@ function escapeHtml(value: string): string {
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
+  const callbackState = String(url.searchParams.get('state') || '');
+  const expectedState = req.cookies.get('composio_pkce_state')?.value || '';
   const sessionUri = String(url.searchParams.get('session_uri') || '');
   const callbackAccountId = String(url.searchParams.get('connected_account_id') || '');
   const callbackUserId = String(url.searchParams.get('user_id') || '');
@@ -31,6 +33,13 @@ export async function GET(req: NextRequest) {
 
   // 1. Handle Composio "For You" MCP OAuth 2.0 PKCE Callback
   if (code) {
+    // Bind the callback to the browser that started the OAuth flow.
+    if (!callbackState || !expectedState || callbackState !== expectedState) {
+      return new NextResponse('Invalid OAuth state.', {
+        status: 400,
+        headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' },
+      });
+    }
     const verifier = req.cookies.get('composio_pkce_verifier')?.value || '';
     const exchange = await exchangeMcpCode(code, verifier, url.origin);
 

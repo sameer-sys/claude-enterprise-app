@@ -145,6 +145,7 @@ async function runAgentTool(
     composioUserId?: string;
     remoteCredentials?: Record<string, RemoteStoredToken | undefined>;
     remoteMcpUpdates?: Record<string, RemoteStoredToken>;
+    requestText?: string;
   } = {}
 ): Promise<string> {
   try {
@@ -187,6 +188,27 @@ async function runAgentTool(
         const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
 
         if (liveNames.includes(name)) {
+          const isConnectionStatusRequest =
+            isConnectorRelatedRequest(String(connectorContext.requestText || '')) &&
+            /\b(?:connected|linked|authorized|integrated|active|available|configured|apps?|accounts?|services?|connections?|connectors?|integrations?)\b/i.test(String(connectorContext.requestText || '')) &&
+            !/\b(?:connect|add|authorize|link|reconnect|rename|remove|disconnect|unlink)\b/i.test(String(connectorContext.requestText || ''));
+
+          if (/MANAGE_CONNECTIONS/i.test(name) && isConnectionStatusRequest) {
+            const { getComposioToolkitConnectionStatuses, DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
+            const statusRes = await getComposioToolkitConnectionStatuses(
+              connectorContext.mcpToken,
+              connectorContext.mcpRefreshToken,
+              DEFAULT_COMPOSIO_TOOLKITS
+            );
+            if (statusRes.newAccessToken) connectorContext.mcpToken = statusRes.newAccessToken;
+            if (statusRes.newRefreshToken) connectorContext.mcpRefreshToken = statusRes.newRefreshToken;
+            if (!statusRes.success) return 'Unable to read Composio connection status: ' + String(statusRes.error || 'unknown error');
+            const connected = statusRes.statuses.flatMap((entry: any) =>
+              (entry.accounts || []).map((account: any) => ({ ...account, app_name: entry.toolkit }))
+            );
+            return formatConnectorResult(String(connectorContext.requestText || ''), { data: { connected_accounts: connected } });
+          }
+
           const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
@@ -397,15 +419,16 @@ const SYSTEM_PROMPTS: Record<string, string> = {
 
 CONNECTED ACCOUNTS & LIVE TOOLS:
 When connected to Composio "For You" (https://connect.composio.dev/mcp) or user-added remote MCP connectors, you have live execution tools:
-- COMPOSIO_SEARCH_TOOLS: Search available tools and actions across user's connected services.
+- COMPOSIO_SEARCH_TOOLS: Search available tools and actions across user's connected services and report toolkit connection status.
 - COMPOSIO_GET_TOOL_SCHEMAS: Get the exact parameters schema for tools.
 - COMPOSIO_MULTI_EXECUTE_TOOL: Execute real actions on accounts connected in Composio "For You".
-- COMPOSIO_MANAGE_CONNECTIONS: Inspect the live connected accounts for the user.
+- COMPOSIO_MANAGE_CONNECTIONS: Start, rename, or remove an explicitly requested toolkit connection. Never use it to inspect connection status.
 - web_search: Search the live web for facts, news, and current information.
 - web_fetch: Fetch readable content from any URL.
 
 CONNECTED APPS DIRECTIVE:
-- When asked what apps or services are connected, inspect them using COMPOSIO_MANAGE_CONNECTIONS.
+- When asked what apps or services are connected, use COMPOSIO_SEARCH_TOOLS connection-status results. Never call COMPOSIO_MANAGE_CONNECTIONS for a status/list/check request.
+- Use COMPOSIO_MANAGE_CONNECTIONS only for an explicit user request to connect, rename, or remove a specific toolkit.
 - Deliver clear, conversational answers with real account details. Never output internal planning notes, meta-instructions, or JSON tool definitions in your final reply.`,
 };
 
@@ -995,6 +1018,7 @@ export async function POST(req: NextRequest) {
       composioUserId,
       remoteMcpTools,
       remoteMcpToolRoutes,
+      requestText: lastText,
     };
 
     const { pickMcpToolName } = await import('@/lib/composioMcp');
@@ -1055,8 +1079,8 @@ export async function POST(req: NextRequest) {
                   function: {
                     name: pickMcpToolName(
                       mcpToolNames,
-                      [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
-                      isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                      [/SEARCH_TOOLS/i],
+                      'COMPOSIO_SEARCH_TOOLS'
                     ),
                   },
                 }
@@ -1166,8 +1190,8 @@ export async function POST(req: NextRequest) {
               const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
               const targetTool = pickMcpToolName(
                 mcpToolNames,
-                [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
-                isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                [/SEARCH_TOOLS/i],
+                'COMPOSIO_SEARCH_TOOLS'
               );
 
               const autoArgs = {
@@ -1204,7 +1228,7 @@ export async function POST(req: NextRequest) {
             fullMessages.push({
               role: 'system',
               content: isAccountQuery
-                ? 'Call COMPOSIO_MANAGE_CONNECTIONS now.'
+                ? 'Call COMPOSIO_SEARCH_TOOLS now for connection status. Never call COMPOSIO_MANAGE_CONNECTIONS for a status/list/check request.'
                 : 'Call the required Composio tool now.',
             });
             continue;

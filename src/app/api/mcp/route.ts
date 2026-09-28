@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import type { Connector } from '@/types/chat';
 import { listRemoteMcpTools } from '@/lib/remoteMcp';
@@ -14,7 +15,6 @@ import {
   setStoredTokenCookie,
   clearTokenCookie,
   credentialCookieName,
-  tokenCookieName,
   type RemoteOAuthState,
   type RemoteStoredToken,
 } from '@/lib/remoteMcpAuth';
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
       if (scopeList.length) auth.searchParams.set('scope', scopeList.join(' '));
       if (resource) auth.searchParams.set('resource', resource);
 
-      const oauthState: RemoteOAuthState = { connectorId: connector.id, name: connector.name, serverUrl: connector.url, redirectUri, codeVerifier: verifier, clientId, clientSecret, resource, tokenEndpoint: oauth.token_endpoint, authorizationEndpoint: oauth.authorization_endpoint };
+      const oauthState: RemoteOAuthState = { state, connectorId: connector.id, name: connector.name, serverUrl: connector.url, redirectUri, codeVerifier: verifier, clientId, clientSecret, resource, tokenEndpoint: oauth.token_endpoint, authorizationEndpoint: oauth.authorization_endpoint };
       const response = NextResponse.json({ success: true, authUrl: auth.toString() });
       response.headers.append('Set-Cookie', cookie(OAUTH_STATE_COOKIE + '=' + encodeURIComponent(encodeJson(oauthState)), 15 * 60));
       return response;

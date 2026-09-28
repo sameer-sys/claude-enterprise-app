@@ -1079,8 +1079,8 @@ export async function POST(req: NextRequest) {
                   function: {
                     name: pickMcpToolName(
                       mcpToolNames,
-                      [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
-                      isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                      [/SEARCH_TOOLS/i],
+                      'COMPOSIO_SEARCH_TOOLS'
                     ),
                   },
                 }
@@ -1190,8 +1190,8 @@ export async function POST(req: NextRequest) {
               const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
               const targetTool = pickMcpToolName(
                 mcpToolNames,
-                [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
-                isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                [/SEARCH_TOOLS/i],
+                'COMPOSIO_SEARCH_TOOLS'
               );
 
               const autoArgs = {
@@ -1228,7 +1228,7 @@ export async function POST(req: NextRequest) {
             fullMessages.push({
               role: 'system',
               content: isAccountQuery
-                ? 'Call COMPOSIO_MANAGE_CONNECTIONS now.'
+                ? 'Call COMPOSIO_SEARCH_TOOLS now for connection status. Never call COMPOSIO_MANAGE_CONNECTIONS for a status/list/check request.'
                 : 'Call the required Composio tool now.',
             });
             continue;

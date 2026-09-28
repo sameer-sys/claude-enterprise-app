@@ -32,7 +32,7 @@ export interface RemoteOAuthState {
 }
 
 export interface RemoteStoredToken {
-  accessToken: string;
+  accessToken?: string;
   refreshToken?: string;
   tokenType?: string;
   expiresAt?: number;

@@ -324,6 +324,28 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         url: customUrl.trim(),
       };
 
+      const probeRes = await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'check', connector: newConnector }),
+      });
+      const probe = await probeRes.json().catch(() => ({}));
+
+      if (probeRes.ok && probe?.success) {
+        newConnector.status = probe.toolCount > 0 ? 'connected' : 'ready';
+        setStatusMessage(
+          probe.toolCount > 0
+            ? `Connected — discovered ${probe.toolCount} MCP tool${probe.toolCount === 1 ? '' : 's'}.`
+            : 'Server responded, but did not advertise any tools yet.'
+        );
+      } else if (probe?.requiresAuth || probeRes.status === 401 || probeRes.status === 403) {
+        newConnector.status = 'ready';
+        setStatusMessage('Connector saved. The remote MCP server requires authentication.');
+      } else {
+        newConnector.status = 'ready';
+        setStatusMessage(probe?.error || 'Connector saved. It will be checked again when the agent uses it.');
+      }
+
       const updated = [newConnector, ...customConnectors.filter((c) => c.name.toLowerCase() !== newConnector.name.toLowerCase())];
       setCustomConnectors(updated);
       try {

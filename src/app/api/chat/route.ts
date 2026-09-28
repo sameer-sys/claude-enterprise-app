@@ -765,30 +765,66 @@ export async function POST(req: NextRequest) {
 
     // Connector requests are fail-closed: NEVER send them to the LLM as a
     // fallback. The only source of connected-app data/actions is Composio.
+    // Connector requests: DIRECT COMPOSIO EXECUTION (Zero LLM tokens, zero hallucination)
     if (connectorRequest) {
       if (composioMcpToken) {
-        // User is connected via Composio "For You" MCP.
-        // Route through multi-turn agent loop with live MCP tools for end-to-end execution.
+        const isAccountQuery =
+          /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+          /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lastText) ||
+          /\bcomposio\b/i.test(lastText);
+
+        if (isAccountQuery) {
+          const { pickMcpToolName } = await import('@/lib/composioMcp');
+          const targetTool = pickMcpToolName(mcpToolNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
+          const autoResult = await runAgentTool(targetTool, {}, {
+            mcpToken: composioMcpToken,
+            mcpRefreshToken: composioMcpRefreshToken,
+            mcpToolNames,
+            connectors,
+            accounts: [],
+            composioUserId,
+          });
+          const formatted = formatConnectorResult(lastText, autoResult);
+          return streamTextDirectly(formatted, detectedSkill);
+        }
+
+        // Direct app action mappings (Composio handles directly)
+        const actionMap: Record<string, string> = {
+          'playlist': 'YOUTUBE_LIST_USER_PLAYLISTS',
+          'playlists': 'YOUTUBE_LIST_USER_PLAYLISTS',
+          'video': 'YOUTUBE_LIST_USER_PLAYLISTS',
+          'videos': 'YOUTUBE_LIST_USER_PLAYLISTS',
+          'repo': 'GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER',
+          'repos': 'GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER',
+          'repositories': 'GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER',
+          'repository': 'GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER',
+          'email': 'GMAIL_LIST_THREADS',
+          'emails': 'GMAIL_LIST_THREADS',
+          'inbox': 'GMAIL_LIST_THREADS',
+          'messages': 'GMAIL_LIST_THREADS',
+          'calendar': 'GOOGLECALENDAR_LIST_EVENTS',
+          'events': 'GOOGLECALENDAR_LIST_EVENTS',
+        };
+
+        const matchedKey = Object.keys(actionMap).find((k) => lowerText.includes(k));
+        if (matchedKey) {
+          const actionSlug = actionMap[matchedKey];
+          const autoResult = await runAgentTool(actionSlug, {}, {
+            mcpToken: composioMcpToken,
+            mcpRefreshToken: composioMcpRefreshToken,
+            mcpToolNames,
+            connectors,
+            accounts: [],
+            composioUserId,
+          });
+          const formatted = formatConnectorResult(lastText, autoResult);
+          return streamTextDirectly(formatted, detectedSkill);
+        }
+
         forceConnectorTool = true;
       } else {
         const message = 'Composio "For You" is not connected yet. Click Connectors in the top right, click "+ Add", and sign in with your Composio account to connect.';
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content: message }) + '\n\n'));
-            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-            controller.close();
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-            'X-Claude-Skill': detectedSkill,
-            'X-Claude-Router': 'composio-not-configured',
-          },
-        });
+        return streamTextDirectly(message, detectedSkill);
       }
     }
 

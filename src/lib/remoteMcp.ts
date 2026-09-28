@@ -52,8 +52,10 @@ function baseHeaders(connector: Connector, credentials?: RemoteStoredToken, stat
       headers[key] = String(value);
     }
   }
+  if (state?.protocolVersion) {
+    headers['MCP-Protocol-Version'] = state.protocolVersion;
+  }
   if (state?.era === 'modern') {
-    headers['MCP-Protocol-Version'] = '2026-07-28';
     headers['Mcp-Method'] = method || '';
     if (method === 'tools/call' && params?.name) headers['Mcp-Name'] = String(params.name).slice(0, 256);
   }
@@ -175,6 +177,12 @@ async function probeModern(connector: Connector, options: RemoteMcpOptions): Pro
   }
   if (response.status >= 500) throw new Error('Remote MCP server error during protocol discovery (' + response.status + ').');
   const envelope = await readEnvelope(response);
+  if (!response.ok) {
+    const error: any = new Error('Modern MCP discovery HTTP ' + response.status + '.');
+    error.status = response.status;
+    error.wwwAuthenticate = response.headers.get('www-authenticate') || undefined;
+    throw error;
+  }
   if (envelope.payload?.error) {
     const error: any = new Error(envelope.payload.error.message || 'Modern MCP discovery rejected.');
     error.status = envelope.payload.error.code;

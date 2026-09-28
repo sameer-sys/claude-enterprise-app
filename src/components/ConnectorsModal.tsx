@@ -496,8 +496,9 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                       })
                   )}
                 </div>
-
             </div>
+          </>
+        )}
         {/* ========================================================= */}
         {/* VIEW 2: ADD CUSTOM CONNECTOR (FRAME 7 & 9 FROM VIDEO)     */}
         {/* ========================================================= */}

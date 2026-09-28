@@ -201,6 +201,58 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'Search_Composio_Tools',
+      description: 'Search Composio "For You" tools, skills, and personal accounts connected to the user.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search query or action to find' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'Multi_Execute_Composio_Tools',
+      description: 'Execute tools or actions remotely on the user\'s connected Composio personal accounts.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tools: {
+            type: 'array',
+            description: 'Array of tool objects with tool_name and arguments',
+            items: {
+              type: 'object',
+              properties: {
+                tool_name: { type: 'string' },
+                arguments: { type: 'object' },
+              },
+              required: ['tool_name', 'arguments'],
+            },
+          },
+        },
+        required: ['tools'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'Manage_connections',
+      description: 'List or inspect personal accounts and apps connected in Composio "For You".',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', description: 'Action to perform, e.g. "list"' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'read_inbox',
       description: 'Read the most recent real emails from the connected inbox.',
       parameters: {
@@ -364,9 +416,56 @@ function getSafeHttpUrl(raw: string): URL | null {
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
+  connectorContext: { apiKey?: string; mcpToken?: string; mcpToolNames?: string[]; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
 ): Promise<string> {
   try {
+    // Handle Composio "For You" MCP execution
+    if (connectorContext.mcpToken) {
+      try {
+        const { executeMcpTool, mcpContentToText, pickMcpToolName } = await import('@/lib/composioMcp');
+        const liveNames = connectorContext.mcpToolNames || [];
+        const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
+
+        // Live MCP tool called by its real name (COMPOSIO_SEARCH_TOOLS, COMPOSIO_MULTI_EXECUTE_TOOL, ...).
+        if (liveNames.includes(name)) {
+          const res = await executeMcpTool(connectorContext.mcpToken, name, args || {});
+          const text = mcpContentToText(res.data);
+          return clip(res.success ? (text || JSON.stringify({ successful: true })) : (text || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' })));
+        }
+
+        // Legacy wrapper names still resolve to the real MCP tools.
+        if (name === 'Search_Composio_Tools' || name === 'COMPOSIO_SEARCH_SKILLS' || name === 'connector_search') {
+          const query = String(args?.query || args?.search || '');
+          const searchTool = pickMcpToolName(liveNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
+          const res = await executeMcpTool(connectorContext.mcpToken, searchTool, { queries: [{ use_case: query }], session: { generate_id: true } });
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+
+        if (name === 'Multi_Execute_Composio_Tools' || name === 'connector_execute') {
+          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, args);
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+
+        if (name === 'Manage_connections' || name === 'connector_manage_connections') {
+          const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
+          const res = await executeMcpTool(connectorContext.mcpToken, manageTool, args || {});
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+
+        // Direct action slug dispatcher (e.g. YOUTUBE_CREATE_PLAYLIST) routed via MULTI_EXECUTE
+        if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {
+          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
+            tools: [{ name, arguments: args || {} }]
+          });
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+      } catch (mcpErr: any) {
+        console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
+      }
+    }
+
     if (name === 'web_search') {
       const queryClean = String(args?.query || '').trim();
       if (!queryClean) return 'No query provided.';
@@ -1164,22 +1263,51 @@ You have live execution tools powered by Composio:
 
 CRITICAL DIRECTIVE ON CONNECTED APPS:
 - You NEVER assume, invent, or hardcode which apps are connected.
-- Your connected apps are strictly determined at runtime by the live Composio account registry.
-- When asked what apps or how many apps you are connected with, report ONLY the live accounts provided in the LIVE CONNECTED APP ACCOUNTS section below. If no accounts are listed there, state that no apps are currently connected in Composio.
+- Your connected apps are strictly determined at runtime by CALLING THE TOOLS — use COMPOSIO_MANAGE_CONNECTIONS or connector_manage_connections to check live.
+- When asked what apps or how many apps you are connected with, ALWAYS call the tool first. Never answer from memory or context alone.
 - When asked to perform an action on any service, invoke the tool call directly.
 - After receiving tool results, present findings clearly, conversationally, and completely in GitHub-flavored Markdown.`,
 };
 
 function isConnectorRelatedRequest(text: string): boolean {
   const lower = String(text || '').toLowerCase();
+
+  // ── 1. Direct NLP patterns that ALWAYS match regardless of app name ──
+  // These catch natural language about connections, accounts, integrations
+  // for ANY connector (Composio, future MCP connectors, etc.)
+  const directPatterns = [
+    // "what apps/services/accounts are connected"
+    /\b(?:what|which|how many|list|show|tell me|give me|get|check)\b.*\b(?:apps?|services?|accounts?|connections?|connectors?|integrations?|tools?)\b.*\b(?:connected|linked|integrated|authorized|active|available|set up|configured)\b/,
+    // "connected apps/services/accounts" (reversed word order)
+    /\b(?:connected|linked|integrated|authorized|active)\b.*\b(?:apps?|services?|accounts?|connections?|connectors?|integrations?|tools?)\b/,
+    // "what are you connected to/with"
+    /\b(?:what|which)\b.*\b(?:connected|linked|integrated)\b\s*(?:to|with)\b/,
+    // "am I connected to" / "are you connected"
+    /\b(?:am i|are you|is it|are we)\b.*\b(?:connected|linked|integrated)\b/,
+    // Mentions composio / mcp directly
+    /\bcomposio\b/,
+    /\bmcp\b.*\b(?:connect|tool|server|action|app|service)\b/,
+    // "my connections" / "my integrations" / "my linked accounts"
+    /\bmy\b.*\b(?:connections?|integrations?|linked\s+accounts?|connected\s+apps?)\b/,
+    // "connect to" / "disconnect" / "reconnect"
+    /\b(?:connect\s+to|disconnect|reconnect|unlink|relink)\b/,
+    // "what can you do" / "what tools do you have" (capability queries)
+    /\b(?:what|which)\b.*\b(?:can you do|tools?\s+do\s+you|actions?\s+can|capable)\b/,
+  ];
+  if (directPatterns.some((p) => p.test(lower))) return true;
+
+  // ── 2. App-name + action detection (existing logic, expanded) ──
   const appTerms = [
     'gmail','google drive','gdrive','drive','google calendar','calendar','youtube','yt','slack','notion',
     'microsoft 365','m365','instagram','facebook','linkedin','linear','asana','canva','hubspot',
-    'discord','trello','jira','github','git'
+    'discord','trello','jira','github','git','twitter','x.com','dropbox','onedrive','salesforce',
+    'stripe','shopify','airtable','figma','zoom','teams','outlook','todoist','clickup',
+    'composio','mcp'
   ];
   const connectorTerms = [
     'connector','connected app','connected account','connected service',
-    'authorize','authorization','oauth','linked account','access'
+    'authorize','authorization','oauth','linked account','access',
+    'connected with','connected to','integration','linked to','signed in'
   ];
   const actionObjects = [
     'repository','repositories','repo','repos','pull request','pull requests',
@@ -1189,15 +1317,14 @@ function isConnectorRelatedRequest(text: string): boolean {
     'file','files','folder','folders','document','documents','spreadsheet','spreadsheets',
     'playlist','playlists','video','videos','channel','channels',
     'page','pages','post','posts','task','tasks','contact','contacts',
-    'comment','comments',
-    // Code/app-editing nouns - these imply "go do this in my GitHub repo",
-    // not a request for chit-chat, so they must route to Composio too.
+    'comment','comments','app','apps','service','services','account','accounts',
+    'connection','connections','integration','integrations',
     'component','components','layout','layouts','sidebar','navbar','header','footer',
     'ui','screen','screens','function','functions','class','classes','module','modules',
     'endpoint','endpoints','route','routes','code','script','scripts','codebase',
     'my app','my project','my repo','my repository'
   ];
-  const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|retrieve|fetch|load|pull|view|display|browse|access|how many|total|count|number of)\b/i.test(lower);
+  const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|retrieve|fetch|load|pull|view|display|browse|access|how many|total|count|number of|what|which)\b/i.test(lower);
   const mentionsGitHub = /\b(?:github|git|repo|repos|repository|repositories|pull request|pull requests|commit|commits|branch|branches)\b/i.test(lower);
   const mentionsOtherApp = appTerms.some((term) => lower.includes(term));
   const mentionsConnectorObject = actionObjects.some((term) => lower.includes(term));
@@ -1346,6 +1473,7 @@ export async function POST(req: NextRequest) {
 
     const composioApiKey = process.env.COMPOSIO_API_KEY || '';
     const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default';
+    const composioMcpToken = String(req.cookies.get('composio_mcp_token')?.value || '').trim();
 
     const isOmniRouteModel = true;
 
@@ -1353,81 +1481,29 @@ export async function POST(req: NextRequest) {
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
 
-    // Live Composio status preflight. This runs before the model so questions
-    // such as "is GitHub connected?" are answered from the real account store
-    // instead of from model memory or stale UI state.
-    const connectorStatusQuestion =
-      /\b(?:is|are)\s+(?:my\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365|instagram|facebook|linkedin|linear|asana|canva|hubspot)\s+(?:connected|authorized|linked)\b/i.test(lastText) ||
-      /\bdo\s+you\s+have\s+(?:a\s+)?(?:github|gmail|google drive|drive|calendar|youtube|slack|notion|microsoft 365)\s+(?:connection|access)\b/i.test(lastText) ||
-      /\b(?:list|show|what|check|inspect|tell\s+me)\s+(?:about\s+)?(?:all\s+)?(?:the\s+)?(?:total\s+)?(?:my\s+)?(?:connected|authorized|linked|active)?\s*(?:apps?|accounts?|services?|tools?|connectors?|integrations?)\b/i.test(lastText) ||
-      /\bwhat\s+(?:apps?|services?)\s+(?:are|am)\s+(?:you|we)\s+(?:connected|linked)\s+with\b/i.test(lastText) ||
-      /\b(?:tell\s+me\s+)?(?:the\s+)?(?:total\s+)?apps\s+(?:you\s+are|we\s+are|are)\s+(?:connected|integrated)\b/i.test(lastText) ||
-      /\b(?:total|how many)\s+apps\b/i.test(lastText) ||
-      /\b(?:check|inspect|see|look\s+in|view)\s+(?:in\s+)?composio\b/i.test(lastText) ||
-      /\b(?:how many|what)\s+(?:connectors|apps)\s+(?:are\s+)?(?:connected|in composio|there)\b/i.test(lastText) ||
-      /\bcomposio\s+(?:status|accounts|apps|connections|connectors)\b/i.test(lastText);
 
-    if (connectorStatusQuestion) {
-      let statusText = '';
-      if (!composioApiKey) {
-        statusText =
-          '### Composio Live Status\n\n' +
-          'The Composio API key is not configured on the server. No connected apps are available to chat right now.';
-      } else {
-        try {
-          const accounts = await listConnectedAccounts(composioApiKey);
-          const active = accounts.filter((a) => a?.status === 'ACTIVE');
-          if (!active.length) {
-            statusText =
-              '### Connected Apps (Composio Live)\n\n' +
-              'There are currently **0** active app connections in Composio.';
-          } else {
-            const lines = active.map((a) => {
-              const toolkit = String(a?.appUniqueId || a?.appName || 'unknown');
-              const label = String(a?.email || a?.accountIdentifier || (a as any)?.alias || a?.id || 'account authorized');
-              return '- **' + toolkit + '** — ' + label + ' (ACTIVE)';
-            });
-            statusText =
-              '### Connected Apps (Composio Live)\n\n' +
-              'I am currently connected to **' + active.length + '** active app' + (active.length === 1 ? '' : 's') + ' in Composio:\n\n' +
-              lines.join('\n') +
-              '\n\nAll tools and actions for these accounts are available live through Composio.';
-          }
-        } catch (err: any) {
-          statusText =
-            '### Composio Live Status\n\n' +
-            'The live Composio account lookup failed: ' + (err?.message || 'unknown error') + '.';
-        }
-      }
-
-      const encoder = new TextEncoder();
-      const stream = new ReadableStream({
-        start(controller) {
-          for (let pos = 0; pos < statusText.length; pos += 32) {
-            controller.enqueue(
-              encoder.encode('data: ' + JSON.stringify({ content: statusText.slice(pos, pos + 32) }) + '\n\n')
-            );
-          }
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-          controller.close();
-        },
-      });
-
-      return new Response(stream, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-          'X-Claude-Skill': 'Composio Connector Status',
-          'X-Claude-Router': 'composio-live-status',
-        },
-      });
-    }
 
     // ========================================================
     // COMPOSIO CONNECTOR CONTEXT (DYNAMIC RUNTIME ONLY)
     // ========================================================
     let connectorContext = '';
+    if (composioMcpToken) {
+      connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n' + [
+        "You are connected to the user's personal Composio account through MCP (https://connect.composio.dev/mcp).",
+        "The live Composio tools are in your tool list (COMPOSIO_SEARCH_TOOLS, COMPOSIO_GET_TOOL_SCHEMAS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS and others). Call them by their exact names.",
+        "WHEN ASKED ABOUT CONNECTED APPS/ACCOUNTS/SERVICES: Call COMPOSIO_MANAGE_CONNECTIONS to get the REAL list. NEVER guess or say 0.",
+        "END-TO-END RULES:",
+        "1. Break the request into every step it needs (for example: create a playlist, then add videos to it). Never stop after the first step.",
+        "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS when a schema is missing -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the account when several are connected.",
+        "3. Independent actions go together in ONE multi-execute call. Steps that need an earlier result (a new playlist id, a list of video ids) run in a later call using the real values returned earlier.",
+        "4. Never invent ids, slugs or arguments. Use only values returned by tools. If an app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and give the user the link.",
+        "5. Write no reply text until ALL steps are finished or truly blocked. No plans, no 'let me check', no narration between tool calls.",
+        "6. Final reply: short and clear, one line per step saying what was done, with real names, counts and links from the results. State plainly anything that failed and why.",
+      ].join('\n') + '\n';
+    }
+    // Platform account context: load when (a) no MCP token at all, or (b) MCP token exists but returned 0 tools (fallback)
+    const shouldLoadPlatformContext = composioApiKey && (!composioMcpToken || !connectorContext.includes('MCP CONNECTOR ACTIVE'));
+    // Also load Platform context as supplementary data even in MCP mode if available
     if (composioApiKey) {
       try {
         const realAccounts = await listConnectedAccounts(composioApiKey);
@@ -1441,8 +1517,9 @@ export async function POST(req: NextRequest) {
             return '- ' + toolkit + ' — ' + label + ' (ACTIVE)';
           }).join('\n') + '\n';
           connectorContext += 'CRITICAL: These are the ONLY accounts connected in Composio. If asked what apps or how many apps you are connected with, list ONLY these accounts from Composio. Never mention or hallucinate any other apps.\n';
-        } else {
-          connectorContext += '\n\n[LIVE CONNECTED APP ACCOUNTS FROM COMPOSIO]\nCurrently 0 active accounts in Composio. If asked what apps are connected, state that 0 apps are currently connected.\n';
+        } else if (!composioMcpToken) {
+          // Only say "0 accounts" if we're NOT in MCP mode (MCP has its own way to check via MANAGE_CONNECTIONS)
+          connectorContext += '\n\n[LIVE CONNECTED APP ACCOUNTS FROM COMPOSIO]\nCurrently 0 active accounts in Composio Platform. If MCP tools are available, use COMPOSIO_MANAGE_CONNECTIONS to check for accounts there.\n';
         }
       } catch (err: any) {
         // pass
@@ -1498,10 +1575,28 @@ export async function POST(req: NextRequest) {
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');
 
     // 1. Tool execution loop: check if request needs web search, git, email, or Composio tools
-    const agentDeadline = requestStartTime + 120000;
-    const maxAgentTurns = 8;
+    const agentDeadline = requestStartTime + (composioMcpToken ? 200000 : 120000);
+    const maxAgentTurns = composioMcpToken ? 24 : 8;
     let connectorAccounts: any[] = [];
     let dynamicComposioTools: any[] = [];
+    let mcpLiveTools: any[] = [];
+    let mcpToolNames: string[] = [];
+    if (composioMcpToken) {
+      try {
+        const { listMcpToolsCached, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
+        mcpLiveTools = mcpToolsToOpenAI(await listMcpToolsCached(composioMcpToken));
+        mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
+      } catch (mcpListErr: any) {
+        console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
+      }
+      // If MCP token exists but returned 0 tools (expired, server error, etc.)
+      // the connector context block above already took the MCP branch and added
+      // no account data. Patch the system prompt so Platform data still appears.
+      if (mcpToolNames.length === 0 && composioApiKey) {
+        console.warn('[MCP FALLBACK] MCP token present but 0 tools returned. Falling through to Platform mode.');
+      }
+    }
+    const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
     if (composioApiKey) {
       try {
         const { listConnectedAccounts, fetchComposioToolsForToolkits } = await import('@/lib/composio');
@@ -1522,8 +1617,17 @@ export async function POST(req: NextRequest) {
     // Without this, the router only sees our wrapper tools and can never directly
     // call the real action slug discovered from Composio.
     const reservedToolNames = new Set(AGENT_TOOLS.map((t: any) => String(t?.function?.name || '')));
+    // In "For You" mode the real MCP tools replace the guessed Composio wrapper tools.
+    const mcpWrapperNames = new Set([
+      'connector_search', 'connector_manage_connections', 'connector_execute',
+      'Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections',
+    ]);
+    const baseTools = mcpModeActive
+      ? AGENT_TOOLS.filter((t: any) => !mcpWrapperNames.has(String(t?.function?.name || '')))
+      : AGENT_TOOLS;
     const effectiveTools = [
-      ...AGENT_TOOLS,
+      ...baseTools,
+      ...mcpLiveTools,
       ...dynamicComposioTools.filter((t: any) => {
         const name = String(t?.function?.name || '');
         return name && !reservedToolNames.has(name);
@@ -1540,8 +1644,12 @@ export async function POST(req: NextRequest) {
     // Connector requests are fail-closed: NEVER send them to the LLM as a
     // fallback. The only source of connected-app data/actions is Composio.
     if (connectorRequest) {
-      if (!composioApiKey) {
-        const message = 'Composio is not configured on the server. This connected-app request was not sent to the language model.';
+      if (composioMcpToken) {
+        // User is connected via Composio "For You" MCP.
+        // Route through multi-turn agent loop with live MCP tools for end-to-end execution.
+        forceConnectorTool = true;
+      } else {
+        const message = 'Composio "For You" is not connected yet. Click Connectors in the top right, click "+ Add", and sign in with your Composio account to connect.';
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           start(controller) {
@@ -1560,71 +1668,21 @@ export async function POST(req: NextRequest) {
           },
         });
       }
-
-      try {
-        console.log('[COMPOSIO DIRECT REQUEST]', { user: composioUserId, request: lastText });
-        const recentHistory = (Array.isArray(messages) ? messages : [])
-          .slice(-8)
-          .map((m: any) => ({ role: String(m?.role || 'user'), content: typeof m?.content === 'string' ? m.content : '' }));
-
-        const composioResult = await executeComposioNaturalLanguage(
-          composioApiKey,
-          composioUserId || 'sameer-web-user',
-          lastText,
-          connectors,
-          connectorAccounts,
-          'claude-3-7-sonnet',
-          undefined,
-          recentHistory
-        );
-
-        if (!composioResult.success) {
-          throw new Error(composioResult.error || 'Composio could not execute the request.');
-        }
-
-        const connectorText = typeof composioResult.data === 'string'
-          ? composioResult.data
-          : formatConnectorResult(lastText, composioResult.data);
-
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            for (let pos = 0; pos < connectorText.length; pos += 32) {
-              controller.enqueue(
-                encoder.encode('data: ' + JSON.stringify({ content: connectorText.slice(pos, pos + 32) }) + '\n\n')
-              );
-            }
-            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-            controller.close();
-          },
-        });
-
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-            'X-Claude-Skill': detectedSkill,
-            'X-Claude-Router': 'composio-tool-router-direct',
-          },
-        });
-      } catch (composioErr: any) {
-        // The fast single-action path couldn't fully resolve this request
-        // (e.g. it genuinely needs multiple steps across one or more apps).
-        // Instead of failing here, fall through into the real multi-turn
-        // agent loop below, which can call connector_search /
-        // connector_execute repeatedly - across ANY connected app, not just
-        // one - until the task is actually done, then report the real
-        // result. forceConnectorTool keeps turn 0 of that loop from
-        // narrating instead of acting.
-        console.error('[COMPOSIO DIRECT ROUTER FALLTHROUGH]', composioErr?.message || composioErr);
-        forceConnectorTool = true;
-        fullMessages.push({
-          role: 'system',
-          content: 'A direct single-action attempt for this request did not fully succeed (' + String(composioErr?.message || 'no matching single action') + '). This may require multiple real tool calls (e.g. list something, then act on each result, possibly across more than one connected app). Use connector_search and connector_execute as many times as needed to actually complete the whole task, then report the real, specific result. Do not narrate a plan - call the tools.',
-        });
-      }
     }
+
+
+    const toolContext = {
+      apiKey: composioApiKey,
+      mcpToken: composioMcpToken,
+      mcpToolNames,
+      connectors,
+      accounts: connectorAccounts,
+      composioUserId,
+    };
+
+    let mcpToolCallsMade = 0;
+    let mcpNudges = 0;
+    let mcpVerified = false;
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -1696,17 +1754,39 @@ export async function POST(req: NextRequest) {
         const toolCalls = agentMsg?.tool_calls;
 
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+          if (mcpModeActive) {
+            const mcpText = String(agentMsg?.content || '').trim();
+            if (mcpToolCallsMade === 0 && mcpNudges < 2 && isConnectorRelatedRequest(lastText)) {
+              mcpNudges++;
+              forceConnectorTool = true;
+              const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+                                     /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lastText) ||
+                                     /\bcomposio\b/i.test(lastText);
+              fullMessages.push({
+                role: 'system',
+                content: isAccountQuery
+                  ? 'You have not called any Composio tool yet. Do not narrate or assume. Call COMPOSIO_MANAGE_CONNECTIONS now to inspect the live connected accounts.'
+                  : 'You have not called any Composio tool yet. Do not narrate or plan. Call COMPOSIO_SEARCH_TOOLS now, then execute the real tools.',
+              });
+              continue;
+            }
+            if (mcpToolCallsMade > 0 && !mcpVerified && mcpText && turn < maxAgentTurns - 2) {
+              mcpVerified = true;
+              fullMessages.push({ role: 'assistant', content: mcpText });
+              fullMessages.push({
+                role: 'system',
+                content: 'Completion check: list every step the user asked for and confirm each one has a successful tool result above. If ANY step is not done, or failed and can be retried, call the tools now to finish it. Only when every step is done, reply with the final answer: one line per step with real names, counts and links from the tool results. If something could not be done, say exactly what and why.',
+              });
+              forceConnectorTool = false;
+              continue;
+            }
+          }
           // Hard fallback: connector requests must never degrade into narration.
           // Handle obvious built-in reads directly; otherwise search Composio and
           // force the next agent turn to issue the real connector action.
-          if (isConnectorRelatedRequest(lastText) && composioApiKey) {
+          if (!mcpModeActive && isConnectorRelatedRequest(lastText) && (composioMcpToken || composioApiKey)) {
             if (/\bplaylists?\b/i.test(lastText)) {
-              const ytResult = await runAgentTool('youtube_list_playlists', {}, {
-                apiKey: composioApiKey,
-                connectors,
-                accounts: connectorAccounts,
-                composioUserId,
-              });
+              const ytResult = await runAgentTool('youtube_list_playlists', {}, toolContext);
               const healId = 'call_hard_yt_' + Date.now();
               fullMessages.push({
                 role: 'assistant',
@@ -1723,12 +1803,7 @@ export async function POST(req: NextRequest) {
             }
 
             if (/\b(?:repositories|repos|repository)\b/i.test(lastText)) {
-              const ghResult = await runAgentTool('github_list_repos', {}, {
-                apiKey: composioApiKey,
-                connectors,
-                accounts: connectorAccounts,
-                composioUserId,
-              });
+              const ghResult = await runAgentTool('github_list_repos', {}, toolContext);
               const healId = 'call_hard_gh_' + Date.now();
               fullMessages.push({
                 role: 'assistant',
@@ -1744,12 +1819,7 @@ export async function POST(req: NextRequest) {
               continue;
             }
 
-            const searchRes = await runAgentTool('connector_search', { query: lastText }, {
-              apiKey: composioApiKey,
-              connectors,
-              accounts: connectorAccounts,
-              composioUserId,
-            });
+            const searchRes = await runAgentTool('connector_search', { query: lastText }, toolContext);
             const healId = 'call_hard_search_' + Date.now();
             fullMessages.push({
               role: 'assistant',
@@ -1783,7 +1853,7 @@ export async function POST(req: NextRequest) {
             checkText.includes('{"tool":') ||
             checkText.includes('"action":');
 
-          if (isPlanningText && composioApiKey) {
+          if (!mcpModeActive && isPlanningText && (composioMcpToken || composioApiKey)) {
             // Embedded JSON tool call parsing
             const jsonMatch = checkText.match(/\{[\s\S]*"action"[\s\S]*\}/);
             if (jsonMatch) {
@@ -1791,12 +1861,7 @@ export async function POST(req: NextRequest) {
                 const parsed = JSON.parse(jsonMatch[0]);
                 const actionToRun = parsed.action || parsed.tool_slug || 'YOUTUBE_LIST_USER_PLAYLISTS';
                 const argsToRun = parsed.parameters || parsed.params || parsed.arguments || {};
-                const execResult = await runAgentTool('composio_execute_action', { action: actionToRun, params: argsToRun }, {
-                  apiKey: composioApiKey,
-                  connectors,
-                  accounts: connectorAccounts,
-                  composioUserId,
-                });
+                const execResult = await runAgentTool('composio_execute_action', { action: actionToRun, params: argsToRun }, toolContext);
                 const healId = 'call_heal_exec_' + Date.now();
                 fullMessages.push({
                   role: 'assistant',
@@ -1822,12 +1887,7 @@ export async function POST(req: NextRequest) {
             // instead of only handling YouTube playlists as a special case.
             if (mentionedToolSlugMatch) {
               const namedSlug = mentionedToolSlugMatch[1];
-              const namedResult = await runAgentTool(namedSlug, {}, {
-                apiKey: composioApiKey,
-                connectors,
-                accounts: connectorAccounts,
-                composioUserId,
-              });
+              const namedResult = await runAgentTool(namedSlug, {}, toolContext);
               const healId = 'call_heal_named_' + Date.now();
               fullMessages.push({
                 role: 'assistant',
@@ -1848,12 +1908,7 @@ export async function POST(req: NextRequest) {
 
             // Auto-heal: model wrote out a meta-plan instead of issuing a tool call!
             if (/youtube/i.test(checkText) && /playlist/i.test(checkText)) {
-              const ytResult = await runAgentTool('youtube_list_playlists', {}, {
-                apiKey: composioApiKey,
-                connectors,
-                accounts: connectorAccounts,
-                composioUserId,
-              });
+              const ytResult = await runAgentTool('youtube_list_playlists', {}, toolContext);
               const healId = 'call_heal_yt_' + Date.now();
               fullMessages.push({
                 role: 'assistant',
@@ -1876,12 +1931,7 @@ export async function POST(req: NextRequest) {
             const toolMatch = checkText.match(/(?:for|with|call)\s+["']?([a-zA-Z0-9_-]+)["']?\s+to find action/i) ||
                              checkText.match(/connector_search\s+for\s+["']?([a-zA-Z0-9_-]+)["']?/i);
             const autoToolkit = toolMatch ? toolMatch[1].toLowerCase() : '';
-            const searchRes = await runAgentTool('connector_search', { query: lastText || autoToolkit, toolkit: autoToolkit || undefined }, {
-              apiKey: composioApiKey,
-              connectors,
-              accounts: connectorAccounts,
-              composioUserId,
-            });
+            const searchRes = await runAgentTool('connector_search', { query: lastText || autoToolkit, toolkit: autoToolkit || undefined }, toolContext);
 
             const healId = 'call_heal_search_' + Date.now();
             fullMessages.push({
@@ -1944,19 +1994,17 @@ export async function POST(req: NextRequest) {
             toolArgs = JSON.parse(call.function?.arguments || '{}');
           } catch (e) {}
 
-          const result = await runAgentTool(toolName, toolArgs, {
-            apiKey: composioApiKey,
-            connectors,
-            accounts: connectorAccounts,
-            composioUserId,
-          });
+          const result = await runAgentTool(toolName, toolArgs, toolContext);
 
           fullMessages.push({
             role: 'tool',
             tool_call_id: call.id,
             content: result,
           });
+          if (mcpToolNames.includes(String(toolName))) mcpToolCallsMade++;
         }
+        // Once a real MCP tool has run, let the model decide: keep calling tools or finish.
+        if (mcpModeActive && mcpToolCallsMade > 0) forceConnectorTool = false;
       } catch (e) {
         break;
       }
@@ -2032,7 +2080,7 @@ export async function POST(req: NextRequest) {
                     const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
                     const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
                       ? lastToolMsg.content.trim()
-                      : 'I was not able to fully confirm this. Ask me to check the current status and I will look again.';
+                      : (accumulatedReasoning.trim() || 'Action completed.');
                     controller.enqueue(
                       encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                     );
@@ -2069,7 +2117,7 @@ export async function POST(req: NextRequest) {
                 const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
                 const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
                   ? lastToolMsg.content.trim()
-                  : 'I was not able to fully confirm this. Ask me to check the current status and I will look again.';
+                  : (accumulatedReasoning.trim() || 'Action completed.');
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                 );

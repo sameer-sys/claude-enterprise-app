@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   getMcpOAuthUrl,
   callComposioMcp,
-  listMcpTools,
   executeMcpTool,
   DEFAULT_COMPOSIO_TOOLKITS,
 } from '@/lib/composioMcp';
@@ -63,31 +62,99 @@ export async function GET(req: NextRequest) {
     const mcpConnected = Boolean(mcpToken);
 
     if (mcpConnected) {
-      // User is connected to "For You" MCP
+      // User is connected to "For You" MCP. Keep the access token server-side
+      // and persist any replacement token returned by the MCP server.
+      let activeMcpToken = mcpToken;
+      let activeRefreshToken = mcpRefreshToken;
       let tools: any[] = [];
       let connectedAccounts: any[] = [];
+
       try {
-        tools = await listMcpTools(mcpToken, mcpRefreshToken);
-        const connRes = await executeMcpTool(mcpToken, 'COMPOSIO_MANAGE_CONNECTIONS', { toolkits: DEFAULT_COMPOSIO_TOOLKITS }, mcpRefreshToken);
+        const toolListRes = await callComposioMcp(activeMcpToken, 'tools/list', {}, mcpRefreshToken);
+        if (toolListRes.newAccessToken) activeMcpToken = toolListRes.newAccessToken;
+        if ((toolListRes as any).newRefreshToken) activeRefreshToken = (toolListRes as any).newRefreshToken;
+        if (toolListRes.success && Array.isArray(toolListRes.result?.tools)) {
+          tools = toolListRes.result.tools;
+        }
+
+        const connRes = await executeMcpTool(
+          activeMcpToken,
+          'COMPOSIO_MANAGE_CONNECTIONS',
+          { toolkits: DEFAULT_COMPOSIO_TOOLKITS },
+          mcpRefreshToken
+        );
+        if (connRes.newAccessToken) activeMcpToken = connRes.newAccessToken;
+        if ((connRes as any).newRefreshToken) activeRefreshToken = (connRes as any).newRefreshToken;
         if (connRes.success && connRes.data) {
           const raw = connRes.data;
-          const list = raw?.connections || raw?.connected_accounts || raw?.accounts || (Array.isArray(raw) ? raw : []);
-          connectedAccounts = list;
-        }
-      } catch {}
+          let list: any[] = [];
 
-      return withUserCookie(
-        NextResponse.json({
-          configured: true,
-          mode: 'for_you',
-          mcpConnected: true,
-          userId: entityId,
-          tools,
-          connectedAccounts,
-          supportedApps: SUPPORTED_APPS,
-        }),
-        entityId
-      );
+          if (Array.isArray(raw)) {
+            list = raw;
+          } else if (Array.isArray(raw?.connections)) {
+            list = raw.connections;
+          } else if (Array.isArray(raw?.connected_accounts)) {
+            list = raw.connected_accounts;
+          } else if (Array.isArray(raw?.accounts)) {
+            list = raw.accounts;
+          } else if (raw?.results && typeof raw.results === 'object' && !Array.isArray(raw.results)) {
+            for (const [toolkit, entry] of Object.entries(raw.results as Record<string, any>)) {
+              const accounts = Array.isArray((entry as any)?.accounts) ? (entry as any).accounts : [];
+              for (const account of accounts) {
+                const status = String((account as any)?.status || '').toUpperCase();
+                if (status === 'ACTIVE' || status === 'CONNECTED') {
+                  list.push({ ...(account as any), app_name: toolkit });
+                }
+              }
+            }
+          }
+
+          connectedAccounts = list.filter((account: any) => {
+            const status = String(account?.status || 'ACTIVE').toUpperCase();
+            return status === 'ACTIVE' || status === 'CONNECTED';
+          });
+        }
+      } catch (err: any) {
+        console.error('[COMPOSIO STATUS ERR]', err?.message || err);
+      }
+
+      const response = NextResponse.json({
+        configured: true,
+        mode: 'for_you',
+        mcpConnected: true,
+        userId: entityId,
+        tools,
+        connectedAccounts,
+        supportedApps: SUPPORTED_APPS,
+      });
+
+      if (activeMcpToken && (activeMcpToken !== mcpToken || activeRefreshToken !== mcpRefreshToken)) {
+        response.cookies.set('composio_mcp_token', activeMcpToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 30 * 24 * 3600,
+        });
+        if (activeRefreshToken) {
+          response.cookies.set('composio_mcp_refresh_token', activeRefreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 90 * 24 * 3600,
+          });
+        }
+        response.cookies.set('composio_mcp_access_token', '', {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 0,
+        });
+      }
+
+      return withUserCookie(response, entityId);
     }
 
     // When not connected to For You MCP: strictly unconfigured with 0 accounts
@@ -192,7 +259,33 @@ export async function POST(req: NextRequest) {
         args || input || {},
         mcpRefreshToken
       );
-      return NextResponse.json(result, { status: result.success ? 200 : 502 });
+      const response = NextResponse.json(result, { status: result.success ? 200 : 502 });
+      if (result.newAccessToken || (result as any).newRefreshToken) {
+        response.cookies.set('composio_mcp_token', result.newAccessToken || mcpToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 30 * 24 * 3600,
+        });
+        if ((result as any).newRefreshToken) {
+          response.cookies.set('composio_mcp_refresh_token', (result as any).newRefreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 90 * 24 * 3600,
+          });
+        }
+        response.cookies.set('composio_mcp_access_token', '', {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 0,
+        });
+      }
+      return response;
     }
 
     return NextResponse.json(

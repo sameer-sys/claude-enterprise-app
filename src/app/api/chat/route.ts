@@ -132,7 +132,17 @@ function getSafeHttpUrl(raw: string): URL | null {
 async function runAgentTool(
   name: string,
   args: any,
-  connectorContext: { apiKey?: string; mcpToken?: string; mcpRefreshToken?: string; mcpToolNames?: string[]; connectors?: any[]; accounts?: any[]; composioUserId?: string } = {}
+  connectorContext: {
+    apiKey?: string;
+    mcpToken?: string;
+    mcpRefreshToken?: string;
+    mcpToolNames?: string[];
+    remoteMcpTools?: any[];
+    remoteMcpToolRoutes?: Record<string, { connector: any; originalToolName: string }>;
+    connectors?: any[];
+    accounts?: any[];
+    composioUserId?: string;
+  } = {}
 ): Promise<string> {
   try {
     // Handle Composio "For You" MCP execution
@@ -155,9 +165,23 @@ async function runAgentTool(
         const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
 
         // Live MCP tool called by its real name (COMPOSIO_SEARCH_TOOLS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS, ...).
+        const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
+        if (remoteRoute) {
+          const { callRemoteMcpTool } = await import('@/lib/remoteMcp');
+          return clip(
+            await callRemoteMcpTool(
+              remoteRoute.connector,
+              name,
+              remoteRoute.originalToolName,
+              args || {}
+            )
+          );
+        }
+
         if (liveNames.includes(name)) {
           const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           const text = mcpContentToText(res.data);
           return clip(res.success ? (text || JSON.stringify({ successful: true })) : (text || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' })));
         }
@@ -168,6 +192,7 @@ async function runAgentTool(
           const searchTool = pickMcpToolName(liveNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
           const res = await executeMcpTool(connectorContext.mcpToken, searchTool, { queries: [{ use_case: query }], session: { generate_id: true } }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -176,6 +201,7 @@ async function runAgentTool(
           const payload = args?.action ? { tools: [{ name: args.action, arguments: args.params || args.arguments || {} }] } : args;
           const res = await executeMcpTool(connectorContext.mcpToken, execTool, payload, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -187,6 +213,7 @@ async function runAgentTool(
             : DEFAULT_COMPOSIO_TOOLKITS;
           const res = await executeMcpTool(connectorContext.mcpToken, manageTool, { ...args, toolkits }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -198,6 +225,7 @@ async function runAgentTool(
             tools: [{ name: mcpAction, arguments: args || {} }]
           }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
@@ -208,6 +236,7 @@ async function runAgentTool(
             tools: [{ name, arguments: args || {} }]
           }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
       } catch (mcpErr: any) {
@@ -452,9 +481,42 @@ function isConnectorRelatedRequest(text: string): boolean {
   );
 }
 
-function streamTextDirectly(text: string, detectedSkill: string): Response {
+function attachMcpSession(
+  response: Response,
+  context?: { mcpToken?: string; mcpRefreshToken?: string }
+): Response {
+  if (!context?.mcpToken) return response;
+
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const base = '; Path=/; HttpOnly; SameSite=Lax' + secure;
+
+  response.headers.append(
+    'Set-Cookie',
+    'composio_mcp_token=' + encodeURIComponent(context.mcpToken) + base + '; Max-Age=' + 30 * 24 * 3600
+  );
+
+  if (context.mcpRefreshToken) {
+    response.headers.append(
+      'Set-Cookie',
+      'composio_mcp_refresh_token=' + encodeURIComponent(context.mcpRefreshToken) + base + '; Max-Age=' + 90 * 24 * 3600
+    );
+  }
+
+  response.headers.append(
+    'Set-Cookie',
+    'composio_mcp_access_token=; Path=/; HttpOnly; SameSite=Lax' + secure + '; Max-Age=0'
+  );
+
+  return response;
+}
+
+function streamTextDirectly(
+  text: string,
+  detectedSkill: string,
+  mcpContext?: { mcpToken?: string; mcpRefreshToken?: string }
+): Response {
   const encoder = new TextEncoder();
-  return new Response(
+  return attachMcpSession(new Response(
     new ReadableStream({
       start(controller) {
         for (let i = 0; i < text.length; i += 32) {
@@ -473,7 +535,7 @@ function streamTextDirectly(text: string, detectedSkill: string): Response {
         'X-Claude-Router': 'boss-agent-direct',
       },
     }
-  );
+  ), mcpContext);
 }
 
 function formatConnectorResult(requestText: string, result: any): string {
@@ -503,7 +565,38 @@ function formatConnectorResult(requestText: string, result: any): string {
     /\bcomposio\b/i.test(lower);
 
   if (isAccountQuery) {
-    const connections = data.connections || data.connected_accounts || data.accounts || data.items || (Array.isArray(data) ? data : null);
+    // COMPOSIO_MANAGE_CONNECTIONS currently returns:
+    // { results: { toolkit: { status, accounts: [...] } }, summary: {...} }
+    // Normalize that keyed result into one flat list of active accounts.
+    let connections: any[] = [];
+    if (Array.isArray(data)) {
+      connections = data;
+    } else if (Array.isArray(data.connections)) {
+      connections = data.connections;
+    } else if (Array.isArray(data.connected_accounts)) {
+      connections = data.connected_accounts;
+    } else if (Array.isArray(data.accounts)) {
+      connections = data.accounts;
+    } else if (Array.isArray(data.items)) {
+      connections = data.items;
+    } else if (data.results && typeof data.results === 'object' && !Array.isArray(data.results)) {
+      for (const [toolkit, entry] of Object.entries(data.results as Record<string, any>)) {
+        const accounts = Array.isArray((entry as any)?.accounts) ? (entry as any).accounts : [];
+        for (const account of accounts) {
+          connections.push({
+            ...(account || {}),
+            app_name: toolkit,
+          });
+        }
+      }
+    }
+
+    // Do not show INITIATING/INITIALIZING rows as connected apps.
+    connections = connections.filter((c: any) => {
+      const status = String(c?.status || 'ACTIVE').toUpperCase();
+      return status === 'ACTIVE' || status === 'CONNECTED';
+    });
+
     const manageUrl = data.redirect_url || data.manage_url || data.url;
     if (Array.isArray(connections)) {
       if (connections.length === 0) {
@@ -748,14 +841,62 @@ export async function POST(req: NextRequest) {
     let mcpToolNames: string[] = [];
     if (composioMcpToken) {
       try {
-        const { listMcpToolsCached, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
-        mcpLiveTools = mcpToolsToOpenAI(await listMcpToolsCached(composioMcpToken, composioMcpRefreshToken));
+        const { listMcpToolsCachedWithAuth, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
+        const listed = await listMcpToolsCachedWithAuth(composioMcpToken, composioMcpRefreshToken);
+        if (listed.accessToken && listed.accessToken !== composioMcpToken) {
+          composioMcpToken = listed.accessToken;
+        }
+        if (listed.refreshToken && listed.refreshToken !== composioMcpRefreshToken) {
+          composioMcpRefreshToken = listed.refreshToken;
+        }
+        mcpLiveTools = mcpToolsToOpenAI(listed.tools);
         mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
       } catch (mcpListErr: any) {
         console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
       }
     }
     const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
+
+    // Generic remote MCP connectors (non-Composio) are discovered here and
+    // exposed to the model under collision-safe names.
+    let remoteMcpTools: any[] = [];
+    const remoteMcpToolRoutes: Record<string, { connector: any; originalToolName: string }> = {};
+
+    try {
+      const { listRemoteMcpTools } = await import('@/lib/remoteMcp');
+      const remoteConnectors = (Array.isArray(connectors) ? connectors : [])
+        .filter((connector: any) => {
+          const cfg = connector?.config || {};
+          const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+          const isComposio = String(connector?.name || '').toLowerCase().includes('composio') ||
+            String(cfg.mcpUrl || connector?.url || '').includes('connect.composio.dev');
+          return connector?.enabled !== false &&
+            type === 'mcp' &&
+            !isComposio &&
+            Boolean(cfg.mcpUrl || connector?.url);
+        })
+        .slice(0, 5);
+
+      const discovered = await Promise.allSettled(
+        remoteConnectors.map((connector: any) =>
+          listRemoteMcpTools(connector).then((tools: any[]) => ({ connector, tools }))
+        )
+      );
+
+      for (const item of discovered) {
+        if (item.status !== 'fulfilled') continue;
+        for (const tool of item.value.tools) {
+          remoteMcpTools.push(tool);
+          const prefix = `REMOTE_MCP_${String(item.value.connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12)}_`;
+          remoteMcpToolRoutes[tool.function.name] = {
+            connector: item.value.connector,
+            originalToolName: String(tool.function.name).replace(prefix, ''),
+          };
+        }
+      }
+    } catch (remoteMcpErr: any) {
+      console.error('[REMOTE MCP DISCOVERY ERR]', remoteMcpErr?.message || remoteMcpErr);
+    }
 
     // In "For You" mode the real MCP tools replace the guessed Composio wrapper tools.
     const mcpWrapperNames = new Set([
@@ -768,10 +909,18 @@ export async function POST(req: NextRequest) {
     const effectiveTools = [
       ...baseTools,
       ...mcpLiveTools,
+      ...remoteMcpTools,
     ];
     let forceConnectorTool = false;
 
-    const connectorRequest = isConnectorRelatedRequest(lastText);
+    const remoteConnectorMention = (Array.isArray(connectors) ? connectors : [])
+      .some((connector: any) =>
+        connector?.enabled !== false &&
+        String(connector?.name || '').trim() &&
+        lastText.toLowerCase().includes(String(connector.name).trim().toLowerCase())
+      );
+
+    const connectorRequest = isConnectorRelatedRequest(lastText) || remoteConnectorMention;
 
     // PRIMARY CONNECTOR PATH:
     // Connector requests must enter the real live Composio MCP tool loop.
@@ -799,11 +948,39 @@ export async function POST(req: NextRequest) {
       connectors,
       accounts: [],
       composioUserId,
+      remoteMcpTools,
+      remoteMcpToolRoutes,
     };
+
+    const { pickMcpToolName } = await import('@/lib/composioMcp');
+
+    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+      /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+      /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
+
+    // Connected-app queries are deterministic: always ask Composio directly
+    // so the answer cannot degrade into the UI fallback message.
+    if (connectorRequest && isAccountQuery && mcpModeActive) {
+      const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
+      const targetTool = pickMcpToolName(
+        mcpToolNames,
+        [/MANAGE_CONNECTIONS/i],
+        'COMPOSIO_MANAGE_CONNECTIONS'
+      );
+      const liveResult = await runAgentTool(
+        targetTool,
+        { toolkits: DEFAULT_COMPOSIO_TOOLKITS },
+        toolContext
+      );
+      return streamTextDirectly(
+        formatConnectorResult(lastText, liveResult),
+        detectedSkill,
+        toolContext
+      );
+    }
 
     let mcpToolCallsMade = 0;
     let mcpNudges = 0;
-    let mcpVerified = false;
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -819,7 +996,18 @@ export async function POST(req: NextRequest) {
             model: 'openai/gpt-oss-120b',
             messages: fullMessages,
             tools: effectiveTools,
-            tool_choice: ((turn === 0 || forceConnectorTool) && isConnectorRelatedRequest(lastText)) ? 'required' : 'auto',
+            tool_choice: ((turn === 0 || forceConnectorTool) && connectorRequest && mcpModeActive)
+              ? {
+                  type: 'function',
+                  function: {
+                    name: pickMcpToolName(
+                      mcpToolNames,
+                      [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
+                      isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                    ),
+                  },
+                }
+              : 'auto',
             max_tokens: 8192,
           }),
           signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
@@ -914,17 +1102,46 @@ export async function POST(req: NextRequest) {
             if (lastToolMsg && typeof lastToolMsg.content === 'string') {
               const formatted = formatConnectorResult(lastText, lastToolMsg.content);
               if (formatted) {
-                return streamTextDirectly(formatted, detectedSkill);
+                return streamTextDirectly(formatted, detectedSkill, toolContext);
               }
             }
 
-            // If account query and no tool executed yet, run COMPOSIO_MANAGE_CONNECTIONS now
-            if (mcpModeActive && isAccountQuery && mcpToolCallsMade === 0) {
-              const { pickMcpToolName, DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
-              const targetTool = pickMcpToolName(mcpToolNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-              const autoResult = await runAgentTool(targetTool, { toolkits: DEFAULT_COMPOSIO_TOOLKITS }, toolContext);
-              const formatted = formatConnectorResult(lastText, autoResult);
-              return streamTextDirectly(formatted, detectedSkill);
+            // Never allow a connector request to stall behind an LLM prose answer.
+            // Perform the required first Composio meta-tool directly if the model
+            // failed to emit a tool call.
+            if (mcpModeActive && mcpToolCallsMade === 0) {
+              const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
+              const targetTool = pickMcpToolName(
+                mcpToolNames,
+                [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
+                isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+              );
+
+              const autoArgs = isAccountQuery
+                ? { toolkits: DEFAULT_COMPOSIO_TOOLKITS }
+                : {
+                    queries: [{ use_case: lastText }],
+                    session: { generate_id: true },
+                    model: 'gpt-5.6',
+                  };
+
+              const autoResult = await runAgentTool(targetTool, autoArgs, toolContext);
+              mcpToolCallsMade++;
+
+              if (isAccountQuery) {
+                const formatted = formatConnectorResult(lastText, autoResult);
+                return streamTextDirectly(formatted, detectedSkill, toolContext);
+              }
+
+              fullMessages.push({
+                role: 'system',
+                content:
+                  'COMPOSIO_PREFLIGHT_RESULT (' + targetTool + ') — use this real result to continue the connector request. ' +
+                  'If a session_id is present, reuse that exact session id for subsequent Composio meta-tool calls.\n' +
+                  autoResult,
+              });
+              forceConnectorTool = false;
+              continue;
             }
 
             mcpNudges++;
@@ -933,13 +1150,13 @@ export async function POST(req: NextRequest) {
               role: 'system',
               content: isAccountQuery
                 ? 'Call COMPOSIO_MANAGE_CONNECTIONS now.'
-                : 'Call the required tool now.',
+                : 'Call the required Composio tool now.',
             });
             continue;
           }
 
           if (contentText) {
-            return streamTextDirectly(contentText, detectedSkill);
+            return streamTextDirectly(contentText, detectedSkill, toolContext);
           }
           break;
         }
@@ -1090,7 +1307,7 @@ export async function POST(req: NextRequest) {
             },
           });
 
-          return new Response(upstreamResponse.body.pipeThrough(transformStream), {
+          return attachMcpSession(new Response(upstreamResponse.body.pipeThrough(transformStream), {
             headers: {
               'Content-Type': 'text/event-stream',
               'Cache-Control': 'no-cache',
@@ -1098,7 +1315,7 @@ export async function POST(req: NextRequest) {
               'X-Claude-Skill': detectedSkill,
               'X-Claude-Router': `${endpoint.tag}-${targetModel}`,
             },
-          });
+          }), toolContext);
         } catch (streamErr) {
           // Continue to next model / endpoint
         }
@@ -1240,7 +1457,7 @@ export async function POST(req: NextRequest) {
                 },
               });
 
-              return new Response(geminiResponse.body?.pipeThrough(transformStream), {
+              return attachMcpSession(new Response(geminiResponse.body?.pipeThrough(transformStream), {
                 headers: {
                   'Content-Type': 'text/event-stream',
                   'Cache-Control': 'no-cache',
@@ -1248,7 +1465,7 @@ export async function POST(req: NextRequest) {
                   'X-Claude-Skill': detectedSkill,
                   'X-Claude-Router': candidate,
                 },
-              });
+              }), toolContext);
             }
           } catch (modelErr) {
             // try next candidate
@@ -1307,7 +1524,7 @@ export async function POST(req: NextRequest) {
             },
           });
 
-          return new Response(stream, {
+          return attachMcpSession(new Response(stream, {
             headers: {
               'Content-Type': 'text/event-stream',
               'Cache-Control': 'no-cache',
@@ -1315,7 +1532,7 @@ export async function POST(req: NextRequest) {
               'X-Claude-Skill': detectedSkill,
               'X-Claude-Router': 'cloud-instant-stream',
             },
-          });
+          }), toolContext);
         }
       }
     } catch (e) {
@@ -1339,7 +1556,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return new Response(stream, {
+    return attachMcpSession(new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -1347,7 +1564,7 @@ export async function POST(req: NextRequest) {
         'X-Claude-Skill': detectedSkill,
         'X-Claude-Router': 'claude-enterprise-edge',
       },
-    });
+    }), toolContext);
   } catch (error: any) {
     const encoder = new TextEncoder();
     const safeMsg = `Hello! I am Boss. I am standing by and ready to help you. How can I assist you?`;

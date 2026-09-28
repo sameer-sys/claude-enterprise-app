@@ -130,6 +130,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   const [customUrl, setCustomUrl] = useState('');
   const [authMode, setAuthMode] = useState<'now' | 'needed' | 'none'>('now');
   const [oauthClientMode, setOauthClientMode] = useState<'published' | 'auto' | 'custom'>('auto');
+  const [remoteAuthToken, setRemoteAuthToken] = useState('');
 
   // Custom CLI connector form state
   const [cliName, setCliName] = useState('');
@@ -158,11 +159,10 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const localToken = typeof window !== 'undefined' ? localStorage.getItem('claude_composio_mcp_token') : null;
         const res = await fetch('/api/composio', { method: 'GET', cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
-          const isConn = Boolean(data.mcpConnected || data.mode === 'for_you' || localToken);
+          const isConn = Boolean(data.mcpConnected || data.mode === 'for_you');
           setMcpConnected(isConn);
           setCustomConnectors((prev) => {
             const next = prev.map((c) =>
@@ -173,14 +173,8 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
             try { localStorage.setItem('claude_custom_connectors', JSON.stringify(next)); } catch {}
             return next;
           });
-        } else if (localToken) {
-          setMcpConnected(true);
         }
-      } catch {
-        if (typeof window !== 'undefined' && localStorage.getItem('claude_composio_mcp_token')) {
-          setMcpConnected(true);
-        }
-      }
+      } catch {}
     };
     if (isOpen) {
       checkStatus();
@@ -194,16 +188,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         if (event.data?.status === 'success') {
           setMcpConnected(true);
           setStatusMessage('Successfully connected to Composio "For You"!');
-          if (event.data?.accessToken) {
-            try {
-              localStorage.setItem('claude_composio_mcp_token', event.data.accessToken);
-            } catch {}
-          }
-          if (event.data?.refreshToken) {
-            try {
-              localStorage.setItem('claude_composio_mcp_refresh_token', event.data.refreshToken);
-            } catch {}
-          }
           setCustomConnectors((prev) => {
             const next = prev.map((c) =>
               c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
@@ -291,6 +275,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
           mcpUrl: customUrl.trim(),
           authMode,
           oauthClientMode,
+          ...(remoteAuthToken.trim() ? { authToken: remoteAuthToken.trim() } : {}),
         },
         url: customUrl.trim(),
       };
@@ -388,10 +373,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
           body: JSON.stringify({ action: 'disconnect_mcp' }),
         });
         setMcpConnected(false);
-        try {
-          localStorage.removeItem('claude_composio_mcp_token');
-          localStorage.removeItem('claude_composio_mcp_refresh_token');
-        } catch {}
       } catch {}
     }
 
@@ -766,6 +747,19 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
                   {/* Authentication */}
                   <div className="space-y-2 pt-2 border-t border-[#2d2b25]">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-[#dcd8ce]">Bearer / API Token (optional)</label>
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        placeholder="Paste a server token when required"
+                        value={remoteAuthToken}
+                        onChange={(e) => setRemoteAuthToken(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
+                      />
+                      <p className="text-[11px] text-[#6d685f]">Stored with this connector and sent as a Bearer token to the remote MCP server.</p>
+                    </div>
+
                     <div className="flex items-center gap-1.5 font-semibold text-[#ece9e2]">
                       <span>Authentication</span>
                       <span className="w-3.5 h-3.5 rounded-full border border-[#4a463d] flex items-center justify-center text-[10px] text-[#8f8a80]">i</span>

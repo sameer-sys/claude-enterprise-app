@@ -34,29 +34,10 @@ export interface ConnectorsModalProps {
   sessionId?: string;
 }
 
-export const DEFAULT_CONNECTORS: Connector[] = [{
-  id: 'conn-composio',
-  name: 'composio',
-  description: 'Connect your apps, tools, OAuth accounts, and actions via MCP.',
-  icon: 'composio',
-  enabled: true,
-  status: 'connected',
-  category: 'Integrations',
-  section: 'custom',
-  isCustom: true,
-  isVerified: true,
-  provider: 'mcp',
-  capabilities: ['Multi Execute', 'Tool Search', 'Skills', 'OAuth'],
-  config: { 
-    connectionType: 'mcp', 
-    providerName: 'Composio',
-    mcpUrl: 'https://connect.composio.dev/mcp'
-  },
-  url: 'https://connect.composio.dev/mcp',
-}];
+export const DEFAULT_CONNECTORS: Connector[] = [];
 
 export function createDefaultConnectors(): Connector[] {
-  return DEFAULT_CONNECTORS.map((c) => ({ ...c, config: { ...c.config } }));
+  return [];
 }
 
 interface PrebuiltCatalogItem {
@@ -151,15 +132,15 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
           const data = await res.json();
           const isConn = Boolean(data.mcpConnected || data.mode === 'for_you');
           setMcpConnected(isConn);
-          if (isConn) {
-            setCustomConnectors((prev) =>
-              prev.map((c) =>
-                c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
-                  ? { ...c, status: 'connected' }
-                  : c
-              )
+          setCustomConnectors((prev) => {
+            const next = prev.map((c) =>
+              c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
+                ? { ...c, status: (isConn ? 'connected' : 'idle') as 'connected' | 'idle' }
+                : c
             );
-          }
+            try { localStorage.setItem('claude_custom_connectors', JSON.stringify(next)); } catch {}
+            return next;
+          });
         }
       } catch {}
     };
@@ -175,13 +156,15 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         if (event.data?.status === 'success') {
           setMcpConnected(true);
           setStatusMessage('Successfully connected to Composio "For You"!');
-          setCustomConnectors((prev) =>
-            prev.map((c) =>
+          setCustomConnectors((prev) => {
+            const next = prev.map((c) =>
               c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
-                ? { ...c, status: 'connected' }
+                ? { ...c, status: 'connected' as const }
                 : c
-            )
-          );
+            );
+            try { localStorage.setItem('claude_custom_connectors', JSON.stringify(next)); } catch {}
+            return next;
+          });
         } else if (event.data?.error) {
           setStatusMessage(`OAuth Error: ${event.data.error}`);
         }
@@ -247,7 +230,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         description: `MCP Server at ${customUrl.trim()}`,
         icon: 'composio',
         enabled: true,
-        status: 'connected',
+        status: 'idle',
         category: 'Integrations',
         section: 'custom',
         isCustom: true,

@@ -452,6 +452,15 @@ async function runAgentTool(
           const res = await executeMcpTool(connectorContext.mcpToken, manageTool, args || {});
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
+
+        // Direct action slug dispatcher (e.g. YOUTUBE_CREATE_PLAYLIST) routed via MULTI_EXECUTE
+        if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {
+          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
+            tools: [{ name, arguments: args || {} }]
+          });
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
       } catch (mcpErr: any) {
         console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
       }
@@ -1637,10 +1646,10 @@ export async function POST(req: NextRequest) {
     if (connectorRequest) {
       if (composioMcpToken) {
         // User is connected via Composio "For You" MCP.
-        // Route through multi-turn agent loop with live MCP tools.
+        // Route through multi-turn agent loop with live MCP tools for end-to-end execution.
         forceConnectorTool = true;
-      } else if (!composioApiKey) {
-        const message = 'Composio "For You" is not connected yet. Click Connectors in the top right and click Connect on Composio (https://connect.composio.dev/mcp) to sign in to your personal Composio account.';
+      } else {
+        const message = 'Composio "For You" is not connected yet. Click Connectors in the top right, click "+ Add", and sign in with your Composio account to connect.';
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           start(controller) {
@@ -1658,73 +1667,9 @@ export async function POST(req: NextRequest) {
             'X-Claude-Router': 'composio-not-configured',
           },
         });
-      } else {
-
-      try {
-        console.log('[COMPOSIO DIRECT REQUEST]', { user: composioUserId, request: lastText });
-        const recentHistory = (Array.isArray(messages) ? messages : [])
-          .slice(-8)
-          .map((m: any) => ({ role: String(m?.role || 'user'), content: typeof m?.content === 'string' ? m.content : '' }));
-
-        const composioResult = await executeComposioNaturalLanguage(
-          composioApiKey,
-          composioUserId || 'sameer-web-user',
-          lastText,
-          connectors,
-          connectorAccounts,
-          'claude-3-7-sonnet',
-          undefined,
-          recentHistory
-        );
-
-        if (!composioResult.success) {
-          throw new Error(composioResult.error || 'Composio could not execute the request.');
-        }
-
-        const connectorText = typeof composioResult.data === 'string'
-          ? composioResult.data
-          : formatConnectorResult(lastText, composioResult.data);
-
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            for (let pos = 0; pos < connectorText.length; pos += 32) {
-              controller.enqueue(
-                encoder.encode('data: ' + JSON.stringify({ content: connectorText.slice(pos, pos + 32) }) + '\n\n')
-              );
-            }
-            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-            controller.close();
-          },
-        });
-
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-            'X-Claude-Skill': detectedSkill,
-            'X-Claude-Router': 'composio-tool-router-direct',
-          },
-        });
-      } catch (composioErr: any) {
-        // The fast single-action path couldn't fully resolve this request
-        // (e.g. it genuinely needs multiple steps across one or more apps).
-        // Instead of failing here, fall through into the real multi-turn
-        // agent loop below, which can call connector_search /
-        // connector_execute repeatedly - across ANY connected app, not just
-        // one - until the task is actually done, then report the real
-        // result. forceConnectorTool keeps turn 0 of that loop from
-        // narrating instead of acting.
-        console.error('[COMPOSIO DIRECT ROUTER FALLTHROUGH]', composioErr?.message || composioErr);
-        forceConnectorTool = true;
-        fullMessages.push({
-          role: 'system',
-          content: 'A direct single-action attempt for this request did not fully succeed (' + String(composioErr?.message || 'no matching single action') + '). This may require multiple real tool calls (e.g. list something, then act on each result, possibly across more than one connected app). Use connector_search and connector_execute as many times as needed to actually complete the whole task, then report the real, specific result. Do not narrate a plan - call the tools.',
-        });
       }
     }
-  }
+
 
     const toolContext = {
       apiKey: composioApiKey,
@@ -1814,9 +1759,14 @@ export async function POST(req: NextRequest) {
             if (mcpToolCallsMade === 0 && mcpNudges < 2 && isConnectorRelatedRequest(lastText)) {
               mcpNudges++;
               forceConnectorTool = true;
+              const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+                                     /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lastText) ||
+                                     /\bcomposio\b/i.test(lastText);
               fullMessages.push({
                 role: 'system',
-                content: 'You have not called any Composio tool yet. Do not narrate or plan. Call COMPOSIO_SEARCH_TOOLS now, then execute the real tools.',
+                content: isAccountQuery
+                  ? 'You have not called any Composio tool yet. Do not narrate or assume. Call COMPOSIO_MANAGE_CONNECTIONS now to inspect the live connected accounts.'
+                  : 'You have not called any Composio tool yet. Do not narrate or plan. Call COMPOSIO_SEARCH_TOOLS now, then execute the real tools.',
               });
               continue;
             }

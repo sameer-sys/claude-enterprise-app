@@ -195,6 +195,39 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
     if (isOpen) checkStatus();
   }, [isOpen]);
 
+  // Refresh custom remote MCP auth/tool status without modifying the server-side connection.
+  useEffect(() => {
+    if (!isOpen) return;
+    const custom = customConnectors.filter((c) => c.id !== 'conn-composio' && isRemoteMcpConnector(c)).slice(0, 8);
+    if (!custom.length) return;
+    let cancelled = false;
+    Promise.all(custom.map(async (connector) => {
+      try {
+        const res = await fetch('/api/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check', connector }),
+        });
+        const data = await res.json().catch(() => ({}));
+        return {
+          id: connector.id,
+          status: data?.success ? 'connected' : 'ready',
+          tools: Array.isArray(data?.tools) ? data.tools.map((t: any) => String(t?.name || '')).filter(Boolean) : [],
+        };
+      } catch {
+        return { id: connector.id, status: 'ready', tools: [] };
+      }
+    })).then((results) => {
+      if (cancelled) return;
+      setCustomConnectors((prev) => prev.map((connector) => {
+        const result = results.find((r) => r.id === connector.id);
+        if (!result) return connector;
+        return { ...connector, status: result.status as 'connected' | 'ready' | 'idle' };
+      }));
+    });
+    return () => { cancelled = true; };
+  }, [isOpen]);
+
   // Listen for OAuth completion message from popup
   useEffect(() => {
     const handleOAuthMessage = (event: MessageEvent) => {

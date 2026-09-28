@@ -187,7 +187,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
         if (event.data?.status === 'success') {
           setMcpConnected(true);
           setStatusMessage('Successfully connected to Composio "For You"!');
-oauth token storage          setCustomConnectors((prev) => {
+          setCustomConnectors((prev) => {
             const next = prev.map((c) =>
               c.name.toLowerCase().includes('composio') || c.url?.includes('composio.dev')
                 ? { ...c, status: 'connected' as const }

@@ -748,8 +748,12 @@ export async function POST(req: NextRequest) {
     let mcpToolNames: string[] = [];
     if (composioMcpToken) {
       try {
-        const { listMcpToolsCached, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
-        mcpLiveTools = mcpToolsToOpenAI(await listMcpToolsCached(composioMcpToken, composioMcpRefreshToken));
+        const { listMcpToolsCachedWithAuth, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
+        const listed = await listMcpToolsCachedWithAuth(composioMcpToken, composioMcpRefreshToken);
+        if (listed.accessToken && listed.accessToken !== composioMcpToken) {
+          composioMcpToken = listed.accessToken;
+        }
+        mcpLiveTools = mcpToolsToOpenAI(listed.tools);
         mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
       } catch (mcpListErr: any) {
         console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
@@ -801,9 +805,14 @@ export async function POST(req: NextRequest) {
       composioUserId,
     };
 
+    const { pickMcpToolName } = await import('@/lib/composioMcp');
+
+    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+      /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+      /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
+
     let mcpToolCallsMade = 0;
     let mcpNudges = 0;
-    let mcpVerified = false;
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -819,7 +828,18 @@ export async function POST(req: NextRequest) {
             model: 'openai/gpt-oss-120b',
             messages: fullMessages,
             tools: effectiveTools,
-            tool_choice: ((turn === 0 || forceConnectorTool) && isConnectorRelatedRequest(lastText)) ? 'required' : 'auto',
+            tool_choice: ((turn === 0 || forceConnectorTool) && connectorRequest && mcpModeActive)
+              ? {
+                  type: 'function',
+                  function: {
+                    name: pickMcpToolName(
+                      mcpToolNames,
+                      [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
+                      isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                    ),
+                  },
+                }
+              : 'auto',
             max_tokens: 8192,
           }),
           signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
@@ -918,13 +938,42 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // If account query and no tool executed yet, run COMPOSIO_MANAGE_CONNECTIONS now
-            if (mcpModeActive && isAccountQuery && mcpToolCallsMade === 0) {
-              const { pickMcpToolName, DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
-              const targetTool = pickMcpToolName(mcpToolNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-              const autoResult = await runAgentTool(targetTool, { toolkits: DEFAULT_COMPOSIO_TOOLKITS }, toolContext);
-              const formatted = formatConnectorResult(lastText, autoResult);
-              return streamTextDirectly(formatted, detectedSkill);
+            // Never allow a connector request to stall behind an LLM prose answer.
+            // Perform the required first Composio meta-tool directly if the model
+            // failed to emit a tool call.
+            if (mcpModeActive && mcpToolCallsMade === 0) {
+              const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
+              const targetTool = pickMcpToolName(
+                mcpToolNames,
+                [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
+                isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+              );
+
+              const autoArgs = isAccountQuery
+                ? { toolkits: DEFAULT_COMPOSIO_TOOLKITS }
+                : {
+                    queries: [{ use_case: lastText }],
+                    session: { generate_id: true },
+                    model: 'gpt-5.6',
+                  };
+
+              const autoResult = await runAgentTool(targetTool, autoArgs, toolContext);
+              mcpToolCallsMade++;
+
+              if (isAccountQuery) {
+                const formatted = formatConnectorResult(lastText, autoResult);
+                return streamTextDirectly(formatted, detectedSkill);
+              }
+
+              fullMessages.push({
+                role: 'system',
+                content:
+                  'COMPOSIO_PREFLIGHT_RESULT (' + targetTool + ') — use this real result to continue the connector request. ' +
+                  'If a session_id is present, reuse that exact session id for subsequent Composio meta-tool calls.\n' +
+                  autoResult,
+              });
+              forceConnectorTool = false;
+              continue;
             }
 
             mcpNudges++;
@@ -933,7 +982,7 @@ export async function POST(req: NextRequest) {
               role: 'system',
               content: isAccountQuery
                 ? 'Call COMPOSIO_MANAGE_CONNECTIONS now.'
-                : 'Call the required tool now.',
+                : 'Call the required Composio tool now.',
             });
             continue;
           }

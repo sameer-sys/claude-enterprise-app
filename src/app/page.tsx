@@ -422,6 +422,7 @@ export default function Home() {
 
     setSessions((prev) =>
       prev.map((s) => {
+        if (s.id !== activeSession.id) return s;
         const curConns = s.connectors || createDefaultConnectors();
         const filtered = curConns.filter((c) => c.id !== newConn.id);
         return { ...s, connectors: [newConn, ...filtered] };

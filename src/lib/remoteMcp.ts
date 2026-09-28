@@ -4,6 +4,7 @@ import { refreshRemoteAccessToken, type RemoteStoredToken } from '@/lib/remoteMc
 export interface RemoteMcpTool {
   type: 'function';
   function: { name: string; description: string; parameters: Record<string, any> };
+  originalName?: string;
 }
 
 interface McpEnvelope { payload: any; sessionId?: string; status: number; }
@@ -176,6 +177,7 @@ export async function listRemoteMcpTools(connector: Connector, options: RemoteMc
   const tools = Array.isArray(envelope.payload?.result?.tools) ? envelope.payload.result.tools : [];
   return tools.filter((tool: any) => tool && typeof tool.name === 'string').slice(0, 100).map((tool: any) => ({
     type: 'function' as const,
+    originalName: String(tool.name),
     function: {
       name: 'REMOTE_MCP_' + String(connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12) + '_' + String(tool.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 44),
       description: '[' + connector.name + '] ' + String(tool.description || tool.name).slice(0, 700),

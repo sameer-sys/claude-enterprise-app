@@ -18,6 +18,7 @@ export interface RemoteProtectedResourceMetadata {
 }
 
 export interface RemoteOAuthState {
+  state: string;
   connectorId: string;
   name: string;
   serverUrl: string;

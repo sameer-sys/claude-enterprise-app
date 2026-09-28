@@ -1,14 +1,13 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Check, 
   ChevronDown, 
   ChevronLeft, 
   Copy, 
   ExternalLink, 
-  Hand, 
-  Ban, 
+
   Loader2, 
   Plus, 
   Search, 
@@ -66,30 +65,6 @@ function isRemoteMcpConnector(connector: Connector): boolean {
   return type === 'mcp' && !url.startsWith('cli://') && !['cli', 'stdio'].includes(String(connector?.config?.connectionType || '').toLowerCase());
 }
 
-interface PrebuiltCatalogItem {
-  id: string;
-  name: string;
-  description: string;
-  author: string;
-  iconBg: string;
-  isOfficial?: boolean;
-}
-
-const DISCOVER_CATALOG: PrebuiltCatalogItem[] = [
-  { id: 'vidiq', name: 'vidIQ', description: 'Research and create for YouTube, Instagram & TikTok', author: 'by vidIQ', iconBg: '#0284c7', isOfficial: true },
-  { id: 'hyperframes', name: 'HyperFrames by HeyGen', description: 'Build animated slides and motion graphics with HTML', author: 'by HeyGen Technologies', iconBg: '#059669', isOfficial: true },
-  { id: 'resend', name: 'Resend', description: 'Email for developers. The best way to reach humans instead of spam folders.', author: 'by Resend', iconBg: '#000000', isOfficial: true },
-  { id: 'fastmail', name: 'Fastmail', description: 'An MCP server for Fastmail customers and accounts', author: 'by Fastmail', iconBg: '#2563eb', isOfficial: true },
-  { id: 'celigo', name: 'Celigo', description: 'Build and manage automations across hundreds of apps', author: 'by Celigo', iconBg: '#475569', isOfficial: true },
-  { id: 'grasp', name: 'Grasp', description: 'Find, screen and analyse private-market opportunities', author: 'by Grasp AI', iconBg: '#334155', isOfficial: true },
-  { id: 'agility', name: 'Agility CMS', description: 'AI pipelines for developers and marketers. Model content, author pages, publish...', author: 'by Agility CMS', iconBg: '#d97706', isOfficial: true },
-  { id: 'spark', name: 'Spark', description: 'Connect Claude to your inbox — read, draft, triage, and act on email, calendars, meetings...', author: 'by Spark Mail Limited', iconBg: '#0284c7', isOfficial: true },
-  { id: 'airmail', name: 'Airmail', description: 'Manage emails, calendars, contacts, and more from Claude using Airmail\'s MCP server.', author: 'by Airmail', iconBg: '#2563eb', isOfficial: true },
-  { id: 'clipkit', name: 'Clipkit', description: 'A video toolbox for Claude: compose videos as structured JSON, validate and preview fram...', author: 'by Clipkit Inc', iconBg: '#ea580c' },
-  { id: 'githits', name: 'GitHits', description: 'Version-aware index of open-source dependencies for Claude', author: 'by GitHits Inc.', iconBg: '#475569' },
-  { id: 'missive', name: 'Missive', description: 'Search, analyze, and draft across your team\'s shared inboxes.', author: 'by Missive', iconBg: '#ef4444' },
-];
-
 interface ToolPermission {
   name: string;
   mode: 'allow' | 'ask' | 'block';
@@ -116,7 +91,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
   const { isOpen, onClose, activeConnectors, onUpdateConnectorConfig, onAddCustomConnector } = props;
 
   // View state: 'list' (Yours/Discover) | 'add' (Add custom connector) | 'detail' (Tools & permissions view)
-  const [activeTab, setActiveTab] = useState<'yours' | 'discover'>('yours');
   const [currentView, setCurrentView] = useState<'list' | 'add' | 'detail'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -399,29 +373,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
             <div className="flex items-center justify-between px-6 pt-5 pb-3">
               <div className="flex items-center gap-4">
                 <h2 className="text-xl font-bold text-[#ece9e2]">Connectors</h2>
-                {/* Tabs */}
-                <div className="flex items-center bg-[#25231e] p-0.5 rounded-lg border border-[#38352d]">
-                  <button
-                    onClick={() => setActiveTab('yours')}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                      activeTab === 'yours' 
-                        ? 'bg-[#38352d] text-[#ece9e2] shadow-sm' 
-                        : 'text-[#8f8a80] hover:text-[#ece9e2]'
-                    }`}
-                  >
-                    Yours
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('discover')}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                      activeTab === 'discover' 
-                        ? 'bg-[#38352d] text-[#ece9e2] shadow-sm' 
-                        : 'text-[#8f8a80] hover:text-[#ece9e2]'
-                    }`}
-                  >
-                    Discover
-                  </button>
-                </div>
+                <span className="text-[10px] px-2 py-1 rounded-lg border border-[#3a372f] bg-[#211f1a] text-[#cc785c] font-mono">For You + Remote MCP</span>
               </div>
 
               {/* Action buttons */}
@@ -463,7 +415,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
             {/* Content area */}
             <div className="flex-1 overflow-y-auto px-6 py-3">
-              {activeTab === 'yours' ? (
                 <div className="space-y-2">
                   {customConnectors.length === 0 ? (
                     <div className="text-center py-16 text-[#8f8a80]">
@@ -480,7 +431,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                       .filter(isRemoteMcpConnector)
                       .filter((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
                       .map((conn) => {
-                        const isCli = conn.config?.connectionType === 'cli' || conn.url?.startsWith('cli://');
                         const isComposio = conn.id === 'conn-composio';
                         const isConnected = isComposio ? mcpConnected : (conn.status === 'connected');
 
@@ -506,7 +456,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                                   <span className="font-semibold text-sm text-[#ece9e2]">{conn.name}</span>
                                   {isConnected ? (
                                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-400 font-medium">
-                                      {isCli ? 'CLI (Connected)' : (isComposio ? 'Connected (For You)' : 'Connected')}
+                                      {isComposio ? 'Connected (For You)' : 'Connected'}
                                     </span>
                                   ) : (
                                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800 text-amber-400 font-medium">
@@ -515,9 +465,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                                   )}
                                 </div>
                                 <span className="text-xs text-[#8f8a80]">
-                                  {isCli
-                                    ? `Command: ${conn.config?.command || 'cli'} ${Array.isArray(conn.config?.args) ? conn.config.args.join(' ') : ''}`
-                                    : (conn.config?.mcpUrl || conn.url || 'MCP Server')}
+                                  {conn.config?.mcpUrl || conn.url || 'Remote MCP Server'}
                                 </span>
                               </div>
                             </div>
@@ -552,51 +500,8 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                       })
                   )}
                 </div>
-              ) : (
-                /* Discover Tab Grid */
-                <div className="grid grid-cols-2 gap-3 pb-6">
-                  {DISCOVER_CATALOG
-                    .filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.description.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map((item) => (
-                      <div
-                        key={item.id}
-                        className="p-3.5 rounded-xl border border-[#2d2b25] bg-[#1e1c18] hover:border-[#38352d] flex flex-col justify-between"
-                      >
-                        <div>
-                          <div className="flex items-start justify-between">
-                            <div 
-                              className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-sm"
-                              style={{ backgroundColor: item.iconBg }}
-                            >
-                              {item.name.slice(0, 2).toUpperCase()}
-                            </div>
-                            <button
-                              onClick={() => {
-                                setCustomName(item.name.toLowerCase().replace(/\s+/g, '-'));
-                                setCustomUrl(`https://mcp.${item.id}.com/mcp`);
-                                setCurrentView('add');
-                              }}
-                              className="p-1.5 rounded-lg border border-[#38352d] bg-[#25231e] hover:bg-[#322f29] text-[#ece9e2]"
-                              title="Add connector"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                          <div className="mt-2.5 flex items-center gap-1.5">
-                            <h3 className="font-semibold text-sm text-[#ece9e2]">{item.name}</h3>
-                            {item.isOfficial && <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />}
-                          </div>
-                          <p className="mt-1 text-xs text-[#8f8a80] line-clamp-2 leading-relaxed">{item.description}</p>
-                        </div>
-                        <span className="mt-3 text-[11px] text-[#6d685f]">{item.author}</span>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
 
+            </div>
         {/* ========================================================= */}
         {/* VIEW 2: ADD CUSTOM CONNECTOR (FRAME 7 & 9 FROM VIDEO)     */}
         {/* ========================================================= */}

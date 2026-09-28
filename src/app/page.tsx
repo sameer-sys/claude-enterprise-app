@@ -47,9 +47,14 @@ function normalizeConnectors(raw: any[]): Connector[] {
   ).filter((c: any) => {
     const type = String(c?.config?.connectionType || c?.provider || '').toLowerCase();
     const url = String(c?.config?.mcpUrl || c?.url || '');
-    // Keep only the remote HTTP/HTTPS MCP connectors in the new connector hub.
-    // Legacy local connector definitions are intentionally not restored.
     return type === 'mcp' && !url.startsWith('cli://') && !['cli', 'stdio'].includes(type);
+  }).map((c: any) => {
+    const safeConfig = { ...(c.config || {}) };
+    // Credentials are server-side HttpOnly cookies; scrub legacy browser copies.
+    delete safeConfig.authToken;
+    delete safeConfig.apiKey;
+    delete safeConfig.clientSecret;
+    return { ...c, config: safeConfig };
   });
 
   const composio: Connector = {
@@ -417,11 +422,21 @@ export default function Home() {
 
     setSessions((prev) =>
       prev.map((s) => {
+        if (s.id !== activeSession.id) return s;
         const curConns = s.connectors || createDefaultConnectors();
         const filtered = curConns.filter((c) => c.id !== newConn.id);
         return { ...s, connectors: [newConn, ...filtered] };
       })
     );
+  };
+
+  const handleRemoveCustomConnector = (connectorId: string) => {
+    setSessions((prev) => prev.map((s) => s.id === activeSession.id ? { ...s, connectors: (s.connectors || createDefaultConnectors()).filter((c) => c.id !== connectorId) } : s));
+    try {
+      const raw = localStorage.getItem('claude_custom_connectors');
+      const saved: Connector[] = raw ? JSON.parse(raw) : [];
+      localStorage.setItem('claude_custom_connectors', JSON.stringify(saved.filter((c) => c.id !== connectorId)));
+    } catch {}
   };
 
   const handleCreateProject = (project: Project) => {
@@ -915,6 +930,7 @@ export default function Home() {
         onToggleConnector={handleToggleConnector}
         onUpdateConnectorConfig={handleUpdateConnectorConfig}
         onAddCustomConnector={handleAddCustomConnector}
+        onRemoveCustomConnector={handleRemoveCustomConnector}
         onResetConnectors={handleResetConnectorsForChat}
         sessionTitle={activeSession.title}
         sessionId={activeSession.id}

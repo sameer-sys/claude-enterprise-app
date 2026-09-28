@@ -1,26 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { 
-  Check, 
-  ChevronDown, 
-  ChevronLeft, 
-  Copy, 
-  ExternalLink, 
-  Hand, 
-  Ban, 
-
-  Loader2, 
-  Plus, 
-  Search, 
-  Shield, 
-  X, 
-  Zap, 
-  Globe, 
-  CheckCircle2,
-  Trash2,
-  LogIn,
-} from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Check, ChevronDown, ChevronLeft, Copy, Globe, Loader2, LogIn, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
 
 export interface ConnectorsModalProps {
@@ -30,6 +11,7 @@ export interface ConnectorsModalProps {
   onToggleConnector: (id: string) => void;
   onUpdateConnectorConfig?: (id: string, config: ConnectorConfig) => void;
   onAddCustomConnector?: (connector: Connector) => void;
+  onRemoveCustomConnector?: (connectorId: string) => void;
   onResetConnectors?: () => void;
   sessionTitle?: string;
   sessionId?: string;
@@ -38,7 +20,7 @@ export interface ConnectorsModalProps {
 export const DEFAULT_CONNECTORS: Connector[] = [{
   id: 'conn-composio',
   name: 'Composio For You',
-  description: 'Connect your apps, tools, OAuth accounts, and actions via MCP.',
+  description: 'Your personal Composio MCP connection for connected accounts and actions.',
   icon: 'composio',
   enabled: true,
   status: 'idle',
@@ -47,12 +29,8 @@ export const DEFAULT_CONNECTORS: Connector[] = [{
   isCustom: true,
   isVerified: true,
   provider: 'mcp',
-  capabilities: ['Multi Execute', 'Tool Search', 'Skills', 'OAuth'],
-  config: { 
-    connectionType: 'mcp', 
-    providerName: 'Composio',
-    mcpUrl: 'https://connect.composio.dev/mcp'
-  },
+  capabilities: ['OAuth', 'Tool Search', 'Multi Execute'],
+  config: { connectionType: 'mcp', providerName: 'Composio For You', mcpUrl: 'https://connect.composio.dev/mcp', toolAccess: 'always' },
   url: 'https://connect.composio.dev/mcp',
 }];
 
@@ -63,730 +41,266 @@ export function createDefaultConnectors(): Connector[] {
 function isRemoteMcpConnector(connector: Connector): boolean {
   const type = String(connector?.config?.connectionType || connector?.provider || '').toLowerCase();
   const url = String(connector?.config?.mcpUrl || connector?.url || '');
-  return type === 'mcp' && !url.startsWith('cli://') && !['cli', 'stdio'].includes(String(connector?.config?.connectionType || '').toLowerCase());
+  return type === 'mcp' && /^https?:\/\//i.test(url);
 }
 
-interface ToolPermission {
-  name: string;
-  mode: 'allow' | 'ask' | 'block';
+function sanitizeConnector(connector: Connector): Connector {
+  const config: any = { ...(connector.config || {}) };
+  delete config.authToken;
+  delete config.apiKey;
+  delete config.clientSecret;
+  return { ...connector, config };
 }
 
-const DEFAULT_READ_TOOLS: ToolPermission[] = [
-  { name: 'Get Tool Schemas', mode: 'allow' },
-  { name: 'COMPOSIO SEARCH SKILLS', mode: 'allow' },
-  { name: 'Search Composio Tools', mode: 'allow' },
-  { name: 'COMPOSIO USE SKILL', mode: 'allow' },
-  { name: 'Wait for connection', mode: 'allow' },
-];
+function mergeConnectorState(active: Connector[], persisted: Connector[]): Connector[] {
+  const inputs = [
+    ...active.filter(isRemoteMcpConnector).map(sanitizeConnector),
+    ...persisted.filter(isRemoteMcpConnector).map(sanitizeConnector),
+    ...createDefaultConnectors(),
+  ];
+  const seen = new Set<string>();
+  return inputs.filter((connector) => {
+    const key = connector.id || connector.name;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
-const DEFAULT_WRITE_TOOLS: ToolPermission[] = [
-  { name: 'Manage connections', mode: 'allow' },
-  { name: 'COMPOSIO MANAGE SKILL', mode: 'allow' },
-  { name: 'Multi Execute Composio Tools', mode: 'allow' },
-  { name: 'Run bash commands', mode: 'allow' },
-  { name: 'Execute Code remotely in work bench', mode: 'allow' },
-  { name: 'Submit tool feedback', mode: 'allow' },
-];
-
-export default function ConnectorsModal(props: ConnectorsModalProps) {
-  const { isOpen, onClose, activeConnectors, onUpdateConnectorConfig, onAddCustomConnector } = props;
-
-  // View state: 'list' (Yours/Discover) | 'add' (Add custom connector) | 'detail' (Tools & permissions view)
-  const [currentView, setCurrentView] = useState<'list' | 'add' | 'detail'>('list');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [copiedUrl, setCopiedUrl] = useState(false);
-
-  // Detail view state
-  const [selectedConnector, setSelectedConnector] = useState<Connector | null>(null);
-  const [readTools, setReadTools] = useState<ToolPermission[]>(DEFAULT_READ_TOOLS);
-  const [writeTools, setWriteTools] = useState<ToolPermission[]>(DEFAULT_WRITE_TOOLS);
-  const [globalPermission, setGlobalPermission] = useState<'Always allow' | 'Ask before run' | 'Block write'>('Always allow');
-
-
-  // Custom remote MCP connector form state
+export default function ConnectorsModal({
+  isOpen, onClose, activeConnectors, onToggleConnector, onUpdateConnectorConfig, onAddCustomConnector, onRemoveCustomConnector,
+}: ConnectorsModalProps) {
+  const [view, setView] = useState<'list' | 'add' | 'detail'>('list');
+  const [search, setSearch] = useState('');
+  const [connectors, setConnectors] = useState<Connector[]>(createDefaultConnectors());
+  const [selected, setSelected] = useState<Connector | null>(null);
+  const [composioConnected, setComposioConnected] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [authenticating, setAuthenticating] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customUrl, setCustomUrl] = useState('');
+  const [oauthClientId, setOauthClientId] = useState('');
+  const [oauthClientSecret, setOauthClientSecret] = useState('');
+  const [apiToken, setApiToken] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [tools, setTools] = useState<string[]>([]);
 
+  const currentMap = useMemo(() => new Map(activeConnectors.map((c) => [c.id, c])), [activeConnectors]);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
-  const [mcpConnected, setMcpConnected] = useState(false);
-
-  // The parent session is the source of truth for connector configuration.
-  // localStorage is only a migration/backup for custom MCP/CLI definitions.
-  const [customConnectors, setCustomConnectors] = useState<Connector[]>(() => {
-    const persisted: Connector[] = [];
+  const persistCustom = (items: Connector[]) => {
     try {
-      const stored = localStorage.getItem('claude_custom_connectors');
-      const parsed = stored ? JSON.parse(stored) : [];
-      if (Array.isArray(parsed)) persisted.push(...parsed);
+      localStorage.setItem('claude_custom_connectors', JSON.stringify(items.filter((c) => c.id !== 'conn-composio').map(sanitizeConnector)));
     } catch {}
+  };
 
-    const merged = [...activeConnectors.filter(isRemoteMcpConnector), ...persisted.filter(isRemoteMcpConnector), ...createDefaultConnectors()];
-    const seen = new Set<string>();
-    return merged.filter((c) => {
-      const key = c.id || c.name;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  });
-
-  // Refresh local connector view from the current session whenever the modal opens.
-  // Never clear this state merely because the page was refreshed.
   useEffect(() => {
-    if (!isOpen) return;
     try {
-      const stored = localStorage.getItem('claude_custom_connectors');
-      const parsed = stored ? JSON.parse(stored) : [];
-      const persisted = Array.isArray(parsed) ? parsed : [];
-      const merged = [...activeConnectors.filter(isRemoteMcpConnector), ...persisted.filter(isRemoteMcpConnector), ...createDefaultConnectors()];
-      const seen = new Set<string>();
-      setCustomConnectors(merged.filter((c: Connector) => {
-        const key = c.id || c.name;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      }));
+      const raw = localStorage.getItem('claude_custom_connectors');
+      const persisted = raw ? JSON.parse(raw) : [];
+      setConnectors(mergeConnectorState(Array.isArray(activeConnectors) ? activeConnectors : [], Array.isArray(persisted) ? persisted : []));
     } catch {
-      setCustomConnectors([...activeConnectors.filter(isRemoteMcpConnector), ...createDefaultConnectors()]);
+      setConnectors(mergeConnectorState(activeConnectors || [], []));
     }
-  }, [isOpen, activeConnectors]);
+  }, [activeConnectors]);
 
-  // Check the server-side Composio session on open. This is read-only.
   useEffect(() => {
-    const checkStatus = async () => {
+    if (!isOpen) { setView('list'); setStatusMessage(''); return; }
+    let cancelled = false;
+    (async () => {
       try {
         const res = await fetch('/api/composio', { method: 'GET', cache: 'no-store' });
-        if (!res.ok) return;
-        const data = await res.json();
-        const isConn = Boolean(data.mcpConnected && data.mode === 'for_you');
-        setMcpConnected(isConn);
-
-        setCustomConnectors((prev) => {
-          const existing = prev.find((c) => c.id === 'conn-composio');
-          const base = createDefaultConnectors()[0];
-          const composio = {
-            ...base,
-            ...(existing || {}),
-            status: (isConn ? 'connected' : 'idle') as 'connected' | 'idle',
-            config: {
-              ...(base.config || {}),
-              ...(existing?.config || {}),
-              composioAccountCount: Array.isArray(data.connectedAccounts) ? data.connectedAccounts.length : 0,
-            },
-          };
-          const rest = prev.filter((c) => c.id !== 'conn-composio');
-          const next = [composio, ...rest];
-          try {
-            localStorage.setItem('claude_custom_connectors', JSON.stringify(next.filter((c) => c.id !== 'conn-composio')));
-          } catch {}
-          return next;
-        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        const connected = Boolean(data?.mcpConnected && data?.mode === 'for_you');
+        setComposioConnected(connected);
+        setConnectors((prev) => prev.map((c) => c.id === 'conn-composio' ? { ...c, status: connected ? 'connected' : 'idle' } : c));
       } catch {}
-    };
-    if (isOpen) checkStatus();
+    })();
+    return () => { cancelled = true; };
   }, [isOpen]);
 
-  // Listen for OAuth completion message from popup
   useEffect(() => {
-    const handleOAuthMessage = (event: MessageEvent) => {
+    if (!isOpen) return;
+    const custom = connectors.filter((c) => c.id !== 'conn-composio' && isRemoteMcpConnector(c));
+    if (!custom.length) return;
+    let cancelled = false;
+    Promise.all(custom.map(async (connector) => {
+      try {
+        const res = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check', connector }) });
+        const data = await res.json().catch(() => ({}));
+        return { id: connector.id, connected: Boolean(data?.success) };
+      } catch { return { id: connector.id, connected: false }; }
+    })).then((results) => {
+      if (cancelled) return;
+      setConnectors((prev) => prev.map((c) => {
+        const result = results.find((r) => r.id === c.id);
+        return result ? { ...c, status: result.connected ? 'connected' : 'ready' } : c;
+      }));
+    });
+    return () => { cancelled = true; };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!selected || selected.id === 'conn-composio' || !isOpen) { setTools([]); return; }
+    let cancelled = false;
+    fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check', connector: selected }) })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => { if (!cancelled && data?.success) setTools(Array.isArray(data.tools) ? data.tools.map((t: any) => String(t?.name || '')).filter(Boolean) : []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selected?.id, isOpen]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'sameer-composio-mcp-connected') {
         if (event.data?.status === 'success') {
-          setMcpConnected(true);
-          setStatusMessage('Successfully connected to Composio "For You"!');
-          setCustomConnectors((prev) => {
-            const next = prev.map((c) =>
-              c.id === 'conn-composio'
-                ? { ...c, status: 'connected' as const }
-                : c
-            );
-            try { localStorage.setItem('claude_custom_connectors', JSON.stringify(next)); } catch {}
-            return next;
-          });
-        } else if (event.data?.error) {
-          setStatusMessage(`OAuth Error: ${event.data.error}`);
-        }
-        setIsAuthenticating(false);
-        setIsSubmitting(false);
+          setComposioConnected(true); setConnectors((prev) => prev.map((c) => c.id === 'conn-composio' ? { ...c, status: 'connected' } : c)); setStatusMessage('Composio For You connected.');
+        } else if (event.data?.error) setStatusMessage('OAuth Error: ' + event.data.error);
+        setAuthenticating(false);
+      }
+      if (event.data?.type === 'sameer-remote-mcp-connected') {
+        const id = String(event.data?.connectorId || '');
+        if (event.data?.status === 'success') {
+          setConnectors((prev) => prev.map((c) => c.id === id ? { ...c, status: 'connected' } : c));
+          setSelected((prev) => prev?.id === id ? { ...prev, status: 'connected' } : prev);
+          setStatusMessage('Remote MCP connector authenticated.');
+        } else setStatusMessage('OAuth Error: ' + String(event.data?.error || 'Authentication failed.'));
+        setAuthenticating(false);
       }
     };
-    window.addEventListener('message', handleOAuthMessage);
-    return () => window.removeEventListener('message', handleOAuthMessage);
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
   }, []);
 
-  useEffect(() => {
-    if (!isOpen) {
-      setCurrentView('list');
-      setStatusMessage('');
-    }
-  }, [isOpen]);
-
-  const handleCopyUrl = (url: string) => {
-    navigator.clipboard.writeText(url);
-    setCopiedUrl(true);
-    setTimeout(() => setCopiedUrl(false), 2000);
-  };
-
-  const startComposioOAuth = async () => {
-    setIsAuthenticating(true);
-    setStatusMessage('Initiating Composio "For You" sign-in...');
+  const openComposioOAuth = async () => {
+    setAuthenticating(true); setStatusMessage('Opening Composio For You sign-in…');
     try {
-      const res = await fetch('/api/composio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'get_mcp_oauth_url' }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.authUrl) {
-        throw new Error(data.error || 'Failed to generate OAuth URL');
-      }
-      const popup = window.open(
-        data.authUrl,
-        'composio_mcp_login',
-        'popup,width=620,height=780,resizable=yes,scrollbars=yes'
-      );
-      if (!popup) {
-        window.open(data.authUrl, '_blank');
-      }
-    } catch (err: any) {
-      setStatusMessage(`OAuth Error: ${err.message}`);
-      setIsAuthenticating(false);
-    }
+      const res = await fetch('/api/composio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get_mcp_oauth_url' }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.authUrl) throw new Error(data?.error || 'Failed to start Composio OAuth.');
+      const popup = window.open(data.authUrl, 'composio_for_you_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
+      if (!popup) window.open(data.authUrl, '_blank');
+    } catch (err: any) { setAuthenticating(false); setStatusMessage(String(err?.message || err)); }
   };
 
-  const handleAddSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customName.trim() || !customUrl.trim()) return;
-
-    setIsSubmitting(true);
-    setStatusMessage('Connecting to MCP server...');
-
+  const openRemoteOAuth = async (connector: Connector) => {
+    setAuthenticating(true); setStatusMessage('Starting secure MCP OAuth…');
     try {
-      const newConnector: Connector = {
-        id: `mcp-${Date.now()}`,
-        name: customName.trim(),
-        description: `MCP Server at ${customUrl.trim()}`,
-        icon: 'composio',
-        enabled: true,
-        status: 'idle',
-        category: 'Integrations',
-        section: 'custom',
-        isCustom: true,
-        isVerified: true,
-        provider: 'mcp',
-        capabilities: ['Multi Execute', 'Tool Search', 'OAuth'],
-        config: {
-          connectionType: 'mcp',
-          providerName: customName.trim(),
-          mcpUrl: customUrl.trim(),
-        },
-        url: customUrl.trim(),
-      };
-
-      const probeRes = await fetch('/api/mcp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'check', connector: newConnector }),
-      });
-      const probe = await probeRes.json().catch(() => ({}));
-
-      if (probeRes.ok && probe?.success) {
-        newConnector.status = probe.toolCount > 0 ? 'connected' : 'ready';
-        setStatusMessage(
-          probe.toolCount > 0
-            ? `Connected — discovered ${probe.toolCount} MCP tool${probe.toolCount === 1 ? '' : 's'}.`
-            : 'Server responded, but did not advertise any tools yet.'
-        );
-      } else if (probe?.requiresAuth || probeRes.status === 401 || probeRes.status === 403) {
-        newConnector.status = 'ready';
-        setStatusMessage('Connector saved. The remote MCP server requires authentication.');
-      } else {
-        newConnector.status = 'ready';
-        setStatusMessage(probe?.error || 'Connector saved. It will be checked again when the agent uses it.');
-      }
-
-      const updated = [newConnector, ...customConnectors.filter((c) => c.name.toLowerCase() !== newConnector.name.toLowerCase())];
-      setCustomConnectors(updated);
-      try {
-        localStorage.setItem('claude_custom_connectors', JSON.stringify(updated));
-      } catch {}
-
-      if (onAddCustomConnector) {
-        onAddCustomConnector(newConnector);
-      }
-
-      setSelectedConnector(newConnector);
-      setCurrentView('detail');
-    } catch (err: any) {
-      setStatusMessage(`Error: ${err.message}`);
-    } finally {
-      setIsSubmitting(false);
-    }
+      const res = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'oauth_start', connector }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.authUrl) throw new Error(data?.error || 'This connector could not start OAuth.');
+      const popup = window.open(data.authUrl, 'remote_mcp_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
+      if (!popup) window.open(data.authUrl, '_blank');
+    } catch (err: any) { setAuthenticating(false); setStatusMessage('OAuth Error: ' + String(err?.message || err)); }
   };
 
-  const handleDisconnect = async (connectorId: string) => {
-    const conn = customConnectors.find((c) => c.id === connectorId);
-    if (conn?.id === 'conn-composio') {
-      try {
-        await fetch('/api/composio', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'disconnect_mcp' }),
-        });
-        setMcpConnected(false);
-      } catch {}
-    }
-
-    const updated = customConnectors.filter((c) => c.id !== connectorId);
-    setCustomConnectors(updated);
+  const addCustomConnector = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = customName.trim(); const url = customUrl.trim();
+    if (!name || !url) return;
+    try { const parsed = new URL(url); if (!/^https?:$/.test(parsed.protocol)) throw new Error('Use a public HTTP/HTTPS MCP URL.'); } catch (err: any) { setStatusMessage(err?.message || 'Enter a valid MCP URL.'); return; }
+    setLoading(true); setStatusMessage('Checking MCP server…');
+    const connector: Connector = {
+      id: 'mcp-' + Date.now(), name, description: 'Remote MCP server at ' + url, icon: 'mcp', enabled: true, status: 'ready', category: 'Integrations', section: 'custom', isCustom: true, isVerified: true, provider: 'mcp',
+      capabilities: ['Remote MCP', 'Tool Discovery', 'Tool Execution', 'OAuth'],
+      config: { connectionType: 'mcp', providerName: name, mcpUrl: url, toolAccess: 'auto', disabledTools: [], ...(oauthClientId.trim() ? { oauthClientId: oauthClientId.trim() } : {}) }, url,
+    };
     try {
-      localStorage.setItem('claude_custom_connectors', JSON.stringify(updated));
-    } catch {}
-    setCurrentView('list');
+      const save = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save_credentials', connectorId: connector.id, serverUrl: url, clientId: oauthClientId.trim(), clientSecret: oauthClientSecret, apiToken: apiToken.trim() }) });
+      if (!save.ok) throw new Error('Could not securely save connector credentials.');
+      const probe = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check', connector }) });
+      const data = await probe.json().catch(() => ({}));
+      connector.status = data?.success ? 'connected' : 'ready';
+      setStatusMessage(data?.success ? `Connected — discovered ${Number(data.toolCount || 0)} tool${Number(data.toolCount || 0) === 1 ? '' : 's'}.` : data?.requiresAuth ? 'Added. Click Connect to authenticate.' : 'Added. The server will be checked when used.');
+      setConnectors((prev) => [connector, ...prev.filter((c) => c.id !== connector.id && c.name.toLowerCase() !== name.toLowerCase())]);
+      persistCustom([connector, ...connectors]);
+      onAddCustomConnector?.(connector);
+      setSelected(connector); setView('detail');
+    } catch (err: any) { setStatusMessage(String(err?.message || err)); } finally { setLoading(false); }
   };
 
-  const toggleToolMode = (type: 'read' | 'write', toolName: string, mode: 'allow' | 'ask' | 'block') => {
-    if (type === 'read') {
-      setReadTools((prev) => prev.map((t) => (t.name === toolName ? { ...t, mode } : t)));
-    } else {
-      setWriteTools((prev) => prev.map((t) => (t.name === toolName ? { ...t, mode } : t)));
+  const disconnectConnector = async (connector: Connector) => {
+    if (connector.id === 'conn-composio') {
+      await fetch('/api/composio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disconnect_mcp' }) }).catch(() => {});
+      setComposioConnected(false); setConnectors((prev) => prev.map((c) => c.id === connector.id ? { ...c, status: 'idle' } : c)); setStatusMessage('Composio For You disconnected from this browser session.'); return;
     }
+    await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disconnect', connectorId: connector.id, serverUrl: connector.url }) }).catch(() => {});
+    setConnectors((prev) => prev.map((c) => c.id === connector.id ? { ...c, status: 'ready' } : c));
+    setSelected((prev) => prev?.id === connector.id ? { ...prev, status: 'ready' } : prev);
+    setStatusMessage('Connector disconnected. Its configuration is still saved.');
   };
+
+  const removeConnector = async (connector: Connector) => {
+    if (connector.id === 'conn-composio') return;
+    await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disconnect', connectorId: connector.id, serverUrl: connector.url }) }).catch(() => {});
+    const next = connectors.filter((c) => c.id !== connector.id);
+    setConnectors(next); persistCustom(next); onRemoveCustomConnector?.(connector.id); setSelected(null); setView('list');
+  };
+
+  const updateConfig = (config: ConnectorConfig) => {
+    if (!selected) return;
+    const next = { ...selected, config: { ...(selected.config || {}), ...config } };
+    setSelected(next); setConnectors((prev) => prev.map((c) => c.id === selected.id ? next : c)); onUpdateConnectorConfig?.(selected.id, next.config || {});
+    if (next.id !== 'conn-composio') persistCustom(connectors.map((c) => c.id === next.id ? next : c));
+  };
+
+  const filtered = connectors.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || String(c.url || '').toLowerCase().includes(search.toLowerCase()));
 
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-3xl h-[620px] rounded-2xl border border-[#38352d] bg-[#181714] text-[#ece9e2] shadow-2xl flex flex-col overflow-hidden">
-        
-        {/* ========================================================= */}
-        {/* VIEW 1: MAIN CONNECTORS VIEW (YOURS & DISCOVER)           */}
-        {/* ========================================================= */}
-        {currentView === 'list' && (
-          <>
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 pt-5 pb-3">
-              <div className="flex items-center gap-4">
-                <h2 className="text-xl font-bold text-[#ece9e2]">Connectors</h2>
-                <span className="text-[10px] px-2 py-1 rounded-lg border border-[#3a372f] bg-[#211f1a] text-[#cc785c] font-mono">For You + Remote MCP</span>
-              </div>
-
-              {/* Action buttons */}
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8f8a80]" />
-                  <input
-                    type="text"
-                    placeholder="Search connectors"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-48 pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#38352d] bg-[#201e1a] text-[#ece9e2] placeholder-[#8f8a80] focus:outline-none focus:border-[#cc785c]"
-                  />
-                </div>
-                
-                {/* + Add Custom Remote MCP */}
-                <button
-                  onClick={() => {
-                    setCustomName('');
-                    setCustomUrl('');
-                    setStatusMessage('');
-                    setCurrentView('add');
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#38352d] bg-[#25231e] hover:bg-[#322f29] text-[#ece9e2] transition-colors"
-                  title="Add a remote MCP connector"
-                >
-                  <Plus className="w-3.5 h-3.5 text-[#cc785c]" />
-                  <span>Add custom connector</span>
-                </button>
-
-                <button 
-                  onClick={onClose}
-                  className="p-1.5 rounded-lg text-[#8f8a80] hover:text-[#ece9e2] hover:bg-[#25231e]"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Content area */}
-            <div className="flex-1 overflow-y-auto px-6 py-3">
-                <div className="space-y-2">
-                  {customConnectors.length === 0 ? (
-                    <div className="text-center py-16 text-[#8f8a80]">
-                      <p className="text-sm">No custom connectors installed yet.</p>
-                      <button 
-                        onClick={() => setCurrentView('add')}
-                        className="mt-3 px-4 py-2 text-xs rounded-xl bg-[#cc785c] text-white hover:bg-[#b86950]"
-                      >
-                        Add Custom Connector
-                      </button>
-                    </div>
-                  ) : (
-                    customConnectors
-                      .filter(isRemoteMcpConnector)
-                      .filter((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                      .map((conn) => {
-                        const isComposio = conn.id === 'conn-composio';
-                        const isConnected = isComposio ? mcpConnected : (conn.status === 'connected');
-
-                        return (
-                          <div
-                            key={conn.id}
-                            className="flex items-center justify-between p-3.5 rounded-xl border border-[#2d2b25] bg-[#1e1c18] hover:border-[#423f36] hover:bg-[#23211c] transition-all"
-                          >
-                            <div 
-                              className="flex items-center gap-3 cursor-pointer flex-1"
-                              onClick={() => {
-                                setSelectedConnector(conn);
-                                setCurrentView('detail');
-                              }}
-                            >
-                              <div className="w-9 h-9 rounded-lg border flex items-center justify-center font-bold bg-[#2a2722] border-[#38352d] text-[#cc785c]">
-                                <Zap className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-sm text-[#ece9e2]">{conn.name}</span>
-                                  {isConnected ? (
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-400 font-medium">
-                                      {isComposio ? 'Connected (For You)' : 'Connected'}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800 text-amber-400 font-medium">
-                                      Sign in needed
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-xs text-[#8f8a80]">
-                                  {conn.config?.mcpUrl || conn.url || 'Remote MCP Server'}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 text-xs">
-                              {isComposio && !isConnected && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    startComposioOAuth();
-                                  }}
-                                  disabled={isAuthenticating}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#b86950] text-white font-medium text-xs shadow-sm disabled:opacity-50"
-                                >
-                                  {isAuthenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
-                                  <span>Connect</span>
-                                </button>
-                              )}
-                              <button
-                                onClick={() => {
-                                  setSelectedConnector(conn);
-                                  setCurrentView('detail');
-                                }}
-                                className="flex items-center gap-1 text-[#8f8a80] hover:text-[#ece9e2] px-2 py-1"
-                              >
-                                <span>Configure</span>
-                                <ChevronDown className="w-4 h-4 -rotate-90" />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
-                  )}
-                </div>
-            </div>
-          </>
-        )}
-        {/* ========================================================= */}
-        {/* VIEW 2: ADD CUSTOM CONNECTOR (FRAME 7 & 9 FROM VIDEO)     */}
-        {/* ========================================================= */}
-        {currentView === 'add' && (
-          <form onSubmit={handleAddSubmit} className="flex flex-col h-full">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-[#2d2b25]">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('list')}
-                  className="p-1.5 rounded-lg text-[#8f8a80] hover:text-[#ece9e2] hover:bg-[#25231e]"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <h2 className="text-base font-bold text-[#ece9e2]">
-                  Add custom connector
-                </h2>
-              </div>
-              <button 
-                type="button"
-                onClick={onClose}
-                className="p-1.5 rounded-lg text-[#8f8a80] hover:text-[#ece9e2] hover:bg-[#25231e]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Scrollable form body */}
-            <div className="flex-1 overflow-y-auto px-8 py-4 space-y-4 text-xs text-[#b8b2a7]">
-              <>
-                  <div>
-                    <p className="text-xs text-[#8f8a80]">
-                      Connect a remote MCP server by entering its name and public HTTP/HTTPS URL.
-                    </p>
-                  </div>
-
-                  {/* Name Field */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#dcd8ce]">Connector Name</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. My MCP server"
-                      value={customName}
-                      onChange={(e) => setCustomName(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
-                    />
-                    <p className="text-[11px] text-[#6d685f]">Shown in the connectors list.</p>
-                  </div>
-
-                  {/* URL Field */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#dcd8ce]">Server URL</label>
-                    <input
-                      type="url"
-                      required
-                      placeholder="https://example.com/mcp"
-                      value={customUrl}
-                      onChange={(e) => setCustomUrl(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
-                    />
-                    <p className="text-[11px] text-[#6d685f]">
-                      Enter the public HTTP/HTTPS endpoint of your remote MCP server.
-                    </p>
-                  </div>
-
-                </>
-              
-              {statusMessage && (
-                <div className="p-3 rounded-lg border border-[#4a4133] bg-[#231f18] text-[#cc785c] text-xs">
-                  {statusMessage}
-                </div>
-              )}
-            </div>
-
-            {/* Footer Buttons */}
-            <div className="flex items-center justify-between px-8 py-4 border-t border-[#2d2b25] bg-[#1a1915]">
-              <button
-                type="button"
-                onClick={() => setCurrentView('list')}
-                className="px-4 py-2 text-xs rounded-xl border border-[#38352d] text-[#8f8a80] hover:text-[#ece9e2] hover:bg-[#25231e]"
-              >
-                Back
-              </button>
-
-              <button
-                type="submit"
-                disabled={isSubmitting || isAuthenticating}
-                className="px-5 py-2 text-xs font-semibold rounded-xl bg-[#cc785c] hover:bg-[#b86950] text-white flex items-center gap-2 shadow-sm disabled:opacity-50"
-              >
-                {(isSubmitting || isAuthenticating) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Add connector</span>
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ========================================================= */}
-        {/* VIEW 3: CONNECTOR DETAILS & TOOL PERMISSIONS (FRAME 15)  */}
-        {/* ========================================================= */}
-        {currentView === 'detail' && selectedConnector && (
-          <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-[#2d2b25]">
-              <button
-                onClick={() => setCurrentView('list')}
-                className="flex items-center gap-1.5 text-xs text-[#8f8a80] hover:text-[#ece9e2]"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span>Your connectors</span>
-              </button>
-              <button 
-                onClick={onClose}
-                className="p-1.5 rounded-lg text-[#8f8a80] hover:text-[#ece9e2] hover:bg-[#25231e]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto px-8 py-5 space-y-6">
-              {/* Connector Card Header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#2a2722] border border-[#38352d] flex items-center justify-center font-bold text-[#cc785c]">
-                    <Zap className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-base text-[#ece9e2]">{selectedConnector.name}</h3>
-                      {selectedConnector.id === 'conn-composio' && (
-                        mcpConnected ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-400 font-medium">
-                            Connected (For You)
-                          </span>
-                        ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800 text-amber-400 font-medium">
-                            Sign in needed
-                          </span>
-                        )
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 text-xs text-[#8f8a80]">
-                      <span>{selectedConnector.config?.mcpUrl || selectedConnector.url}</span>
-                      <button 
-                        onClick={() => handleCopyUrl(selectedConnector.config?.mcpUrl || selectedConnector.url || '')}
-                        className="p-1 hover:text-[#ece9e2]"
-                        title="Copy URL"
-                      >
-                        {copiedUrl ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {selectedConnector.name.toLowerCase().includes('composio') && !mcpConnected && (
-                    <button
-                      onClick={startComposioOAuth}
-                      disabled={isAuthenticating}
-                      className="px-3.5 py-1.5 rounded-xl bg-[#cc785c] hover:bg-[#b86950] text-xs font-semibold text-white flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-                    >
-                      {isAuthenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
-                      <span>Sign In with Composio</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => handleDisconnect(selectedConnector.id)}
-                    className="px-3.5 py-1.5 rounded-xl border border-[#38352d] hover:border-red-900/60 bg-[#201e1a] hover:bg-red-950/30 text-xs text-[#b8b2a7] hover:text-red-300 transition-colors"
-                  >
-                    Disconnect
-                  </button>
-                </div>
-              </div>
-
-              {/* Tool permissions section */}
-              <div className="space-y-4 pt-4 border-t border-[#2d2b25]">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs font-semibold text-[#ece9e2]">Tool permissions</h4>
-                    <p className="text-[11px] text-[#6d685f]">Choose when Claude is allowed to use these tools.</p>
-                  </div>
-                  
-                  {/* Global Permission Dropdown */}
-                  <div className="relative">
-                    <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#38352d] bg-[#22201b] text-xs font-medium text-[#ece9e2]">
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{globalPermission}</span>
-                      <ChevronDown className="w-3 h-3 text-[#8f8a80]" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Read-only Tools */}
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs text-[#8f8a80] font-medium py-1">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                    <span>Read-only tools</span>
-                    <span className="text-[10px] px-1.5 rounded-full bg-[#2a2722] text-[#8f8a80]">{readTools.length}</span>
-                  </div>
-
-                  <div className="divide-y divide-[#24221c] border-t border-[#24221c]">
-                    {readTools.map((tool) => (
-                      <div key={tool.name} className="flex items-center justify-between py-2 text-xs">
-                        <span className="text-[#b8b2a7]">{tool.name}</span>
-                        <div className="flex items-center gap-1 bg-[#201e1a] p-0.5 rounded-lg border border-[#2d2b25]">
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('read', tool.name, 'allow')}
-                            className={`p-1 rounded ${tool.mode === 'allow' ? 'bg-[#38352d] text-emerald-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Always allow"
-                          >
-                            <Check className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('read', tool.name, 'ask')}
-                            className={`p-1 rounded ${tool.mode === 'ask' ? 'bg-[#38352d] text-amber-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Ask before running"
-                          >
-                            <Hand className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('read', tool.name, 'block')}
-                            className={`p-1 rounded ${tool.mode === 'block' ? 'bg-[#38352d] text-red-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Block tool"
-                          >
-                            <Ban className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Write/delete Tools */}
-                <div className="space-y-1 pt-2">
-                  <div className="flex items-center gap-1.5 text-xs text-[#8f8a80] font-medium py-1">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                    <span>Write/delete tools</span>
-                    <span className="text-[10px] px-1.5 rounded-full bg-[#2a2722] text-[#8f8a80]">{writeTools.length}</span>
-                  </div>
-
-                  <div className="divide-y divide-[#24221c] border-t border-[#24221c]">
-                    {writeTools.map((tool) => (
-                      <div key={tool.name} className="flex items-center justify-between py-2 text-xs">
-                        <span className={`text-[#b8b2a7] ${tool.name === 'Multi Execute Composio Tools' ? 'font-semibold text-[#ece9e2]' : ''}`}>
-                          {tool.name}
-                        </span>
-                        <div className="flex items-center gap-1 bg-[#201e1a] p-0.5 rounded-lg border border-[#2d2b25]">
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('write', tool.name, 'allow')}
-                            className={`p-1 rounded ${tool.mode === 'allow' ? 'bg-[#38352d] text-emerald-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Always allow"
-                          >
-                            <Check className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('write', tool.name, 'ask')}
-                            className={`p-1 rounded ${tool.mode === 'ask' ? 'bg-[#38352d] text-amber-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Ask before running"
-                          >
-                            <Hand className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleToolMode('write', tool.name, 'block')}
-                            className={`p-1 rounded ${tool.mode === 'block' ? 'bg-[#38352d] text-red-400' : 'text-[#6d685f] hover:text-[#ece9e2]'}`}
-                            title="Block tool"
-                          >
-                            <Ban className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
+    <div className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-3xl h-[650px] rounded-2xl border border-[#38352d] bg-[#181714] text-[#ece9e2] shadow-2xl flex flex-col overflow-hidden">
+        {view === 'list' && <>
+          <div className="flex items-center justify-between px-6 pt-5 pb-3">
+            <div className="flex items-center gap-3"><h2 className="text-xl font-bold">Connectors</h2><span className="text-[10px] px-2 py-1 rounded-lg border border-[#3a372f] bg-[#211f1a] text-[#cc785c] font-mono">For You + Remote MCP</span></div>
+            <div className="flex items-center gap-3"><div className="relative"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8f8a80]"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search connectors" className="w-52 pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#38352d] bg-[#201e1a] text-[#ece9e2] focus:outline-none"/></div><button onClick={() => { setCustomName(''); setCustomUrl(''); setOauthClientId(''); setOauthClientSecret(''); setApiToken(''); setShowAdvanced(false); setStatusMessage(''); setView('add'); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#38352d] bg-[#25231e]"><Plus className="w-3.5 h-3.5 text-[#cc785c]"/>Add custom connector</button><button onClick={onClose} className="p-1.5 rounded-lg text-[#8f8a80]"><X className="w-4 h-4"/></button></div>
           </div>
-        )}
+          <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2">
+            {filtered.map((connector) => {
+              const isComposio = connector.id === 'conn-composio'; const connected = isComposio ? composioConnected : connector.status === 'connected';
+              return <div key={connector.id} className="flex items-center justify-between p-3.5 rounded-xl border border-[#2d2b25] bg-[#1e1c18]">
+                <button className="flex items-center gap-3 min-w-0 text-left" onClick={() => { setSelected({ ...(currentMap.get(connector.id) || connector), ...connector }); setView('detail'); }}>
+                  <div className="w-9 h-9 rounded-lg border border-[#38352d] bg-[#2a2722] flex items-center justify-center text-[#cc785c]"><Zap className="w-4 h-4"/></div>
+                  <div className="min-w-0"><div className="flex items-center gap-2"><span className="font-semibold text-sm truncate">{connector.name}</span><span className={`text-[10px] px-2 py-0.5 rounded-full border ${connected ? 'border-emerald-800 text-emerald-400' : 'border-amber-800 text-amber-400'}`}>{connected ? (isComposio ? 'Connected (For You)' : 'Connected') : 'Sign in needed'}</span></div><div className="text-xs text-[#8f8a80] truncate max-w-xl">{connector.url}</div></div>
+                </button>
+                <div className="flex items-center gap-2">
+                  {!connected && <button onClick={() => isComposio ? openComposioOAuth() : openRemoteOAuth(connector)} disabled={authenticating} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <LogIn className="w-3.5 h-3.5 inline mr-1"/>}Connect</button>}
+                  <button onClick={() => onToggleConnector(connector.id)} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold ${connector.enabled ? 'border-emerald-800 text-emerald-400' : 'border-[#38352d] text-[#8f8a80]'}`}>{connector.enabled ? 'Enabled' : 'Disabled'}</button>
+                </div>
+              </div>;
+            })}
+          </div>
+        </>}
 
+        {view === 'add' && <form onSubmit={addCustomConnector} className="h-full flex flex-col">
+          <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-[#2d2b25]"><div className="flex items-center gap-2"><button type="button" onClick={() => setView('list')} className="p-1.5 rounded-lg text-[#8f8a80]"><ChevronLeft className="w-4 h-4"/></button><h2 className="text-base font-bold">Add custom connector</h2></div><button type="button" onClick={onClose} className="p-1.5 text-[#8f8a80]"><X className="w-4 h-4"/></button></div>
+          <div className="flex-1 overflow-y-auto px-8 py-5 space-y-4 text-xs">
+            <div className="p-4 rounded-xl bg-[#141310] border border-[#282620]"><div className="flex items-center gap-2 font-semibold"><Globe className="w-4 h-4 text-[#cc785c]"/>Remote MCP server</div><p className="mt-1 text-[#8f8a80]">Add the connector name and public MCP URL. OAuth client settings are optional.</p></div>
+            <div><label className="block font-semibold mb-1.5">Connector Name</label><input required value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="e.g. My MCP server" className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/></div>
+            <div><label className="block font-semibold mb-1.5">Server URL</label><input required type="url" value={customUrl} onChange={(e) => setCustomUrl(e.target.value)} placeholder="https://example.com/mcp" className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/><p className="mt-1 text-[11px] text-[#6d685f]">The remote MCP endpoint must be reachable over the public internet.</p></div>
+            <div className="pt-2 border-t border-[#2d2b25]"><button type="button" onClick={() => setShowAdvanced((v) => !v)} className="flex items-center gap-2 font-semibold"><ChevronDown className={`w-3.5 h-3.5 ${showAdvanced ? 'rotate-180' : ''}`}/>Advanced settings</button>
+              {showAdvanced && <div className="mt-3 space-y-3"><div><label className="block mb-1.5 font-semibold">OAuth Client ID</label><input value={oauthClientId} onChange={(e) => setOauthClientId(e.target.value)} className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/></div><div><label className="block mb-1.5 font-semibold">OAuth Client Secret</label><input type="password" autoComplete="new-password" value={oauthClientSecret} onChange={(e) => setOauthClientSecret(e.target.value)} className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/></div><div><label className="block mb-1.5 font-semibold">Bearer / API Token</label><input type="password" autoComplete="off" value={apiToken} onChange={(e) => setApiToken(e.target.value)} className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/></div></div>}</div>
+            {statusMessage && <div className="p-3 rounded-lg border border-[#4a4133] bg-[#231f18] text-[#cc785c]">{statusMessage}</div>}
+          </div>
+          <div className="flex justify-between px-8 py-4 border-t border-[#2d2b25]"><button type="button" onClick={() => setView('list')} className="px-4 py-2 rounded-xl border border-[#38352d]">Back</button><button type="submit" disabled={loading} className="px-5 py-2 rounded-xl bg-[#cc785c] text-white font-semibold flex items-center gap-2">{loading && <Loader2 className="w-3.5 h-3.5 animate-spin"/>}Add connector</button></div>
+        </form>}
+
+        {view === 'detail' && selected && <div className="h-full flex flex-col">
+          <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-[#2d2b25]"><button onClick={() => setView('list')} className="flex items-center gap-1.5 text-xs text-[#8f8a80]"><ChevronLeft className="w-4 h-4"/>Your connectors</button><button onClick={onClose} className="p-1.5 text-[#8f8a80]"><X className="w-4 h-4"/></button></div>
+          <div className="flex-1 overflow-y-auto px-8 py-5 space-y-6">
+            <div className="flex items-center justify-between gap-4"><div className="min-w-0"><h3 className="font-bold text-base flex items-center gap-2">{selected.name}{selected.id === 'conn-composio' && <span className="text-[10px] px-2 py-0.5 rounded-full border border-emerald-800 text-emerald-400">For You</span>}</h3><div className="flex items-center gap-1 text-xs text-[#8f8a80] mt-1"><span className="truncate">{selected.url}</span><button onClick={() => { navigator.clipboard.writeText(selected.url || ''); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check className="w-3 h-3 text-emerald-400"/> : <Copy className="w-3 h-3"/>}</button></div></div>
+              <div className="flex items-center gap-2">{selected.status === 'connected' ? <button onClick={() => disconnectConnector(selected)} className="px-3.5 py-1.5 rounded-xl border border-[#38352d] text-xs">Disconnect</button> : <button onClick={() => selected.id === 'conn-composio' ? openComposioOAuth() : openRemoteOAuth(selected)} disabled={authenticating} className="px-3.5 py-1.5 rounded-xl bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : 'Connect'}</button>}{selected.id !== 'conn-composio' && <button onClick={() => removeConnector(selected)} className="px-3.5 py-1.5 rounded-xl border border-red-900/60 text-red-300 text-xs"><Trash2 className="w-3.5 h-3.5 inline mr-1"/>Remove</button>}</div>
+            </div>
+            <div className="pt-4 border-t border-[#2d2b25] space-y-4"><div className="flex items-center justify-between"><div><h4 className="text-xs font-semibold">Tool access</h4><p className="text-[11px] text-[#6d685f]">Choose when this connector is loaded in this conversation.</p></div><select value={selected.config?.toolAccess || 'auto'} onChange={(e) => updateConfig({ toolAccess: e.target.value as any })} className="px-3 py-1.5 rounded-lg border border-[#38352d] bg-[#22201b] text-xs"><option value="auto">Auto</option><option value="always">Always available</option><option value="on_demand">On demand</option></select></div>
+              {selected.id === 'conn-composio' ? <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] text-xs text-[#8f8a80]">The For You connector uses Composio's live tool discovery and account-aware execution. The app never uses Platform auth configs for this connector.</div> : <div><div className="flex items-center justify-between mb-2"><h4 className="text-xs font-semibold">Available tools</h4><span className="text-[10px] text-[#6d685f]">{tools.length} discovered</span></div><div className="border border-[#282620] rounded-xl divide-y divide-[#24221c] max-h-56 overflow-y-auto">{tools.length === 0 ? <div className="p-3 text-[11px] text-[#6d685f]">Authenticate the connector or reopen this view to discover tools.</div> : tools.map((tool) => { const disabled = new Set((selected.config?.disabledTools || []).map(String)); const blocked = disabled.has(tool); return <div key={tool} className="flex items-center justify-between px-3 py-2 text-xs"><span className={blocked ? 'line-through text-[#6d685f]' : 'text-[#b8b2a7]'}>{tool}</span><button type="button" onClick={() => { const next = new Set((selected.config?.disabledTools || []).map(String)); if (next.has(tool)) next.delete(tool); else next.add(tool); updateConfig({ disabledTools: Array.from(next) }); }} className={`px-2 py-1 rounded border text-[10px] ${blocked ? 'border-emerald-800 text-emerald-400' : 'border-red-900/60 text-red-300'}`}>{blocked ? 'Enable' : 'Block'}</button></div>; })}</div></div>}
+            </div>
+            {statusMessage && <div className="p-3 rounded-lg border border-[#4a4133] bg-[#231f18] text-xs text-[#cc785c]">{statusMessage}</div>}
+          </div>
+        </div>}
       </div>
     </div>
   );

@@ -47,6 +47,14 @@ export interface ConnectorConfig {
   endpoint?: string;
   notes?: string;
   accountName?: string;
+  /** Optional OAuth client id supplied for a custom remote MCP server. */
+  oauthClientId?: string;
+  /** Server protocol version selected during MCP negotiation. */
+  protocolVersion?: string;
+  /** Per-connector HTTP tool access preferences. */
+  toolAccess?: 'auto' | 'always' | 'on_demand';
+  /** Remote MCP tool names disabled for this conversation. */
+  disabledTools?: string[];
   connectedAccountId?: string;
   [key: string]: any;
 }

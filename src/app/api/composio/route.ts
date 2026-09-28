@@ -65,12 +65,14 @@ export async function GET(req: NextRequest) {
       // User is connected to "For You" MCP. Keep the access token server-side
       // and persist any replacement token returned by the MCP server.
       let activeMcpToken = mcpToken;
+      let activeRefreshToken = mcpRefreshToken;
       let tools: any[] = [];
       let connectedAccounts: any[] = [];
 
       try {
         const toolListRes = await callComposioMcp(activeMcpToken, 'tools/list', {}, mcpRefreshToken);
         if (toolListRes.newAccessToken) activeMcpToken = toolListRes.newAccessToken;
+        if ((toolListRes as any).newRefreshToken) activeRefreshToken = (toolListRes as any).newRefreshToken;
         if (toolListRes.success && Array.isArray(toolListRes.result?.tools)) {
           tools = toolListRes.result.tools;
         }
@@ -82,6 +84,7 @@ export async function GET(req: NextRequest) {
           mcpRefreshToken
         );
         if (connRes.newAccessToken) activeMcpToken = connRes.newAccessToken;
+        if ((connRes as any).newRefreshToken) activeRefreshToken = (connRes as any).newRefreshToken;
         if (connRes.success && connRes.data) {
           const raw = connRes.data;
           let list: any[] = [];
@@ -125,7 +128,7 @@ export async function GET(req: NextRequest) {
         supportedApps: SUPPORTED_APPS,
       });
 
-      if (activeMcpToken && activeMcpToken !== mcpToken) {
+      if (activeMcpToken && (activeMcpToken !== mcpToken || activeRefreshToken !== mcpRefreshToken)) {
         response.cookies.set('composio_mcp_token', activeMcpToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
@@ -133,6 +136,15 @@ export async function GET(req: NextRequest) {
           path: '/',
           maxAge: 30 * 24 * 3600,
         });
+        if (activeRefreshToken) {
+          response.cookies.set('composio_mcp_refresh_token', activeRefreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 90 * 24 * 3600,
+          });
+        }
         response.cookies.set('composio_mcp_access_token', '', {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',

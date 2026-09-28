@@ -39,7 +39,6 @@ export async function GET(req: NextRequest) {
   try {
     const entityId = resolveUserId(req);
     const mcpToken = req.cookies.get('composio_mcp_token')?.value || '';
-    const apiKey = await resolveKey();
 
     // Check if Composio "For You" MCP is connected
     const mcpConnected = Boolean(mcpToken);
@@ -56,7 +55,6 @@ export async function GET(req: NextRequest) {
           configured: true,
           mode: 'for_you',
           mcpConnected: true,
-          apiKeyConfigured: Boolean(apiKey),
           userId: entityId,
           tools,
           connectedAccounts: [],
@@ -66,31 +64,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (!apiKey) {
-      return withUserCookie(
-        NextResponse.json({
-          configured: false,
-          mode: 'unconfigured',
-          mcpConnected: false,
-          apiKeyConfigured: false,
-          connectedAccounts: [],
-          supportedApps: Object.keys(COMPOSIO_APP_MAP),
-          message: 'Neither Composio For You MCP nor COMPOSIO_API_KEY is configured.',
-        }),
-        entityId
-      );
-    }
-
-    const accounts = await listConnectedAccounts(apiKey, entityId);
+    // When not connected to For You MCP: strictly unconfigured with 0 accounts
     return withUserCookie(
       NextResponse.json({
-        configured: true,
-        mode: 'platform',
+        configured: false,
+        mode: 'unconfigured',
         mcpConnected: false,
-        apiKeyConfigured: true,
         userId: entityId,
-        connectedAccounts: accounts,
+        tools: [],
+        connectedAccounts: [],
         supportedApps: Object.keys(COMPOSIO_APP_MAP),
+        message: 'Composio "For You" is not connected yet. Click Connectors to connect your personal Composio account.',
       }),
       entityId
     );

@@ -129,12 +129,9 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
-  // Custom MCP connector form state
+  // Custom remote MCP connector form state
   const [customName, setCustomName] = useState('');
   const [customUrl, setCustomUrl] = useState('');
-  const [authMode, setAuthMode] = useState<'now' | 'needed' | 'none'>('now');
-  const [oauthClientMode, setOauthClientMode] = useState<'published' | 'auto' | 'custom'>('auto');
-  const [remoteAuthToken, setRemoteAuthToken] = useState('');
 
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -310,9 +307,6 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
           connectionType: 'mcp',
           providerName: customName.trim(),
           mcpUrl: customUrl.trim(),
-          authMode,
-          oauthClientMode,
-          ...(remoteAuthToken.trim() ? { authToken: remoteAuthToken.trim() } : {}),
         },
         url: customUrl.trim(),
       };
@@ -633,8 +627,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
             {/* Scrollable form body */}
             <div className="flex-1 overflow-y-auto px-8 py-4 space-y-4 text-xs text-[#b8b2a7]">
-              {addMode === 'mcp' ? (
-                <>
+              <>
                   <div>
                     <p className="text-xs text-[#8f8a80]">
                       Connect Claude to your data and tools via Model Context Protocol (MCP). <span className="underline cursor-pointer text-[#ece9e2]">Learn more about connectors</span> or get started with <span className="underline cursor-pointer text-[#ece9e2]" onClick={() => { setActiveTab('discover'); setCurrentView('list'); }}>pre-built ones</span>.
@@ -647,7 +640,7 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
                     <input
                       type="text"
                       required
-                      placeholder="composio"
+                      placeholder="e.g. My MCP server"
                       value={customName}
                       onChange={(e) => setCustomName(e.target.value)}
                       className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
@@ -657,223 +650,22 @@ export default function ConnectorsModal(props: ConnectorsModalProps) {
 
                   {/* URL Field */}
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#dcd8ce]">Server URL (SSE / HTTP)</label>
+                    <label className="block text-xs font-semibold text-[#dcd8ce]">Server URL</label>
                     <input
                       type="url"
                       required
-                      placeholder="https://connect.composio.dev/mcp"
+                      placeholder="https://example.com/mcp"
                       value={customUrl}
                       onChange={(e) => setCustomUrl(e.target.value)}
                       className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
                     />
                     <p className="text-[11px] text-[#6d685f]">
-                      The HTTPS address where the server accepts connections, e.g. https://connect.composio.dev/mcp.
+                      Enter the public HTTP/HTTPS endpoint of your remote MCP server.
                     </p>
                   </div>
 
-                  {/* Authentication */}
-                  <div className="space-y-2 pt-2 border-t border-[#2d2b25]">
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-semibold text-[#dcd8ce]">Bearer / API Token (optional)</label>
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        placeholder="Paste a server token when required"
-                        value={remoteAuthToken}
-                        onChange={(e) => setRemoteAuthToken(e.target.value)}
-                        className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
-                      />
-                      <p className="text-[11px] text-[#6d685f]">Stored with this connector and sent as a Bearer token to the remote MCP server.</p>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 font-semibold text-[#ece9e2]">
-                      <span>Authentication</span>
-                      <span className="w-3.5 h-3.5 rounded-full border border-[#4a463d] flex items-center justify-center text-[10px] text-[#8f8a80]">i</span>
-                    </div>
-
-                    <div className="space-y-2.5">
-                      <label className="flex items-start gap-2.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="authMode"
-                          checked={authMode === 'now'}
-                          onChange={() => setAuthMode('now')}
-                          className="mt-0.5 accent-[#cc785c]"
-                        />
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium text-[#ece9e2]">Sign in now</span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#2e2a22] text-[#cc785c] border border-[#4a4133]">Detected</span>
-                          </div>
-                          <p className="text-[11px] text-[#6d685f]">Each user signs in through the server's OAuth flow before they can use any tools or resources.</p>
-                        </div>
-                      </label>
-
-                      <label className="flex items-start gap-2.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="authMode"
-                          checked={authMode === 'needed'}
-                          onChange={() => setAuthMode('needed')}
-                          className="mt-0.5 accent-[#cc785c]"
-                        />
-                        <div>
-                          <span className="font-medium text-[#ece9e2]">Sign in when needed</span>
-                          <p className="text-[11px] text-[#6d685f]">Claude connects without credentials first and prompts users to sign in when the server asks.</p>
-                        </div>
-                      </label>
-
-                      <label className="flex items-start gap-2.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="authMode"
-                          checked={authMode === 'none'}
-                          onChange={() => setAuthMode('none')}
-                          className="mt-0.5 accent-[#cc785c]"
-                        />
-                        <div>
-                          <span className="font-medium text-[#ece9e2]">No sign-in</span>
-                          <p className="text-[11px] text-[#6d685f]">Pick this for servers with open access or API key auth.</p>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* OAuth Client */}
-                  <div className="space-y-2 pt-2 border-t border-[#2d2b25]">
-                    <div className="flex items-center gap-1.5 font-semibold text-[#ece9e2]">
-                      <span>OAuth client</span>
-                      <span className="w-3.5 h-3.5 rounded-full border border-[#4a463d] flex items-center justify-center text-[10px] text-[#8f8a80]">i</span>
-                    </div>
-
-                    <div className="space-y-2.5">
-                      <label className="flex items-start gap-2.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="oauthClientMode"
-                          checked={oauthClientMode === 'auto'}
-                          onChange={() => setOauthClientMode('auto')}
-                          className="mt-0.5 accent-[#cc785c]"
-                        />
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium text-[#ece9e2]">Register automatically</span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#2e2a22] text-[#cc785c] border border-[#4a4133]">Detected</span>
-                          </div>
-                          <p className="text-[11px] text-[#6d685f]">Claude registers OAuth clients with the server as users connect (DCR).</p>
-                        </div>
-                      </label>
-
-                      <label className="flex items-start gap-2.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="oauthClientMode"
-                          checked={oauthClientMode === 'published'}
-                          onChange={() => setOauthClientMode('published')}
-                          className="mt-0.5 accent-[#cc785c]"
-                        />
-                        <div>
-                          <span className="font-medium text-[#ece9e2]">Use Claude's published identity</span>
-                          <p className="text-[11px] text-[#6d685f]">The server reads Claude's client details from CIMD.</p>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
                 </>
-              ) : (
-                /* CLI Connector Form */
-                <>
-                  <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-800/30 flex items-start gap-3">
-                    <Terminal className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-semibold text-xs text-emerald-300">Local CLI & Stdio MCP Server</div>
-                      <p className="text-[11px] text-[#8f8a80] mt-0.5 leading-relaxed">
-                        Connect local CLI toolkits, Composio CLI (<code className="text-emerald-400">composio run</code>), Claude Code, or stdio packages. Tools are executed directly in your environment.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* 1-Click Quick Presets */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#dcd8ce]">Quick Presets</label>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { label: '⚡ Composio CLI', name: 'composio-cli', command: 'composio', args: 'run' },
-                        { label: '💻 Claude Code', name: 'claude-code', command: 'npx', args: '-y @anthropic-ai/claude-code' },
-                        { label: '🐙 GitHub MCP', name: 'github-mcp', command: 'npx', args: '-y @modelcontextprotocol/server-github' },
-                        { label: '🐘 PostgreSQL', name: 'postgres-mcp', command: 'npx', args: '-y @modelcontextprotocol/server-postgres postgresql://localhost/mydb' },
-                        { label: '💾 SQLite', name: 'sqlite-mcp', command: 'uvx', args: 'mcp-server-sqlite --db-path ./data.db' },
-                        { label: '📁 Filesystem', name: 'filesystem-mcp', command: 'npx', args: '-y @modelcontextprotocol/server-filesystem ./' },
-                      ].map((preset) => (
-                        <button
-                          key={preset.name}
-                          type="button"
-                          onClick={() => {
-                            setCliName(preset.name);
-                            setCliCommand(preset.command);
-                            setCliArgs(preset.args);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-[#22201b] hover:bg-[#2c2a23] border border-[#38352d] text-[11px] text-[#dcd8ce] hover:text-white transition-all"
-                        >
-                          {preset.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* CLI Name */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#dcd8ce]">Connector Name</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. composio-cli or postgres-local"
-                      value={cliName}
-                      onChange={(e) => setCliName(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
-                    />
-                  </div>
-
-                  {/* CLI Command */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#dcd8ce]">Command (Executable)</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. composio, npx, uvx, python"
-                      value={cliCommand}
-                      onChange={(e) => setCliCommand(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] font-mono text-xs text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
-                    />
-                    <p className="text-[11px] text-[#6d685f]">The binary or CLI command executed in the environment.</p>
-                  </div>
-
-                  {/* CLI Arguments */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#dcd8ce]">Arguments (Flags & Params)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. run OR -y @modelcontextprotocol/server-postgres postgresql://localhost/db"
-                      value={cliArgs}
-                      onChange={(e) => setCliArgs(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] font-mono text-xs text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c]"
-                    />
-                  </div>
-
-                  {/* Environment Variables */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#dcd8ce]">Environment Variables (Optional)</label>
-                    <textarea
-                      rows={2}
-                      placeholder="KEY=VALUE (one per line, e.g. GITHUB_TOKEN=ghp_...)"
-                      value={cliEnv}
-                      onChange={(e) => setCliEnv(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18] font-mono text-xs text-[#ece9e2] placeholder-[#6d685f] focus:outline-none focus:border-[#cc785c] resize-none"
-                    />
-                  </div>
-                </>
-              )}
-
+              
               {statusMessage && (
                 <div className="p-3 rounded-lg border border-[#4a4133] bg-[#231f18] text-[#cc785c] text-xs">
                   {statusMessage}

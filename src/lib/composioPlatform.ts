@@ -281,3 +281,14 @@ export function safeJsonText(value: any): string {
   if (typeof value === 'string') return value;
   try { return JSON.stringify(value); } catch { return String(value); }
 }
+
+export async function generateToolInput(
+  toolSlug: string,
+  text: string
+): Promise<Record<string, any>> {
+  const data = await composioFetch(`/tools/execute/${encodeURIComponent(toolSlug)}/input`, {
+    method: 'POST',
+    body: JSON.stringify({ text, version: 'latest' }),
+  });
+  return data?.arguments && typeof data.arguments === 'object' ? data.arguments : {};
+}

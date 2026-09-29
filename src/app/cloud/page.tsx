@@ -242,7 +242,7 @@ export default function OpenWorkCloudPage() {
                 placeholder="Ask Claude or command an agent..."
                 className="flex-1 px-4 py-2.5 rounded-xl bg-[#141310] border border-[#333128] text-xs text-[#ece9e2] placeholder-[#7d786e] focus:outline-none focus:border-[#cc785c]"
               />
-              <a href={desktopDownloadUrl}
+              <button
                 onClick={runDemo}
                 disabled={isDemoRunning}
                 className="px-5 py-2.5 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-1.5 shrink-0"

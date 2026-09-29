@@ -1025,46 +1025,15 @@ export async function POST(req: NextRequest) {
     const isCloudEnv = Boolean(process.env.VERCEL || process.env.AWS_REGION);
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');
 
-    // 1. Tool execution loop: check if request needs web search, git, email, or Composio tools
-    const agentDeadline = requestStartTime + (composioMcpToken || connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || '').toLowerCase() === 'mcp') ? 200000 : 120000);
-    const maxAgentTurns = composioMcpToken || connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || '').toLowerCase() === 'mcp') ? 24 : 8;
-    let mcpLiveTools: any[] = [];
-    let mcpToolNames: string[] = [];
-    if (composioMcpToken) {
-      try {
-        const { listMcpToolsCachedWithAuth, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
-        const listed = await listMcpToolsCachedWithAuth(composioMcpToken, composioMcpRefreshToken);
-        if (listed.accessToken && listed.accessToken !== composioMcpToken) {
-          composioMcpToken = listed.accessToken;
-        }
-        if (listed.refreshToken && listed.refreshToken !== composioMcpRefreshToken) {
-          composioMcpRefreshToken = listed.refreshToken;
-        }
-        mcpLiveTools = mcpToolsToOpenAI(listed.tools);
-        mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
-      } catch (mcpListErr: any) {
-        console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
-      }
-    }
-    let mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
-    const composioConnector = (Array.isArray(connectors) ? connectors : []).find((connector: any) =>
-      String(connector?.id || '') === 'conn-composio' ||
-      String(connector?.name || '').toLowerCase().includes('composio')
+    // General tool execution supports web, email, GitHub lookup, and custom remote MCP.
+    // Built-in app connectors are handled exclusively by runComposioPlatformAgent above.
+    const hasEnabledRemoteMcp = connectors.some((c: any) =>
+      c?.enabled !== false &&
+      String(c?.config?.connectionType || c?.provider || '').toLowerCase() === 'mcp' &&
+      Boolean(c?.config?.mcpUrl || c?.url)
     );
-    const composioToolAccess = String(composioConnector?.config?.toolAccess || 'auto').toLowerCase();
-    const composioCoreTools = mcpLiveTools.filter((tool: any) => {
-      const name = String(tool?.function?.name || '');
-      return /(?:SEARCH_TOOLS|GET_TOOL_SCHEMAS|MULTI_EXECUTE_TOOL|MANAGE_CONNECTIONS)/i.test(name);
-    });
-    // Claude-style tool loading: Auto/On demand keep the full connector catalog
-    // out of the model context and start with the small discovery/execution surface.
-    // Always available intentionally exposes the complete live tool catalog.
-    if (mcpModeActive && composioToolAccess !== 'always') {
-      mcpLiveTools = composioCoreTools;
-      mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
-    }
-
-    mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
+    const agentDeadline = requestStartTime + (hasEnabledRemoteMcp ? 200000 : 120000);
+    const maxAgentTurns = hasEnabledRemoteMcp ? 16 : 8;
     const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};
     const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};
     const runtimeConnectors = (Array.isArray(connectors) ? connectors : []).map((connector: any) => {
@@ -1149,103 +1118,10 @@ export async function POST(req: NextRequest) {
       console.error('[REMOTE MCP DISCOVERY ERR]', remoteMcpErr?.message || remoteMcpErr);
     }
 
-    // In "For You" mode the real Composio MCP tools replace the guessed wrapper tools.
-    const mcpWrapperNames = new Set([
-      'connector_search', 'connector_manage_connections', 'connector_execute',
-      'Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections',
-    ]);
-    const baseTools = mcpModeActive
-      ? AGENT_TOOLS.filter((t: any) => !mcpWrapperNames.has(String(t?.function?.name || '')))
-      : AGENT_TOOLS;
     const effectiveTools = [
-      ...baseTools,
-      ...mcpLiveTools,
+      ...AGENT_TOOLS,
       ...remoteMcpTools,
     ];
-    let forceConnectorTool = false;
-
-    const remoteConnectorMention = (Array.isArray(connectors) ? connectors : [])
-      .some((connector: any) =>
-        connector?.enabled !== false &&
-        String(connector?.name || '').trim() &&
-        lastText.toLowerCase().includes(String(connector.name).trim().toLowerCase())
-      );
-
-    const connectorRequest = isConnectorRelatedRequest(lastText) || remoteConnectorMention;
-    const hasRemoteMcpTools = remoteMcpTools.length > 0;
-
-    // PRIMARY CONNECTOR PATH:
-    // Connector requests must enter the real live Composio MCP tool loop.
-    // Do not guess an app-specific action from a keyword such as "playlist" or
-    // "video": multi-step requests need the model to discover the exact tools,
-    // schemas, and result-dependent values through Composio.
-    if (connectorRequest) {
-      if (!mcpModeActive && !hasRemoteMcpTools) {
-        const message = composioMcpToken
-          ? 'Composio "For You" is connected, but its live MCP tools are unavailable right now. Please reconnect in Connectors and try again.'
-          : 'No active Composio For You or remote MCP connector is available for this request. Open Connectors to connect one.';
-        return streamTextDirectly(message, detectedSkill);
-      }
-
-      // Connector work must start with a real discovery/tool call. Never let
-      // the LLM replace an action with a narrated plan just because the connector
-      // is configured as "always available".
-      const isExplicitConnectionManagement = /\b(?:connect|add|authorize|link|reconnect|disconnect|unlink|remove)\b/i.test(lastText);
-      forceConnectorTool = mcpModeActive && !remoteConnectorMention && !isExplicitConnectionManagement;
-    }
-
-    const toolContext = {
-      mcpToken: composioMcpToken,
-      mcpRefreshToken: composioMcpRefreshToken,
-      mcpToolNames,
-      connectors: runtimeConnectors,
-      accounts: [],
-      remoteCredentials,
-      remoteMcpUpdates,
-      composioUserId,
-      remoteMcpTools,
-      remoteMcpToolRoutes,
-      requestText: lastText,
-    };
-
-    const { pickMcpToolName } = await import('@/lib/composioMcp');
-
-    const isAccountQuery = /\b(?:what|which|how many|list|show|tell|give|get|check)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
-      /\b(?:connected|linked|authorized|active)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
-      /\b(?:apps?|accounts?|connections?|services?|integrations?)\b.*\b(?:connected|linked|authorized|active)\b/i.test(lastText) ||
-      /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
-
-    // Connected-app queries are deterministic and READ-ONLY.
-    // COMPOSIO_MANAGE_CONNECTIONS is deliberately never used for inspection,
-    // because missing toolkits can trigger new auth/account creation attempts.
-    if (connectorRequest && isAccountQuery && mcpModeActive) {
-      const { getComposioToolkitConnectionStatuses, DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
-      const statusRes = await getComposioToolkitConnectionStatuses(
-        toolContext.mcpToken,
-        toolContext.mcpRefreshToken,
-        DEFAULT_COMPOSIO_TOOLKITS
-      );
-
-      if (statusRes.newAccessToken) toolContext.mcpToken = statusRes.newAccessToken;
-      if (statusRes.newRefreshToken) toolContext.mcpRefreshToken = statusRes.newRefreshToken;
-
-      if (statusRes.success) {
-        const connectedAccounts = statusRes.statuses.flatMap((entry: any) =>
-          (entry.accounts || []).map((account: any) => ({
-            ...account,
-            app_name: entry.toolkit,
-          }))
-        );
-        return streamTextDirectly(
-          formatConnectorResult(lastText, { data: { connected_accounts: connectedAccounts } }),
-          detectedSkill,
-          toolContext
-        );
-      }
-    }
-
-    let mcpToolCallsMade = 0;
-    let mcpNudges = 0;
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -1261,18 +1137,7 @@ export async function POST(req: NextRequest) {
             model: 'openai/gpt-oss-120b',
             messages: fullMessages,
             tools: effectiveTools,
-            tool_choice: (turn === 0 && forceConnectorTool)
-              ? {
-                  type: 'function',
-                  function: {
-                    name: pickMcpToolName(
-                      mcpToolNames,
-                      [/SEARCH_TOOLS/i],
-                      'COMPOSIO_SEARCH_TOOLS'
-                    ),
-                  },
-                }
-              : 'auto',
+            tool_choice: 'auto',
             max_tokens: 8192,
           }),
           signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
@@ -1329,103 +1194,26 @@ export async function POST(req: NextRequest) {
 
         // Catch text-formatted JSON tool calls if model didn't emit native tool_calls
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-          const rawText = String(agentMsg?.content || agentMsg?.reasoning || agentMsg?.reasoning_content || '');
-          const jsonToolMatch = rawText.match(/\{\s*"(?:tool|name|action)"\s*:\s*"([A-Za-z0-9_]+)"\s*,\s*"(?:arguments|params|parameters)"\s*:\s*(\{[\s\S]*?\})\s*\}/);
-          if (jsonToolMatch) {
-            const parsedName = jsonToolMatch[1];
-            let parsedArgs = {};
-            try { parsedArgs = JSON.parse(jsonToolMatch[2]); } catch {}
-            toolCalls = [{
-              id: 'call_text_parsed_' + Date.now(),
-              type: 'function',
-              function: {
-                name: parsedName,
-                arguments: JSON.stringify(parsedArgs)
-              }
-            }];
-          }
-        }
-
-        if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
           const contentText = String(agentMsg?.content || '').trim();
           const reasoningText = String(agentMsg?.reasoning || agentMsg?.reasoning_content || '').trim();
           const checkText = contentText || reasoningText;
 
-          const isAccountQuery =
-            /\b(?:what|which|how many|list|show|tell|give|get|check)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
-            /\b(?:connected|linked|authorized|active)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
-            /\b(?:apps?|accounts?|connections?|services?|integrations?)\b.*\b(?:connected|linked|authorized|active)\b/i.test(lastText) ||
-            /\bcomposio\b/i.test(lastText);
-
           const isPlanningText =
             /(?:User keeps asking|we need to call|must call|produce tool call|only tool call|no prose|\{"tool":|"tool":|according to instruction)/i.test(checkText) ||
             (!contentText && Boolean(reasoningText)) ||
-            /(?:we need to|we should|let's call|i will call|calling|we must|action likely|use composio|should output tool call|user wants|user asks|need to call|need to find|first, need to|first need to|use composio_|to search actions|search actions for)/i.test(checkText);
+            /(?:we need to|we should|let's call|i will call|calling|we must|action likely|should output tool call|user wants|user asks|need to call|need to find|first, need to|first need to|to search actions|search actions for)/i.test(checkText);
 
-          if (isPlanningText) {
-            // Check if there was already a tool result we can summarize or format
-            const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
-            if (lastToolMsg && typeof lastToolMsg.content === 'string') {
-              const formatted = formatConnectorResult(lastText, lastToolMsg.content);
-              if (formatted) {
-                return streamTextDirectly(formatted, detectedSkill, toolContext);
-              }
-            }
-
-            // Never allow a connector request to stall behind an LLM prose answer.
-            // Perform the required first Composio meta-tool directly if the model
-            // failed to emit a tool call.
-            if (mcpModeActive && mcpToolCallsMade === 0) {
-              const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
-              const targetTool = pickMcpToolName(
-                mcpToolNames,
-                [/SEARCH_TOOLS/i],
-                'COMPOSIO_SEARCH_TOOLS'
-              );
-
-              const autoArgs = {
-                queries: isAccountQuery
-                  ? DEFAULT_COMPOSIO_TOOLKITS.map((toolkit: string) => ({
-                      use_case: 'Check whether ' + toolkit + ' is actively connected and identify a simple read-only tool for this service.',
-                    }))
-                  : [{ use_case: lastText }],
-                session: { generate_id: true },
-                model: 'gpt-5.6',
-              };
-
-              const autoResult = await runAgentTool(targetTool, autoArgs, toolContext);
-              mcpToolCallsMade++;
-
-              if (isAccountQuery) {
-                const formatted = formatConnectorResult(lastText, autoResult);
-                return streamTextDirectly(formatted, detectedSkill, toolContext);
-              }
-
-              fullMessages.push({
-                role: 'system',
-                content:
-                  'COMPOSIO_PREFLIGHT_RESULT (' + targetTool + ') — use this real result to continue the connector request. ' +
-                  'If a session_id is present, reuse that exact session id for subsequent Composio meta-tool calls.\n' +
-                  autoResult,
-              });
-              forceConnectorTool = false;
-              continue;
-            }
-
-            mcpNudges++;
-            forceConnectorTool = true;
+          if (isPlanningText && planningNudges < 3) {
+            planningNudges++;
             fullMessages.push({
               role: 'system',
-              content: isAccountQuery
-                ? 'Call COMPOSIO_SEARCH_TOOLS now for connection status. Never call COMPOSIO_MANAGE_CONNECTIONS for a status/list/check request.'
-                : 'Call the required Composio tool now.',
+              content: 'Use an available tool now when the user request requires external data or an external action. Do not narrate the tool call.',
             });
             continue;
           }
 
-          if (contentText) {
-            return streamTextDirectly(contentText, detectedSkill, toolContext);
-          }
+          if (contentText) return streamTextDirectly(contentText, detectedSkill, toolContext);
+          if (reasoningText) return streamTextDirectly(reasoningText, detectedSkill, toolContext);
           break;
         }
 
@@ -1445,10 +1233,7 @@ export async function POST(req: NextRequest) {
             tool_call_id: call.id,
             content: result,
           });
-          if (mcpToolNames.includes(String(toolName))) mcpToolCallsMade++;
         }
-        // Once a real MCP tool has run, let the model decide: keep calling tools or finish.
-        if (mcpModeActive && mcpToolCallsMade > 0) forceConnectorTool = false;
       } catch (e) {
         break;
       }

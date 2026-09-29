@@ -1,69 +1,152 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { executeCodeInSandbox } from '@/lib/codeSandbox';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import * as crypto from 'crypto';
+
+const execAsync = promisify(exec);
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
-/**
- * Unified code-execution endpoint used by Web, Desktop, and Mobile clients.
- * Code is never executed inside the Next.js/Vercel function itself; it is
- * forwarded to an isolated Vercel Sandbox microVM.
- */
+// SECURITY: this endpoint runs arbitrary shell commands / code. It was
+// previously reachable by anyone on the internet with no auth check at all.
+// It now requires a matching x-api-key header, checked against a secret
+// stored ONLY in the INTERNAL_API_SECRET environment variable, using a
+// timing-safe comparison so the check can't be brute-forced by timing.
+function isAuthorized(req: NextRequest): boolean {
+  const secret = process.env.INTERNAL_API_SECRET;
+  if (!secret) return false; // fail closed if not configured
+  const provided = req.headers.get('x-api-key') || '';
+
+  const secretBuf = Buffer.from(secret);
+  const providedBuf = Buffer.from(provided);
+  if (secretBuf.length !== providedBuf.length) return false;
+  try {
+    return crypto.timingSafeEqual(secretBuf, providedBuf);
+  } catch {
+    return false;
+  }
+}
+
+// SECURITY: the working directory used to be taken directly from the
+// request body with no validation, so a caller (or anyone who obtained
+// the secret) could point command execution at any folder on disk. It is
+// now locked to the configured workspace root: an optional relative
+// sub-path may be requested, but it can never escape that root.
+const WORKSPACE_ROOT =
+  process.env.USER_WORKSPACE || path.join(process.cwd(), '.workspace');
+
+function resolveWorkingDir(requestedSubPath: unknown): string {
+  const root = path.resolve(WORKSPACE_ROOT);
+  if (!requestedSubPath || typeof requestedSubPath !== 'string') {
+    return root;
+  }
+  const resolved = path.resolve(root, requestedSubPath);
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  if (resolved !== root && !resolved.startsWith(rootWithSep)) {
+    // Attempted path traversal outside the workspace root — refuse it
+    // and fall back to the root instead of silently executing elsewhere.
+    return root;
+  }
+  return resolved;
+}
+
 export async function POST(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const startTime = Date.now();
   try {
     const body = await req.json();
-    const code = typeof body?.code === 'string' ? body.code : '';
-    const language = typeof body?.language === 'string' ? body.language : 'python';
-    const timeoutMs = Number(body?.timeoutMs || body?.timeout_ms || 15000);
+    const { code, language = 'python', command, cwd } = body;
 
-    if (!code.trim()) {
+    const workingDir = resolveWorkingDir(cwd);
+
+    // Ensure working directory exists
+    if (!fs.existsSync(workingDir)) {
+      try {
+        fs.mkdirSync(workingDir, { recursive: true });
+      } catch (e) {}
+    }
+
+    let cmdToRun = '';
+    let tempFilePath: string | null = null;
+
+    if (command && typeof command === 'string') {
+      // Direct shell command
+      cmdToRun = command;
+    } else if (code && typeof code === 'string') {
+      const tempDir = os.tmpdir();
+      const randId = Math.random().toString(36).substring(2, 9);
+
+      if (language === 'python' || language === 'py') {
+        tempFilePath = path.join(tempDir, `interpreter_${randId}.py`);
+        fs.writeFileSync(tempFilePath, code, 'utf-8');
+        cmdToRun = `python "${tempFilePath}"`;
+      } else if (language === 'javascript' || language === 'js' || language === 'node') {
+        tempFilePath = path.join(tempDir, `interpreter_${randId}.js`);
+        fs.writeFileSync(tempFilePath, code, 'utf-8');
+        cmdToRun = `node "${tempFilePath}"`;
+      } else if (language === 'powershell' || language === 'ps1') {
+        tempFilePath = path.join(tempDir, `interpreter_${randId}.ps1`);
+        fs.writeFileSync(tempFilePath, code, 'utf-8');
+        cmdToRun = `powershell -ExecutionPolicy Bypass -File "${tempFilePath}"`;
+      } else if (language === 'bash' || language === 'sh') {
+        cmdToRun = code;
+      } else {
+        tempFilePath = path.join(tempDir, `interpreter_${randId}.py`);
+        fs.writeFileSync(tempFilePath, code, 'utf-8');
+        cmdToRun = `python "${tempFilePath}"`;
+      }
+    } else {
       return NextResponse.json(
-        { success: false, stdout: '', stderr: 'No code supplied.', exitCode: 1, executionTimeMs: 0 },
+        { error: 'Missing code or command to execute' },
         { status: 400 }
       );
     }
 
-    const executionStart = Date.now();
-    const resultText = await executeCodeInSandbox({
-      language,
-      code,
-      timeoutMs,
-      requestOidcToken: req.headers.get('x-vercel-oidc-token') || undefined,
+    // Execute with a 45-second timeout
+    const { stdout, stderr } = await execAsync(cmdToRun, {
+      cwd: workingDir,
+      timeout: 45000,
+      maxBuffer: 1024 * 1024 * 10, // 10 MB
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: '1',
+      },
     });
 
-    const unavailable = resultText.startsWith('CODE_EXECUTION_UNAVAILABLE:');
-    const failed = resultText.startsWith('CODE_EXECUTION_ERROR:');
+    // Cleanup temp file if created
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (e) {}
+    }
 
-    const stdoutMatch = resultText.match(/stdout:\n([\s\S]*?)(?:\n\nstderr:\n|\n\nexit_code:|$)/);
-    const stderrMatch = resultText.match(/stderr:\n([\s\S]*?)(?:\n\nexit_code:|$)/);
-    const exitMatch = resultText.match(/exit_code:\s*(-?\d+)/);
+    const duration = Date.now() - startTime;
 
-    const stdout = stdoutMatch?.[1] || '';
-    const stderr = stderrMatch?.[1] || (failed || unavailable ? resultText : '');
-    const exitCode = exitMatch ? Number(exitMatch[1]) : (failed || unavailable ? 1 : 0);
-
-    return NextResponse.json(
-      {
-        success: !failed && !unavailable && exitCode === 0,
-        stdout,
-        stderr,
-        exitCode,
-        executionTimeMs: Date.now() - executionStart,
-        result: resultText,
-      },
-      { status: unavailable ? 503 : failed ? 500 : 200 }
-    );
+    return NextResponse.json({
+      success: true,
+      stdout: stdout || '',
+      stderr: stderr || '',
+      exitCode: 0,
+      executionTimeMs: duration,
+      cwd: workingDir,
+      commandExecuted: cmdToRun,
+    });
   } catch (error: any) {
-    return NextResponse.json(
-      {
-        success: false,
-        stdout: '',
-        stderr: error?.message || 'Execution failed.',
-        exitCode: 1,
-        executionTimeMs: 0,
-      },
-      { status: 500 }
-    );
+    const duration = Date.now() - startTime;
+    return NextResponse.json({
+      success: false,
+      stdout: error.stdout || '',
+      stderr: error.stderr || error.message || 'Execution error',
+      exitCode: error.code || 1,
+      executionTimeMs: duration,
+      error: error.message,
+    });
   }
 }

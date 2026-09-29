@@ -134,7 +134,7 @@ export default function ChatArea({
 
   const handleOpenFile = async () => {
     try {
-      // Desktop Electron native dialog
+      // 1. If running in Electron Native Desktop App
       if (typeof window !== 'undefined' && (window as any).electronAPI?.openFile) {
         const res = await (window as any).electronAPI.openFile();
         if (res && res.content !== undefined) {
@@ -144,32 +144,23 @@ export default function ChatArea({
           return;
         }
       }
-
-      // Browser File System Access API where supported (desktop Chrome/Edge)
-      if (typeof window !== 'undefined' && typeof (window as any).showOpenFilePicker === 'function') {
-        const [handle] = await (window as any).showOpenFilePicker({
-          types: [{ description: 'Any File', accept: { '*/*': [] } }],
-          multiple: false,
-        });
-        const file = await handle.getFile();
-        const content = await file.text();
-        setCoworkFile({ name: file.name, content, handle });
-        setCoworkDirty(false);
-        onSendMessage(`I've opened the file "${file.name}" for cowork. Here is its content:\n\n\`\`\`\n${content.slice(0, 8000)}\n\`\`\`\n\nPlease review it. I'll tell you what changes to make.`);
-        return;
-      }
-
-      // Mobile-safe fallback: use a normal file input.
-      coworkFileInputRef.current?.click();
-    } catch {
-      // user cancelled
-    }
+      // 2. Fallback to Browser File System Access API
+      const [handle] = await (window as any).showOpenFilePicker({
+        types: [{ description: 'Any File', accept: { '*/*': [] } }],
+        multiple: false,
+      });
+      const file = await handle.getFile();
+      const content = await file.text();
+      setCoworkFile({ name: file.name, content, handle });
+      setCoworkDirty(false);
+      onSendMessage(`I've opened the file "${file.name}" for cowork. Here is its content:\n\n\`\`\`\n${content.slice(0, 8000)}\n\`\`\`\n\nPlease review it. I'll tell you what changes to make.`);
+    } catch (e) { /* user cancelled */ }
   };
 
   const handleSaveFile = async () => {
     if (!coworkFile) return;
     try {
-      // Desktop Electron native save
+      // 1. Electron Native Desktop App save
       if (typeof window !== 'undefined' && (window as any).electronAPI?.saveFile) {
         const savedPath = await (window as any).electronAPI.saveFile(coworkFile.path, coworkFile.content);
         if (savedPath) {
@@ -178,68 +169,42 @@ export default function ChatArea({
           return;
         }
       }
-
-      // Browser File System Access API where supported
-      if (coworkFile.handle && typeof coworkFile.handle.createWritable === 'function') {
+      // 2. Browser save
+      if (coworkFile.handle) {
         const writable = await coworkFile.handle.createWritable();
         await writable.write(coworkFile.content);
         await writable.close();
-        setCoworkDirty(false);
-        return;
-      }
-
-      if (typeof window !== 'undefined' && typeof (window as any).showSaveFilePicker === 'function') {
-        const handle = await (window as any).showSaveFilePicker({ suggestedName: coworkFile.name || 'untitled.txt' });
+      } else {
+        const handle = await (window as any).showSaveFilePicker({ suggestedName: coworkFile.name });
         const writable = await handle.createWritable();
         await writable.write(coworkFile.content);
         await writable.close();
         setCoworkFile((prev) => prev ? { ...prev, handle } : prev);
-        setCoworkDirty(false);
-        return;
       }
-
-      // Mobile/browser fallback: download the edited file.
-      const blob = new Blob([coworkFile.content], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = coworkFile.name || 'untitled.txt';
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
       setCoworkDirty(false);
-    } catch {
-      // user cancelled
-    }
+    } catch (e) { /* user cancelled */ }
   };
 
   const handleNewFile = async () => {
     try {
+      // 1. Electron Native Desktop App new file
       if (typeof window !== 'undefined' && (window as any).electronAPI?.newFile) {
         const res = await (window as any).electronAPI.newFile();
         if (res) {
-          setCoworkFile({ name: res.name, content: res.content || '', path: res.path });
+          setCoworkFile({ name: res.name, content: '', path: res.path });
           setCoworkDirty(false);
           return;
         }
       }
-
-      if (typeof window !== 'undefined' && typeof (window as any).showSaveFilePicker === 'function') {
-        const handle = await (window as any).showSaveFilePicker({ suggestedName: 'untitled.txt' });
-        const writable = await handle.createWritable();
-        await writable.write('');
-        await writable.close();
-        const file = await handle.getFile();
-        setCoworkFile({ name: file.name, content: '', handle });
-        setCoworkDirty(false);
-        return;
-      }
-
-      // Mobile/browser fallback: create an in-memory workspace file.
-      setCoworkFile({ name: 'untitled.txt', content: '' });
+      // 2. Browser new file
+      const handle = await (window as any).showSaveFilePicker({ suggestedName: 'untitled.txt' });
+      const writable = await handle.createWritable();
+      await writable.write('');
+      await writable.close();
+      const file = await handle.getFile();
+      setCoworkFile({ name: file.name, content: '', handle });
       setCoworkDirty(false);
-    } catch {
-      // user cancelled
-    }
+    } catch (e) { /* user cancelled */ }
   };
 
   const handleSaveEdit = (msgId: string) => {
@@ -304,7 +269,6 @@ export default function ChatArea({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const coworkFileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
   const getGreeting = () => {
@@ -448,123 +412,38 @@ export default function ChatArea({
     }
   };
 
-  // Multimodal File & Document Processing
-  const processFile = async (file: File): Promise<Attachment> => {
-    const id = `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const isImg = file.type.startsWith('image/');
-    const sizeLabel = `${(file.size / 1024).toFixed(1)} KB`;
-    const lowerName = file.name.toLowerCase();
-    const ext = lowerName.includes('.') ? lowerName.split('.').pop() || '' : '';
+  // Multimodal File & Image Processing
+  const processFile = (file: File): Promise<Attachment> => {
+    return new Promise((resolve) => {
+      const isImg = file.type.startsWith('image/');
+      const reader = new FileReader();
 
-    if (isImg) {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = () => reject(reader.error || new Error('Could not read image.'));
-        reader.readAsDataURL(file);
-      });
-      return {
-        id,
-        name: file.name,
-        size: sizeLabel,
-        type: file.type || 'image',
-        dataUrl,
-        isImage: true,
-      };
-    }
-
-    const textExtensions = new Set([
-      'txt','md','markdown','csv','json','xml','yaml','yml','html','htm','css',
-      'js','jsx','ts','tsx','py','sql','java','c','cpp','h','hpp','go','rs',
-      'php','rb','swift','kt','dart','sh','bash','toml','ini','env'
-    ]);
-
-    if (textExtensions.has(ext) || file.type.startsWith('text/')) {
-      const contentStr = await file.text();
-      return {
-        id,
-        name: file.name,
-        size: sizeLabel,
-        type: file.type || 'text',
-        contentSnippet: contentStr.slice(0, 50000),
-      };
-    }
-
-    const structuredDocument = new Set(['pdf','docx','xlsx','xls','xlsm']);
-    if (structuredDocument.has(ext)) {
-      if (file.size > 4 * 1024 * 1024) {
-        return {
-          id,
-          name: file.name,
-          size: sizeLabel,
-          type: file.type || 'document',
-          contentSnippet: 'This document is larger than the 4 MB online extraction limit. Please use a smaller file or split the document into parts.',
-        };
-      }
-
-      try {
-        const form = new FormData();
-        form.append('file', file);
-        const response = await fetch('/api/files/extract', {
-          method: 'POST',
-          body: form,
-        });
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok || !data?.ok) {
-          return {
-            id,
+      if (isImg) {
+        reader.onload = () => {
+          resolve({
+            id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
             name: file.name,
-            size: sizeLabel,
+            size: `${(file.size / 1024).toFixed(1)} KB`,
+            type: file.type || 'image',
+            dataUrl: reader.result as string,
+            isImage: true,
+          });
+        };
+        reader.readAsDataURL(file);
+      } else {
+        reader.onload = () => {
+          const contentStr = typeof reader.result === 'string' ? reader.result : '';
+          resolve({
+            id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            name: file.name,
+            size: `${(file.size / 1024).toFixed(1)} KB`,
             type: file.type || 'document',
-            contentSnippet: `Document extraction failed: ${data?.error || `HTTP ${response.status}`}`,
-          };
-        }
-
-        const warnings = Array.isArray(data.warnings) && data.warnings.length
-          ? `\n\nExtraction notes:\n- ${data.warnings.join('\n- ')}`
-          : '';
-
-        return {
-          id,
-          name: file.name,
-          size: sizeLabel,
-          type: data.type || file.type || 'document',
-          contentSnippet: String(data.text || '').slice(0, 50000) + warnings,
+            contentSnippet: contentStr.slice(0, 50000),
+          });
         };
-      } catch (error: any) {
-        return {
-          id,
-          name: file.name,
-          size: sizeLabel,
-          type: file.type || 'document',
-          contentSnippet: 'Document extraction failed: ' + (error?.message || 'network error'),
-        };
+        reader.readAsText(file);
       }
-    }
-
-    return {
-      id,
-      name: file.name,
-      size: sizeLabel,
-      type: file.type || 'document',
-      contentSnippet: 'This file format is not currently text-extractable in the workspace.',
-    };
-  };
-
-  const handleCoworkFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const textResult = await file.text();
-      setCoworkFile({ name: file.name, content: textResult });
-      setCoworkDirty(false);
-      onSendMessage(`I've opened the file "${file.name}" for cowork. Here is its content:\n\n\`\`\`\n${textResult.slice(0, 8000)}\n\`\`\`\n\nPlease review it. I'll tell you what changes to make.`);
-    } catch {
-      // ignored
-    } finally {
-      if (coworkFileInputRef.current) coworkFileInputRef.current.value = '';
-    }
+    });
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -684,19 +563,11 @@ export default function ChatArea({
 
       <input
         type="file"
-        ref={coworkFileInputRef}
-        onChange={handleCoworkFileInput}
-        className="hidden"
-        accept=".txt,.md,.csv,.json,.xml,.yaml,.yml,.html,.css,.js,.jsx,.ts,.tsx,.py,.sql,.java,.c,.cpp,.h,.hpp,.go,.rs,.php,.rb,.swift,.kt,.dart,.sh,.toml,.ini,.env"
-      />
-
-      <input
-        type="file"
         ref={fileInputRef}
         onChange={handleFileUpload}
         className="hidden"
         multiple
-        accept="image/*,.txt,.pdf,.md,.docx,.xlsx,.xls,.xlsm,.csv,.md,.json,.xml,.yaml,.yml,.js,.jsx,.ts,.tsx,.py,.sql,.java,.c,.cpp,.h,.hpp,.go,.rs,.php,.rb,.swift,.kt,.dart,.html,.css,.toml,.ini,.env"
+        accept="image/*,.txt,.pdf,.md,.json,.js,.ts,.tsx,.py,.html,.css"
       />
 
       {/* Controls Bar inside the Input Box */}
@@ -889,13 +760,13 @@ export default function ChatArea({
         <button
           onClick={onOpenConnectors}
           className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] hover:border-[#cc785c]/60 text-xs font-semibold text-[#f2eee6] transition-all shadow-sm group active:scale-95"
-          title="Connectors (Live)"
+          title="Composio Connectors (Live)"
         >
           <Cpu className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform shrink-0" />
           <span>Connectors</span>
           <span className="text-[#4a473f]">•</span>
           <span className="text-[11px] text-[#cc785c] font-mono">
-            connectors
+            composio
           </span>
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block shadow-sm shadow-emerald-400/50" />
         </button>

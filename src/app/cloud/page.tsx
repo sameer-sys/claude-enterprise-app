@@ -330,7 +330,7 @@ export default function OpenWorkCloudPage() {
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#cc785c]" />
-                  <span>Direct launch setup script (.bat)</span>
+                  <span>Native Windows installer (.exe)</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#cc785c]" />
@@ -339,12 +339,11 @@ export default function OpenWorkCloudPage() {
               </ul>
             </div>
 
-            <button
-              
+            <a href={desktopDownloadUrl}
               className="w-full py-3 px-4 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2 active:scale-95"
             >
               <Download className="w-4 h-4 stroke-[2.5]" />
-              <span>Download Windows App (.exe) (.bat / .exe)</span>
+              <span>Download Windows App (.exe)</span>
             </a>
           </div>
 
@@ -367,7 +366,7 @@ export default function OpenWorkCloudPage() {
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
-                  <span>1-Tap Add to Home Screen (PWA)</span>
+                  <span>Native Android application package</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
@@ -376,13 +375,12 @@ export default function OpenWorkCloudPage() {
               </ul>
             </div>
 
-            <button
-              
+            <a href={androidDownloadUrl}
               className="w-full py-3 px-4 rounded-xl bg-[#25231e] hover:bg-[#302e27] border border-[#3e3b31] text-[#ece9e2] font-bold text-xs shadow-sm transition-all flex items-center justify-center space-x-2 active:scale-95"
             >
               <Download className="w-4 h-4 text-[#cc785c]" />
-              <span>Download Mobile App (.apk / PWA)</span>
-            </button>
+              <span>Download Android App (.apk)</span>
+            </a>
           </div>
 
           {/* Web App Direct Access */}

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import ChatArea from '@/components/ChatArea';
 import ArtifactPanel from '@/components/ArtifactPanel';
-import ConnectorsModal, { DEFAULT_CONNECTORS, createDefaultConnectors } from '@/components/ConnectorsModal';
+import ConnectorsModal, { createDefaultConnectors } from '@/components/ConnectorsModal';
 import SettingsModal, { SettingsTab } from '@/components/SettingsModal';
 import ProjectModal from '@/components/ProjectModal';
 import DownloadModal from '@/components/DownloadModal';
@@ -29,49 +29,37 @@ const DEFAULT_SESSION: Session = {
 };
 
 
-function normalizeConnectors(raw: any[]): Connector[] {
+function normalizeCofunction normalizeConnectors(raw: any[]): Connector[] {
   const defaults = createDefaultConnectors();
-  const base = defaults[0];
   const input = Array.isArray(raw) ? raw.filter((c: any) => c && typeof c === 'object') : [];
-
-  // Keep the built-in Composio connector plus user-added custom MCP/CLI
-  // connectors. Legacy prebuilt connector cards are intentionally not restored.
-  const savedComposio = input.find((c: any) =>
-    c?.id === 'conn-composio' ||
-    String(c?.name || '').toLowerCase().includes('composio') ||
-    String(c?.url || '').includes('connect.composio.dev')
-  );
-  const custom = input.filter((c: any) =>
-    c?.id !== savedComposio?.id &&
-    c?.isCustom === true
-  ).filter((c: any) => {
+  const custom = input.filter((c: any) => c?.isCustom === true).filter((c: any) => {
     const type = String(c?.config?.connectionType || c?.provider || '').toLowerCase();
     const url = String(c?.config?.mcpUrl || c?.url || '');
     return type === 'mcp' && !url.startsWith('cli://') && !['cli', 'stdio'].includes(type);
   }).map((c: any) => {
     const safeConfig = { ...(c.config || {}) };
-    // Credentials are server-side HttpOnly cookies; scrub legacy browser copies.
     delete safeConfig.authToken;
     delete safeConfig.apiKey;
     delete safeConfig.clientSecret;
     return { ...c, config: safeConfig };
   });
 
-  const composio: Connector = {
-    ...base,
-    ...(savedComposio || {}),
-    id: 'conn-composio',
-    name: savedComposio?.name || base.name,
-    enabled: true,
-    status: savedComposio?.status === 'connected' ? 'connected' : 'idle',
-    config: {
-      ...(base.config || {}),
-      ...(savedComposio?.config || {}),
-    },
-    url: savedComposio?.url || base.url,
-  };
+  const mergedBuiltIns = defaults.map((base) => {
+    const saved = input.find((c: any) =>
+      String(c?.id || '') === base.id ||
+      (String(c?.config?.composioToolkit || '').toLowerCase() === String(base.config?.composioToolkit || '').toLowerCase())
+    );
+    return saved
+      ? { ...base, ...saved, config: { ...(base.config || {}), ...(saved.config || {}) } }
+      : base;
+  });
 
-  return [composio, ...custom];
+  const seen = new Set<string>();
+  return [...mergedBuiltIns, ...custom].filter((c: Connector) => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
 }
 
 function extractArtifact(content: string): Artifact | undefined {
@@ -116,7 +104,7 @@ export default function Home() {
   const [isAgentsModalOpen, setIsAgentsModalOpen] = useState(false);
   const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [connectors, setConnectors] = useState<Connector[]>(DEFAULT_CONNECTORS);
+  const [connectors, setConnectors] = useState<Connector[]>(createDefaultConnectors());
   const [geminiKey, setGeminiKey] = useState<string>('');
   const [openRouterKey, setOpenRouterKey] = useState<string>('');
 
@@ -325,48 +313,7 @@ export default function Home() {
     activeSession.connectors && activeSession.connectors.length > 0
       ? activeSession.connectors
       : createDefaultConnectors();
-  const [composioActiveAccountCount, setComposioActiveAccountCount] = useState(0);
-  const activeConnectorsCount = composioActiveAccountCount;
-
-  useEffect(() => {
-    const refreshComposioCount = async () => {
-      try {
-        const q = new URLSearchParams();
-        const res = await fetch('/api/composio?' + q.toString(), { cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        const accounts = Array.isArray(data?.connectedAccounts) ? data.connectedAccounts : [];
-        const active = accounts.filter((a: any) => String(a?.status).toUpperCase() === 'ACTIVE');
-        setComposioActiveAccountCount(active.length);
-        setSessions((prev) => prev.map((s) => ({
-          ...s,
-          connectors: normalizeConnectors(s.connectors || []).map((conn) => {
-            if (conn.id !== 'conn-composio') return conn;
-            return {
-              ...conn,
-              status: active.length ? 'connected' : 'idle',
-              config: {
-                ...conn.config,
-                composioAccountCount: active.length,
-                connectedAccountIds: active.map((a: any) => a.id),
-              },
-            };
-          }),
-        })));
-      } catch {}
-    };
-
-    refreshComposioCount();
-    const onComposioMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === 'sameer-composio-connected') refreshComposioCount();
-    };
-    window.addEventListener('message', onComposioMessage);
-    const timer = window.setInterval(refreshComposioCount, 30000);
-    return () => {
-      window.removeEventListener('message', onComposioMessage);
-      window.clearInterval(timer);
-    };
-  }, []);
+  const activeConnectorsCount = currentSessionConnectors.filter((c) => c.enabled).length;
 
   const handleToggleConnector = (id: string) => {
     setSessions((prev) =>
@@ -390,10 +337,7 @@ export default function Home() {
           c.id === id
             ? {
                 ...c,
-                status:
-                  id === 'conn-composio' && Number((config as any)?.composioAccountCount || 0) > 0
-                    ? 'connected'
-                    : c.status,
+                status: c.status,
                 config: { ...c.config, ...config },
               }
             : c
@@ -416,7 +360,7 @@ export default function Home() {
     try {
       const existingStr = localStorage.getItem('claude_custom_connectors');
       const existing: Connector[] = existingStr ? JSON.parse(existingStr) : [];
-      const updatedCustom = [newConn, ...existing.filter((c) => c.id !== newConn.id)];
+      const updatedCustom = [newConn, ...existing.filter((c) => c.id !== newConn.id && c.isCustom)];
       localStorage.setItem('claude_custom_connectors', JSON.stringify(updatedCustom));
     } catch (e) {}
 

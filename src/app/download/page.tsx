@@ -5,98 +5,8 @@ import Link from 'next/link';
 import { Download, Monitor, Smartphone, Globe, Check, Sparkles, ArrowLeft, ShieldCheck } from 'lucide-react';
 
 export default function DownloadPage() {
-  const getAppOrigin = () => {
-    if (typeof window !== 'undefined' && window.location.origin) {
-      return window.location.origin;
-    }
-    return 'https://claude-enterprise-app.vercel.app';
-  };
-
-  const handleDownloadWindows = () => {
-    const origin = getAppOrigin();
-    // Full Electron-based desktop installer script
-    const script = `@echo off
-title Sameer AI Workspace — Desktop App Launcher
-echo.
-echo  =====================================================
-echo    Sameer AI Workspace Desktop App
-echo    Autonomous AI Workspace & PM Manager Engine
-echo  =====================================================
-echo.
-
-:: Check if Node.js is installed
-where node >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-  echo  [!] Node.js not found. Installing via Chrome app-mode instead...
-  goto chromefallback
-)
-
-:: Check if the app folder is present
-if not exist "%USERPROFILE%\\sameer-ai-workspace\\package.json" (
-  echo  [!] App not found locally. Opening web app in desktop mode...
-  goto chromefallback
-)
-
-cd /d "%USERPROFILE%\\sameer-ai-workspace"
-echo  Starting Sameer AI Workspace desktop app...
-start "" npm run electron:prod
-goto done
-
-:chromefallback
-where chrome >nul 2>&1
-if %ERRORLEVEL% == 0 (
-  start "" chrome --app=${origin} --name="Sameer AI Workspace" --window-size=1400,900
-  goto done
-)
-where msedge >nul 2>&1
-if %ERRORLEVEL% == 0 (
-  start "" msedge --app=${origin} --name="Sameer AI Workspace" --window-size=1400,900
-  goto done
-)
-start ${origin}
-
-:done
-echo  Done! Sameer AI Workspace launched.
-timeout /t 2 >nul
-`;
-    const blob = new Blob([script], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Launch-Sameer-AI-Workspace.bat';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-
-
-  const handleDownloadApk = () => {
-    const origin = getAppOrigin();
-    const script = `@echo off
-title Sameer AI Workspace WebApp Android / iOS Guide
-echo.
-echo  =====================================================
-echo    Sameer AI Workspace — Mobile Install Guide
-echo  =====================================================
-echo.
-echo  Open your phone browser to:
-echo  ${origin}
-echo.
-echo  Chrome: Tap 3 dots -> 'Install app' or 'Add to Home screen'
-echo  Safari: Tap Share -> 'Add to Home Screen'
-echo.
-pause
-`;
-    const blob = new Blob([script], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Sameer-AI-Workspace-Mobile-Guide.txt';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-
+  const desktopDownloadUrl = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Setup.exe';
+  const androidDownloadUrl = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Android.apk';
 
   return (
     <div className="min-h-screen bg-[#1c1b18] text-[#ede8df] flex flex-col selection:bg-[#cc785c]/30">
@@ -162,13 +72,13 @@ pause
               </div>
             </div>
 
-            <button
-              onClick={handleDownloadWindows}
+            <a href={desktopDownloadUrl}
+              
               className="w-full py-3 px-4 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-bold text-sm shadow-md transition-all flex items-center justify-center space-x-2 active:scale-95"
             >
               <Download className="w-4 h-4 stroke-[2.5]" />
-              <span>Install Desktop App (.bat)</span>
-            </button>
+              <span>Download Windows Installer (.exe)</span>
+            </a>
 
           </div>
 
@@ -179,7 +89,7 @@ pause
                 <Smartphone className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-[#f2eee6]">Claude for Android & iOS</h3>
+                <h3 className="text-lg font-semibold text-[#f2eee6]">Sameer AI Workspace for Android</h3>
                 <p className="text-xs text-[#9c978b] mt-1 leading-relaxed">
                   Install directly on your phone home screen with 1 tap. Smooth native mobile gestures, voice input, and camera capture.
                 </p>
@@ -187,11 +97,11 @@ pause
               <div className="space-y-1.5 text-xs text-[#baa898]">
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
-                  <span>Android & iOS Support</span>
+                  <span>Android APK available now</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
-                  <span>1-Tap Add to Home Screen (PWA)</span>
+                  <span>Native Android application package</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
@@ -201,7 +111,7 @@ pause
             </div>
 
             <button
-              onClick={handleDownloadApk}
+              
               className="w-full py-3 px-4 rounded-xl bg-[#2b2923] hover:bg-[#38352d] border border-[#3e3b32] text-[#ece9e2] font-bold text-sm shadow-sm transition-all flex items-center justify-center space-x-2 active:scale-95"
             >
               <Download className="w-4 h-4 text-[#cc785c]" />

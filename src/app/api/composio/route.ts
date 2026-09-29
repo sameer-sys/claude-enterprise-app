@@ -1,289 +1,168 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  getMcpOAuthUrl,
-  callComposioMcp,
-  executeMcpTool,
-  getComposioToolkitConnectionStatuses,
-  DEFAULT_COMPOSIO_TOOLKITS,
-} from '@/lib/composioMcp';
+  COMPOSIO_APP_CATALOG,
+  createConnectLink,
+  ensureComposioUserId,
+  hasComposioPlatformKey,
+  listConnectedAccounts,
+} from '@/lib/composioPlatform';
 
-export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-const SUPPORTED_APPS = [
-  'github',
-  'gmail',
-  'google_drive',
-  'google_calendar',
-  'youtube',
-  'slack',
-  'notion',
-  'discord',
-  'linear',
-  'asana',
-  'jira',
-  'trello',
-  'hubspot',
-  'salesforce',
-  'shopify',
-  'reddit',
-  'telegram',
-  'whatsapp',
-  'microsoft365',
-];
-
-function resolveUserId(req: NextRequest): string {
-  return req.cookies.get('sameer_composio_user_id')?.value || `sameer_${crypto.randomUUID()}`;
-}
-
-function withUserCookie(response: NextResponse, userId: string): NextResponse {
+function setUserCookie(response: NextResponse, userId: string): NextResponse {
   response.cookies.set('sameer_composio_user_id', userId, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 24 * 365,
+    maxAge: 60 * 60 * 24 * 365 * 5,
   });
   return response;
 }
 
+function getUserId(req: NextRequest): string {
+  return ensureComposioUserId(req.cookies.get('sameer_composio_user_id')?.value);
+}
+
+function catalogWithStatus(accounts: any[]) {
+  const activeByToolkit = new Map<string, any[]>();
+  for (const account of accounts) {
+    const slug = String(account?.toolkit?.slug || account?.toolkit_slug || '').toLowerCase();
+    if (!slug) continue;
+    const current = activeByToolkit.get(slug) || [];
+    current.push({
+      id: account?.id ? String(account.id) : undefined,
+      alias: account?.alias ? String(account.alias) : undefined,
+      status: String(account?.status || 'ACTIVE'),
+      userId: account?.user_id ? String(account.user_id) : undefined,
+    });
+    activeByToolkit.set(slug, current);
+  }
+
+  return COMPOSIO_APP_CATALOG.map((app) => ({
+    ...app,
+    connected: (activeByToolkit.get(app.slug.toLowerCase()) || []).length > 0,
+    accounts: activeByToolkit.get(app.slug.toLowerCase()) || [],
+  }));
+}
+
 export async function GET(req: NextRequest) {
+  const userId = getUserId(req);
+  if (!hasComposioPlatformKey()) {
+    const response = NextResponse.json({
+      configured: false,
+      userId,
+      apps: COMPOSIO_APP_CATALOG.map((app) => ({ ...app, connected: false, accounts: [] })),
+      error: 'COMPOSIO_API_KEY is not configured on the server.',
+    }, { status: 503 });
+    return setUserCookie(response, userId);
+  }
+
   try {
-    const entityId = resolveUserId(req);
-    const mcpToken =
-      req.cookies.get('composio_mcp_token')?.value ||
-      req.cookies.get('composio_mcp_access_token')?.value ||
-      req.headers.get('x-composio-mcp-token') ||
-      '';
-    const mcpRefreshToken =
-      req.cookies.get('composio_mcp_refresh_token')?.value ||
-      req.headers.get('x-composio-mcp-refresh-token') ||
-      '';
-
-    const mcpConnected = Boolean(mcpToken);
-
-    if (mcpConnected) {
-      // User is connected to "For You" MCP. Keep the access token server-side
-      // and persist any replacement token returned by the MCP server.
-      let activeMcpToken = mcpToken;
-      let activeRefreshToken = mcpRefreshToken;
-      let tools: any[] = [];
-      let connectedAccounts: any[] = [];
-
-      try {
-        const toolListRes = await callComposioMcp(activeMcpToken, 'tools/list', {}, mcpRefreshToken);
-        if (toolListRes.newAccessToken) activeMcpToken = toolListRes.newAccessToken;
-        if ((toolListRes as any).newRefreshToken) activeRefreshToken = (toolListRes as any).newRefreshToken;
-        if (toolListRes.success && Array.isArray(toolListRes.result?.tools)) {
-          tools = toolListRes.result.tools
-          .filter((tool: any) => tool && typeof tool.name === 'string')
-          .slice(0, 80)
-          .map((tool: any) => ({
-            name: String(tool.name),
-            description: String(tool.description || '').slice(0, 300),
-          }));
-        }
-
-        const statusRes = await getComposioToolkitConnectionStatuses(
-          activeMcpToken,
-          activeRefreshToken,
-          DEFAULT_COMPOSIO_TOOLKITS
-        );
-        if (statusRes.newAccessToken) activeMcpToken = statusRes.newAccessToken;
-        if (statusRes.newRefreshToken) activeRefreshToken = statusRes.newRefreshToken;
-        if (statusRes.success) {
-          connectedAccounts = statusRes.statuses.flatMap((entry) =>
-            (entry.accounts || []).map((account) => ({
-              ...account,
-              app_name: entry.toolkit,
-            }))
-          );
-        }
-      } catch (err: any) {
-        console.error('[COMPOSIO STATUS ERR]', err?.message || err);
-      }
-
-      const response = NextResponse.json({
-        configured: true,
-        mode: 'for_you',
-        mcpConnected: true,
-        userId: entityId,
-        tools,
-        connectedAccounts,
-        supportedApps: SUPPORTED_APPS,
-      });
-
-      if (activeMcpToken && (activeMcpToken !== mcpToken || activeRefreshToken !== mcpRefreshToken)) {
-        response.cookies.set('composio_mcp_token', activeMcpToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          path: '/',
-          maxAge: 30 * 24 * 3600,
-        });
-        if (activeRefreshToken) {
-          response.cookies.set('composio_mcp_refresh_token', activeRefreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 90 * 24 * 3600,
-          });
-        }
-        response.cookies.set('composio_mcp_access_token', '', {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          path: '/',
-          maxAge: 0,
-        });
-      }
-
-      return withUserCookie(response, entityId);
-    }
-
-    // When not connected to For You MCP: strictly unconfigured with 0 accounts
-    return withUserCookie(
-      NextResponse.json({
-        configured: false,
-        mode: 'unconfigured',
-        mcpConnected: false,
-        userId: entityId,
-        tools: [],
-        connectedAccounts: [],
-        supportedApps: SUPPORTED_APPS,
-        message:
-          'Composio "For You" is not connected yet. Click Connectors to connect your personal Composio account.',
-      }),
-      entityId
-    );
+    const accounts = await listConnectedAccounts(userId);
+    const response = NextResponse.json({
+      configured: true,
+      userId,
+      apps: catalogWithStatus(accounts),
+    });
+    return setUserCookie(response, userId);
   } catch (err: any) {
-    return NextResponse.json(
-      { configured: false, error: err?.message || 'Composio status lookup failed.' },
-      { status: 500 }
-    );
+    const response = NextResponse.json({
+      configured: false,
+      userId,
+      apps: COMPOSIO_APP_CATALOG.map((app) => ({ ...app, connected: false, accounts: [] })),
+      error: String(err?.message || 'Unable to load connector status.'),
+    }, { status: 502 });
+    return setUserCookie(response, userId);
   }
 }
 
 export async function POST(req: NextRequest) {
+  const userId = getUserId(req);
+
   try {
-    const body = await req.json();
-    const { action, toolName, actionName, input, args } = body || {};
+    const body = await req.json().catch(() => ({}));
+    const action = String(body?.action || '');
 
-    const origin = new URL(req.url).origin;
-
-    // Get OAuth URL for signing in to Composio "For You"
-    if (action === 'get_mcp_oauth_url') {
-      const { authUrl, codeVerifier, state } = getMcpOAuthUrl(origin);
-      const res = NextResponse.json({ success: true, authUrl });
-
-      res.cookies.set('composio_pkce_verifier', codeVerifier, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 600, // 10 minutes
-      });
-      res.cookies.set('composio_pkce_state', state, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 600,
-      });
-
-      return res;
-    }
-
-    // Check "For You" MCP connection status
-    if (action === 'check_mcp_status') {
-      const mcpToken =
-        req.cookies.get('composio_mcp_token')?.value ||
-        req.cookies.get('composio_mcp_access_token')?.value ||
-        req.headers.get('x-composio-mcp-token');
-      return NextResponse.json({
-        success: true,
-        connected: Boolean(mcpToken),
-        mode: mcpToken ? 'for_you' : 'none',
-      });
-    }
-
-    // Disconnect "For You" MCP
-    if (action === 'disconnect_mcp') {
-      const res = NextResponse.json({ success: true, connected: false });
-      res.cookies.set('composio_mcp_token', '', { path: '/', maxAge: 0 });
-      res.cookies.set('composio_mcp_access_token', '', { path: '/', maxAge: 0 });
-      res.cookies.set('composio_mcp_refresh_token', '', { path: '/', maxAge: 0 });
-      res.cookies.set('composio_mcp_connected', 'false', { path: '/', maxAge: 0 });
-      res.cookies.set('sameer_composio_user_id', '', { path: '/', maxAge: 0 });
-      return res;
-    }
-
-    // Execute via "For You" MCP
-    if (action === 'execute_mcp') {
-      const mcpToken =
-        req.cookies.get('composio_mcp_token')?.value ||
-        req.cookies.get('composio_mcp_access_token')?.value ||
-        req.headers.get('x-composio-mcp-token') ||
-        body?.mcpToken ||
-        '';
-      const mcpRefreshToken =
-        req.cookies.get('composio_mcp_refresh_token')?.value ||
-        req.headers.get('x-composio-mcp-refresh-token') ||
-        body?.mcpRefreshToken ||
-        '';
-      if (!mcpToken) {
-        return NextResponse.json(
-          { success: false, error: 'Composio For You is not connected. Sign in via MCP.' },
-          { status: 401 }
-        );
-      }
-      const result = await executeMcpTool(
-        mcpToken,
-        String(toolName || actionName),
-        args || input || {},
-        mcpRefreshToken
-      );
-      const response = NextResponse.json(result, { status: result.success ? 200 : 502 });
-      if (result.newAccessToken || (result as any).newRefreshToken) {
-        response.cookies.set('composio_mcp_token', result.newAccessToken || mcpToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          path: '/',
-          maxAge: 30 * 24 * 3600,
-        });
-        if ((result as any).newRefreshToken) {
-          response.cookies.set('composio_mcp_refresh_token', (result as any).newRefreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 90 * 24 * 3600,
-          });
-        }
-        response.cookies.set('composio_mcp_access_token', '', {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          path: '/',
-          maxAge: 0,
-        });
-      }
-      return response;
-    }
-
-    return NextResponse.json(
-      {
+    if (!hasComposioPlatformKey()) {
+      const response = NextResponse.json({
         success: false,
-        error: 'Unsupported action. All operations must connect via Composio "For You" MCP.',
-      },
-      { status: 400 }
-    );
+        error: 'COMPOSIO_API_KEY is not configured on the server.',
+      }, { status: 503 });
+      return setUserCookie(response, userId);
+    }
+
+    if (action === 'connect') {
+      const toolkit = String(body?.toolkit || '').trim().toLowerCase();
+      const app = COMPOSIO_APP_CATALOG.find((item) => item.slug === toolkit);
+      if (!app) {
+        const response = NextResponse.json({ success: false, error: 'Unsupported connector.' }, { status: 400 });
+        return setUserCookie(response, userId);
+      }
+
+      const callbackUrl = new URL('/api/composio/callback', req.url).toString();
+      const link = await createConnectLink(userId, app.slug, callbackUrl, String(body?.alias || app.name));
+
+      const response = NextResponse.json({
+        success: true,
+        toolkit: app.slug,
+        redirectUrl: link.redirectUrl,
+        connectedAccountId: link.connectedAccountId,
+      });
+      return setUserCookie(response, userId);
+    }
+
+    if (action === 'disconnect') {
+      const accountId = String(body?.connectedAccountId || '').trim();
+      if (!accountId) {
+        const response = NextResponse.json({ success: false, error: 'connectedAccountId is required.' }, { status: 400 });
+        return setUserCookie(response, userId);
+      }
+
+      const upstream = await fetch(
+        'https://backend.composio.dev/api/v3.1/connected_accounts/' +
+          encodeURIComponent(accountId) +
+          '?revoke_on_delete=true',
+        {
+          method: 'DELETE',
+          headers: {
+            Accept: 'application/json',
+            'x-api-key': String(process.env.COMPOSIO_API_KEY || ''),
+          },
+          cache: 'no-store',
+        }
+      );
+      const payload = await upstream.json().catch(() => ({}));
+      if (!upstream.ok) {
+        const response = NextResponse.json({
+          success: false,
+          error: payload?.error?.message || payload?.message || 'Failed to disconnect the account.',
+        }, { status: upstream.status });
+        return setUserCookie(response, userId);
+      }
+
+      const response = NextResponse.json({ success: true, disconnected: accountId });
+      return setUserCookie(response, userId);
+    }
+
+    if (action === 'refresh') {
+      const accounts = await listConnectedAccounts(userId);
+      const response = NextResponse.json({
+        success: true,
+        userId,
+        apps: catalogWithStatus(accounts),
+      });
+      return setUserCookie(response, userId);
+    }
+
+    const response = NextResponse.json({ success: false, error: 'Unsupported connector action.' }, { status: 400 });
+    return setUserCookie(response, userId);
   } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err?.message || 'Composio request failed.' },
-      { status: 500 }
-    );
+    const response = NextResponse.json({
+      success: false,
+      error: String(err?.message || 'Connector request failed.'),
+    }, { status: 500 });
+    return setUserCookie(response, userId);
   }
 }

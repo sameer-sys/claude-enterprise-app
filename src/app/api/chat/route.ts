@@ -570,12 +570,19 @@ function isConnectorRelatedRequest(text: string): boolean {
 
 function attachMcpSession(
   response: Response,
-  context?: { mcpToken?: string; mcpRefreshToken?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
+  context?: { mcpToken?: string; mcpRefreshToken?: string; composioUserId?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
 ): Response {
-  if (!context?.mcpToken) return response;
+  if (!context?.mcpToken && !context?.composioUserId) return response;
 
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   const base = '; Path=/; HttpOnly; SameSite=Lax' + secure;
+
+  if (context?.composioUserId) {
+    response.headers.append(
+      'Set-Cookie',
+      'sameer_composio_user_id=' + encodeURIComponent(context.composioUserId) + base + '; Max-Age=' + 60 * 60 * 24 * 365 * 5
+    );
+  }
 
   response.headers.append(
     'Set-Cookie',
@@ -1094,6 +1101,30 @@ export async function POST(req: NextRequest) {
     const userLastMsg = messages[messages.length - 1];
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
+
+    // New first-class connector runtime. When configured, connector requests
+    // never enter the legacy Composio For You/MCP path.
+    if (isConnectorRelatedRequest(lastText)) {
+      try {
+        const platformResponse = await runComposioPlatformAgent({
+          requestText: lastText,
+          messages,
+          connectors,
+          userId: String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'sameer_' + crypto.randomUUID(),
+          origin: new URL(req.url).origin,
+          modelId: String(modelId),
+        });
+        if (platformResponse) return platformResponse;
+      } catch (platformErr: any) {
+        console.error('[COMPOSIO PLATFORM ERR]', platformErr?.message || platformErr);
+        if (hasComposioPlatformKey()) {
+          return streamTextDirectly(
+            'Connector execution failed: ' + String(platformErr?.message || 'unknown error') + '. No connector action was fabricated.',
+            'Connector Hub'
+          );
+        }
+      }
+    }
 
     // ========================================================
     // COMPOSIO CONNECTOR CONTEXT (DYNAMIC "FOR YOU" MCP RUNTIME ONLY)

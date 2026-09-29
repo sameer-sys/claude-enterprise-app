@@ -890,7 +890,22 @@ export async function POST(req: NextRequest) {
         console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
       }
     }
-    const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
+    const composioConnector = (Array.isArray(connectors) ? connectors : []).find((connector: any) =>
+      String(connector?.id || '') === 'conn-composio' ||
+      String(connector?.name || '').toLowerCase().includes('composio')
+    );
+    const composioToolAccess = String(composioConnector?.config?.toolAccess || 'auto').toLowerCase();
+    const composioCoreTools = mcpLiveTools.filter((tool: any) => {
+      const name = String(tool?.function?.name || '');
+      return /(?:SEARCH_TOOLS|GET_TOOL_SCHEMAS|MULTI_EXECUTE_TOOL|MANAGE_CONNECTIONS)/i.test(name);
+    });
+    // Claude-style tool loading: Auto/On demand keep the full connector catalog
+    // out of the model context and start with the small discovery/execution surface.
+    // Always available intentionally exposes the complete live tool catalog.
+    if (mcpModeActive && composioToolAccess !== 'always') {
+      mcpLiveTools = composioCoreTools;
+      mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
+    }
 
     const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};
     const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};
@@ -937,20 +952,32 @@ export async function POST(req: NextRequest) {
       for (const item of discovered) {
         if (item.status !== 'fulfilled') continue;
         const connector = item.value.connector;
-        const access = String(connector?.config?.toolAccess || 'auto');
+        const access = String(connector?.config?.toolAccess || 'auto').toLowerCase();
         const disabled = new Set(
           Array.isArray(connector?.config?.disabledTools) ? connector.config.disabledTools.map(String) : []
         );
         const queryWords = String(lastText || '').toLowerCase().split(/[^a-z0-9]+/).filter((word: string) => word.length >= 3);
-        const selectedTools = item.value.tools.filter((tool: any) => {
-          const original = String(tool.originalName || tool.function?.name || '').trim();
-          if (disabled.has(original)) return false;
-          if (access !== 'on_demand') return true;
-          const connectorName = String(connector?.name || '').toLowerCase();
-          if (connectorName && queryWords.some((word: string) => connectorName.includes(word))) return true;
-          const haystack = (String(tool.function?.name || '') + ' ' + String(tool.function?.description || '')).toLowerCase();
-          return queryWords.some((word: string) => haystack.includes(word));
-        });
+        const connectorName = String(connector?.name || '').toLowerCase();
+        const scoredTools = item.value.tools
+          .filter((tool: any) => !disabled.has(String(tool.originalName || tool.function?.name || '').trim()))
+          .map((tool: any) => {
+            if (access === 'always') return { tool, score: 1000 };
+            const haystack = (String(tool.function?.name || '') + ' ' + String(tool.function?.description || '')).toLowerCase();
+            let score = 0;
+            for (const word of queryWords) {
+              if (haystack.includes(word)) score += 3;
+              if (connectorName.includes(word)) score += 2;
+            }
+            return { tool, score };
+          })
+          .sort((a: any, b: any) => b.score - a.score);
+        // Keep remote MCP context bounded. Always exposes all enabled tools;
+        // Auto exposes the most relevant tools; On demand is deliberately tighter.
+        const maxTools = access === 'always' ? 100 : access === 'on_demand' ? 8 : 16;
+        const selectedTools = scoredTools
+          .filter((entry: any) => access === 'always' || entry.score > 0)
+          .slice(0, maxTools)
+          .map((entry: any) => entry.tool);
         for (const tool of selectedTools) {
           remoteMcpTools.push(tool);
           const prefix = `REMOTE_MCP_${String(connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12)}_`;
@@ -1004,7 +1031,7 @@ export async function POST(req: NextRequest) {
 
       // Force the first turn only when the request is for the Composio For You
       // account. Custom remote MCP servers remain ordinary callable tools.
-      forceConnectorTool = mcpModeActive && !remoteConnectorMention;
+      forceConnectorTool = mcpModeActive && !remoteConnectorMention && composioToolAccess !== 'always';
     }
 
     const toolContext = {
@@ -1023,8 +1050,8 @@ export async function POST(req: NextRequest) {
 
     const { pickMcpToolName } = await import('@/lib/composioMcp');
 
-    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-      /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
+      /\b(?:connected|linked|authorized|active)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
       /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
 
     // Connected-app queries are deterministic and READ-ONLY.

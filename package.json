@@ -11,7 +11,7 @@
     "lint": "next lint",
     "electron": "electron electron/main.js --dev",
     "electron:prod": "electron electron/main.js",
-    "electron:build": "electron-builder --win --x64"
+    "electron:build": "electron-builder --win --publish never"
   },
   "build": {
     "appId": "com.sameer.claude-enterprise",

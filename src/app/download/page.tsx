@@ -105,7 +105,7 @@ export default function DownloadPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
-                  <span>Separate app from the web/PWA</span>
+                  <span>Standalone APK package</span>
                 </div>
               </div>
             </div>
@@ -128,10 +128,4 @@ export default function DownloadPage() {
       </main>
     </div>
   );
-}  const handleDownloadWindows = () => {
-    window.location.href = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Setup.exe';
-  };
-
-  const handleDownloadApk = () => {
-    window.location.href = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Android.apk';
-  };
+}

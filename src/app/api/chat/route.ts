@@ -1250,6 +1250,8 @@ export async function POST(req: NextRequest) {
       requestOidcToken: req.headers.get('x-vercel-oidc-token') || '',
     };
 
+    let planningNudges = 0;
+
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
 

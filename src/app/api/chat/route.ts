@@ -966,6 +966,42 @@ export async function POST(req: NextRequest) {
     }
 
     // In "For You" mode the real Composio MCP tools replace the guessed wrapper tools.
+    // For connector requests, keep the model focused on the actual connector tools.
+    // This prevents a normal AI/web tool from satisfying a connector request with prose.
+    const connectorToolsById = new Map<string, any[]>();
+    for (const [toolName, route] of Object.entries(remoteMcpToolRoutes)) {
+      const id = String(route.connector?.id || '');
+      const list = connectorToolsById.get(id) || [];
+      const tool = remoteMcpTools.find((item: any) => String(item?.function?.name || '') === toolName);
+      if (tool) list.push(tool);
+      connectorToolsById.set(id, list);
+    }
+
+    const relevantRemoteConnectorIds = new Set<string>();
+    const requestedText = String(lastText || '').toLowerCase();
+    for (const connector of (Array.isArray(connectors) ? connectors : [])) {
+      if (connector?.enabled === false) continue;
+      const name = String(connector?.name || '').trim().toLowerCase();
+      if (name && requestedText.includes(name)) relevantRemoteConnectorIds.add(String(connector.id));
+    }
+
+    const enabledRemoteIds = enabledRemoteConnectors.map((connector: any) => String(connector.id));
+    let connectorFocusedTools = remoteMcpTools;
+
+    if (relevantRemoteConnectorIds.size > 0) {
+      connectorFocusedTools = remoteMcpTools.filter((tool: any) => {
+        const route = remoteMcpToolRoutes[String(tool?.function?.name || '')];
+        return route && relevantRemoteConnectorIds.has(String(route.connector?.id || ''));
+      });
+    } else if (enabledRemoteIds.length === 1) {
+      connectorFocusedTools = remoteMcpTools.filter((tool: any) => {
+        const route = remoteMcpToolRoutes[String(tool?.function?.name || '')];
+        return route && String(route.connector?.id || '') === enabledRemoteIds[0];
+      });
+    }
+
+    const hasFocusedRemoteTools = connectorFocusedTools.length > 0;
+
     const mcpWrapperNames = new Set([
       'connector_search', 'connector_manage_connections', 'connector_execute',
       'Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections',
@@ -973,12 +1009,16 @@ export async function POST(req: NextRequest) {
     const baseTools = mcpModeActive
       ? AGENT_TOOLS.filter((t: any) => !mcpWrapperNames.has(String(t?.function?.name || '')))
       : AGENT_TOOLS;
-    const effectiveTools = [
-      ...baseTools,
-      ...mcpLiveTools,
-      ...remoteMcpTools,
-    ];
+    const effectiveTools = connectorRequestWillUseNativeRemoteTools()
+      ? connectorFocusedTools
+      : [
+          ...baseTools,
+          ...mcpLiveTools,
+          ...remoteMcpTools,
+        ];
     let forceConnectorTool = false;
+
+    const connectorRequestWillUseNativeRemoteTools = () => hasFocusedRemoteTools && !mcpModeActive;
 
     const remoteConnectorMention = (Array.isArray(connectors) ? connectors : [])
       .some((connector: any) =>
@@ -996,7 +1036,7 @@ export async function POST(req: NextRequest) {
     // "video": multi-step requests need the model to discover the exact tools,
     // schemas, and result-dependent values through Composio.
     if (connectorRequest) {
-      if (!mcpModeActive && !hasRemoteMcpTools) {
+      if (!mcpModeActive && !hasFocusedRemoteTools) {
         const message = composioMcpToken
           ? 'Composio "For You" is connected, but its live MCP tools are unavailable right now. Please reconnect in Connectors and try again.'
           : 'No active Composio For You or remote MCP connector is available for this request. Open Connectors to connect one.';
@@ -1005,7 +1045,7 @@ export async function POST(req: NextRequest) {
 
       // Force the first turn only when the request is for the Composio For You
       // account. Custom remote MCP servers remain ordinary callable tools.
-      forceConnectorTool = Boolean(hasRemoteMcpTools) || (mcpModeActive && !remoteConnectorMention);
+      forceConnectorTool = Boolean(hasFocusedRemoteTools) || (mcpModeActive && !remoteConnectorMention);
     }
 
     const toolContext = {
@@ -1078,7 +1118,12 @@ export async function POST(req: NextRequest) {
                           ),
                         },
                       }
-                    : 'required')
+                    : ({
+                        type: 'function',
+                        function: {
+                          name: String(connectorFocusedTools[0]?.function?.name || ''),
+                        },
+                      }))
                 : 'auto',
             max_tokens: 8192,
           }),

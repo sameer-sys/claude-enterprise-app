@@ -1717,7 +1717,6 @@ export async function POST(req: NextRequest) {
     } catch (error) {
         console.error('[EDGE FALLBACK ERR]', error);
       }
-    }
   } catch (error: any) {
     const encoder = new TextEncoder();
     const safeMsg = `Hello! I am Boss. I am standing by and ready to help you. How can I assist you?`;

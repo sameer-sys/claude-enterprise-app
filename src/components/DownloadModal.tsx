@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { X, Download, Monitor, Smartphone, Globe, Check, Sparkles, QrCode, ArrowRight, ShieldCheck } from 'lucide-react';
 
 interface DownloadModalProps {
@@ -9,16 +9,7 @@ interface DownloadModalProps {
 }
 
 export default function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
-  const [downloadingDesktop, setDownloadingDesktop] = useState(false);
-  const [downloadingApk, setDownloadingApk] = useState(false);
   if (!isOpen) return null;
-
-  const getAppUrl = () => {
-    if (typeof window !== 'undefined' && window.location.origin) {
-      return window.location.origin;
-    }
-    return 'https://claude-enterprise-app.vercel.app';
-  };
 
   const desktopDownloadUrl = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Setup.exe';
   const androidDownloadUrl = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Android.apk';
@@ -83,21 +74,12 @@ export default function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
                 </div>
               </div>
 
-              <a href={desktopDownloadUrl} download
-                onClick={() => {}}
+              <a
+                href={desktopDownloadUrl}
                 className="w-full py-2.5 px-4 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all shadow-md flex items-center justify-center space-x-2 active:scale-95"
               >
-                {downloadingDesktop ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>Downloaded! Launching...</span>
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 stroke-[2.5]" />
-                    <span>Download Windows App (.exe)</span>
-                  </>
-                )}
+                <Download className="w-4 h-4 stroke-[2.5]" />
+                <span>Download Windows App (.exe)</span>
               </a>
             </div>
 
@@ -131,21 +113,12 @@ export default function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
                 </div>
               </div>
 
-              <a href={androidDownloadUrl} download
-                onClick={() => {}}
+              <a
+                href={androidDownloadUrl}
                 className="w-full py-2.5 px-4 rounded-xl bg-[#2b2923] hover:bg-[#38352d] border border-[#3e3b32] text-[#ece9e2] font-semibold text-xs transition-all shadow-sm flex items-center justify-center space-x-2 active:scale-95"
               >
-                {downloadingApk ? (
-                  <>
-                    <Check className="w-4 h-4 text-emerald-400" />
-                    <span>Downloading Android App...</span>
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 text-[#cc785c]" />
-                    <span>Download Android App (.apk)</span>
-                  </>
-                )}
+                <Download className="w-4 h-4 text-[#cc785c]" />
+                <span>Download Android App (.apk)</span>
               </a>
             </div>
           </div>
@@ -157,13 +130,11 @@ export default function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
                 <Globe className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-[#ece9e2] font-medium">Use on phone directly via browser:</p>
-                <p className="text-[11px] text-[#8a8579]">Open <span className="font-mono text-[#cc785c]">{getAppUrl()}</span> on your mobile browser & tap "Install App"</p>
+                <p className="text-[#ece9e2] font-medium">Native downloads are separate from the web app</p>
+                <p className="text-[11px] text-[#8a8579]">The native Android download is above. The web app remains available separately.</p>
               </div>
             </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400">
-              Cloud Ready
-            </span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400">Native Builds</span>
           </div>
         </div>
 

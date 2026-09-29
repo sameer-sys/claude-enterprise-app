@@ -137,7 +137,7 @@ export default function CodeBlockRunner({ code, language, className, children }:
         <code className={className}>{children || code}</code>
       </pre>
 
-      {/* Terminal Drawer (Open Interpreter output) */}
+      {/* Terminal Drawer (sandbox output) */}
       {showTerminal && (
         <div className="border-t border-[#2d2b24] bg-[#0c0b0a] font-mono text-xs animate-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#12110e] border-b border-[#23211a] text-[11px]">

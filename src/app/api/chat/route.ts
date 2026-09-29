@@ -211,6 +211,7 @@ async function runAgentTool(
     remoteCredentials?: Record<string, RemoteStoredToken | undefined>;
     remoteMcpUpdates?: Record<string, RemoteStoredToken>;
     requestText?: string;
+    requestOidcToken?: string;
   } = {}
 ): Promise<string> {
   try {
@@ -433,6 +434,7 @@ async function runAgentTool(
         language: String(args?.language || ''),
         code: String(args?.code || ''),
         timeoutMs: Number(args?.timeout_ms) || 15000,
+        requestOidcToken: String(connectorContext.requestOidcToken || '').trim() || undefined,
       });
     }
 
@@ -1698,39 +1700,3 @@ export async function POST(req: NextRequest) {
               'Cache-Control': 'no-cache',
               Connection: 'keep-alive',
               'X-Claude-Skill': detectedSkill,
-              'X-Claude-Router': 'cloud-instant-stream',
-            },
-          }), toolContext);
-        }
-      }
-    } catch (e) {
-      // Fall through to synthesizer
-    }
-
-    // ========================================================
-    // AUTONOMOUS END-TO-END WORK & CONNECTOR EXECUTION (HERMES / OPEN INTERPRETER)
-    // ========================================================
-    const fallbackContent = await synthesizeClaudeEnterpriseResponse(lastText, modelId, detectedSkill, connectors, messages);
-    const encoder = new TextEncoder();
-    const chunkSize = 28;
-    const stream = new ReadableStream({
-      start(controller) {
-        for (let pos = 0; pos < fallbackContent.length; pos += chunkSize) {
-          const piece = fallbackContent.slice(pos, pos + chunkSize);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: piece })}\n\n`));
-        }
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-        controller.close();
-      },
-    });
-
-    return attachMcpSession(new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Claude-Skill': detectedSkill,
-        'X-Claude-Router': 'claude-enterprise-edge',
-      },
-    }), toolContext);
-  } catch (error: any) {

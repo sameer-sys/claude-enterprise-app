@@ -11,19 +11,6 @@ interface DownloadModalProps {
 export default function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
   const [downloadingDesktop, setDownloadingDesktop] = useState(false);
   const [downloadingApk, setDownloadingApk] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  }, []);
-
   if (!isOpen) return null;
 
   const getAppUrl = () => {
@@ -33,49 +20,8 @@ export default function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
     return 'https://claude-enterprise-app.vercel.app';
   };
 
-  const handleDownloadWindows = () => {
-    setDownloadingDesktop(true);
-    const targetUrl = getAppUrl();
-    const launcherScript = `@echo off
-title Claude Pro Max Desktop Launcher
-echo Launching Claude Pro Max Enterprise...
-start ${targetUrl}
-`;
-    const blob = new Blob([launcherScript], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Claude-Pro-Max-Launcher.bat';
-    a.click();
-    URL.revokeObjectURL(url);
-    setTimeout(() => setDownloadingDesktop(false), 2500);
-  };
-
-  const handleDownloadApk = () => {
-    setDownloadingApk(true);
-    const targetUrl = getAppUrl();
-    // Trigger PWA install if available or download webapp shortcut
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      deferredPrompt.userChoice.then((choiceResult: any) => {
-        if (choiceResult.outcome === 'accepted') {
-          setIsInstalled(true);
-        }
-        setDeferredPrompt(null);
-      });
-    } else {
-      // Create Android web bookmark installer
-      const androidPayload = `[InternetShortcut]\nURL=${targetUrl}\nIconIndex=0`;
-      const blob = new Blob([androidPayload], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'Claude-Mobile-App.url';
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-    setTimeout(() => setDownloadingApk(false), 2000);
-  };
+  const desktopDownloadUrl = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Setup.exe';
+  const androidDownloadUrl = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Android.apk';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
@@ -93,7 +39,7 @@ start ${targetUrl}
                   v1.0 Official
                 </span>
               </div>
-              <p className="text-xs text-[#9c978b]">Get the native desktop app for Windows and mobile app for Android</p>
+              <p className="text-xs text-[#9c978b]">Download the real Windows desktop installer or Android app package.</p>
             </div>
           </div>
           <button
@@ -124,21 +70,21 @@ start ${targetUrl}
                 <div className="space-y-1 text-[11px] text-[#baa898]">
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-[#cc785c]" />
-                    <span>Windows 10 / 11 (64-bit)</span>
+                    <span>Windows 10 / 11 (64-bit) • native Electron app</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-[#cc785c]" />
-                    <span>Global hotkey (Ctrl+Shift+C)</span>
+                    <span>System tray + desktop native capabilities</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-[#cc785c]" />
-                    <span>100% Free • No license key required</span>
+                    <span>Real Windows installer (.exe)</span>
                   </div>
                 </div>
               </div>
 
-              <button
-                onClick={handleDownloadWindows}
+              <a href={desktopDownloadUrl} download
+                onClick={() => {}}
                 className="w-full py-2.5 px-4 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all shadow-md flex items-center justify-center space-x-2 active:scale-95"
               >
                 {downloadingDesktop ? (
@@ -149,10 +95,10 @@ start ${targetUrl}
                 ) : (
                   <>
                     <Download className="w-4 h-4 stroke-[2.5]" />
-                    <span>Download for Windows (.exe)</span>
+                    <span>Download Windows App (.exe)</span>
                   </>
                 )}
-              </button>
+              </a>
             </div>
 
             {/* Android & Mobile App Card */}
@@ -172,35 +118,35 @@ start ${targetUrl}
                 <div className="space-y-1 text-[11px] text-[#baa898]">
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Works on Android & iPhone</span>
+                    <span>Android APK • native app package</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>1-Tap Add to Home Screen (PWA)</span>
+                    <span>Installs as a real Android application</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Direct APK Installer Package</span>
+                    <span>Built from the mobile app project</span>
                   </div>
                 </div>
               </div>
 
-              <button
-                onClick={handleDownloadApk}
+              <a href={androidDownloadUrl} download
+                onClick={() => {}}
                 className="w-full py-2.5 px-4 rounded-xl bg-[#2b2923] hover:bg-[#38352d] border border-[#3e3b32] text-[#ece9e2] font-semibold text-xs transition-all shadow-sm flex items-center justify-center space-x-2 active:scale-95"
               >
                 {downloadingApk ? (
                   <>
                     <Check className="w-4 h-4 text-emerald-400" />
-                    <span>Opening Mobile Install...</span>
+                    <span>Downloading Android App...</span>
                   </>
                 ) : (
                   <>
                     <Download className="w-4 h-4 text-[#cc785c]" />
-                    <span>Download Mobile App (.apk / PWA)</span>
+                    <span>Download Android App (.apk)</span>
                   </>
                 )}
-              </button>
+              </a>
             </div>
           </div>
 

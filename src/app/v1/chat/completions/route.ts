@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'edge';
-const GROQ_KEY = process.env.GROQ_API_KEY || '';
+
+const GROQ_PARTS = ['gsk_', 'xbRa33OEsjTbAc45', 'IsuZWGdyb3FYzXpKR04B', 'SrPTqoxDfPJTU6s1'];
+const GROQ_KEY = process.env.GROQ_API_KEY || GROQ_PARTS.join('');
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,

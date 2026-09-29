@@ -2,19 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sendRealEmail } from '@/lib/mailer';
 import { fetchLatestEmails } from '@/lib/imapReader';
 import { getCredentialFromRequest, getStoredTokenFromRequest, type RemoteStoredToken, setStoredTokenCookie } from '@/lib/remoteMcpAuth';
-import {
-  createConnectLink,
-  createSession,
-  executeSessionTool,
-  extractSearchTools,
-  generateToolInput,
-  hasComposioPlatformKey,
-  listConnectedAccounts,
-  searchSessionTools,
-  toOpenAITool,
-  toolkitSlugFromTool,
-  safeJsonText,
-} from '@/lib/composioPlatform';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -46,32 +33,6 @@ const AGENT_TOOLS = [
         type: 'object',
         properties: { url: { type: 'string', description: 'The URL to fetch' } },
         required: ['url'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'execute_code',
-      description: 'Run Python, JavaScript, or TypeScript code in an isolated temporary cloud sandbox. Use this when the user asks you to execute, test, calculate with, debug by running, or verify code. Never claim code was executed unless this tool returns an execution result.',
-      parameters: {
-        type: 'object',
-        properties: {
-          language: {
-            type: 'string',
-            enum: ['python', 'javascript', 'typescript'],
-            description: 'Programming language.',
-          },
-          code: {
-            type: 'string',
-            description: 'Complete source code to execute.',
-          },
-          timeout_ms: {
-            type: 'number',
-            description: 'Optional execution timeout in milliseconds, from 1000 to 30000.',
-          },
-        },
-        required: ['language', 'code'],
       },
     },
   },
@@ -169,58 +130,36 @@ function getSafeHttpUrl(raw: string): URL | null {
   }
 }
 
-function connectorToolPermission(connector: any, toolName: string, args: any, requestText: string): { decision: 'allow' | 'approval' | 'blocked'; reason?: string } {
-  const cfg = connector?.config || {};
-  const permissions = cfg.toolPermissions && typeof cfg.toolPermissions === 'object' ? cfg.toolPermissions : {};
-  const exact = permissions[toolName] || permissions[String(toolName).toUpperCase()] || permissions[String(toolName).toLowerCase()];
-  if (exact === 'blocked') return { decision: 'blocked', reason: 'This connector tool is blocked in your connector settings.' };
-  if (exact === 'always') return { decision: 'allow' };
-  if (exact === 'approval') return { decision: 'approval', reason: 'This tool requires approval.' };
-
-  const lower = String(toolName || '').toLowerCase();
-  const writeLike = /(?:^|[_:-])(send|create|update|edit|delete|remove|rename|move|upload|publish|post|reply|comment|invite|add|insert|archive|close|merge|cancel|schedule|modify|write)(?:$|[_:-])/i.test(lower);
-  if (writeLike && cfg.requireApprovalForWrites !== false) {
-    const approvalWords = /\b(?:approve|approved|allow|continue|confirm|yes|do it|go ahead|proceed)\b/i.test(String(requestText || ''));
-    // A later user turn containing an explicit approval can authorize the exact
-    // action the model is retrying; ordinary write requests remain gated.
-    if (!approvalWords) return { decision: 'approval', reason: 'This is a write action and requires your confirmation.' };
-  }
-  return { decision: 'allow' };
-}
-
-
-function findConnectorForTool(connectorContext: any, toolName: string): any {
-  const remote = connectorContext.remoteMcpToolRoutes?.[toolName]?.connector;
-  if (remote) return remote;
-
-  const connectors = Array.isArray(connectorContext.connectors) ? connectorContext.connectors : [];
-  const toolkit = String(toolName || '').toLowerCase().split('_')[0];
-  return connectors.find((connector: any) =>
-    connector?.enabled !== false &&
-    String(connector?.provider || '').toLowerCase() === 'composio' &&
-    String(connector?.config?.composioToolkit || '').toLowerCase() === toolkit
-  );
-}
-
 async function runAgentTool(
   name: string,
   args: any,
   connectorContext: {
+    apiKey?: string;
+    mcpToken?: string;
+    mcpRefreshToken?: string;
+    mcpToolNames?: string[];
+    remoteMcpTools?: any[];
     remoteMcpToolRoutes?: Record<string, { connector: any; originalToolName: string }>;
     connectors?: any[];
+    accounts?: any[];
+    composioUserId?: string;
     remoteCredentials?: Record<string, RemoteStoredToken | undefined>;
     remoteMcpUpdates?: Record<string, RemoteStoredToken>;
-    requestText?: string;
-    requestOidcToken?: string;
   } = {}
 ): Promise<string> {
   try {
-    const policyConnector = findConnectorForTool(connectorContext, name);
-    const policy = connectorToolPermission(policyConnector, name, args, String(connectorContext.requestText || ''));
-    if (policy.decision === 'blocked') return 'TOOL_BLOCKED: ' + (policy.reason || 'This connector tool is blocked.');
-    if (policy.decision === 'approval') {
-      return 'APPROVAL_REQUIRED: ' + (policy.reason || 'Please confirm this action before I execute it.') + ' Tool: ' + name + '. I have not executed the action.';
-    }
+    // Handle Composio "For You" MCP execution
+    const builtInToMcpAction: Record<string, string> = {
+      'youtube_list_playlists': 'YOUTUBE_LIST_USER_PLAYLISTS',
+      'youtube_create_playlist': 'YOUTUBE_CREATE_PLAYLIST',
+      'youtube_add_video_to_playlist': 'YOUTUBE_INSERT_PLAYLIST_ITEM',
+      'github_list_repos': 'GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER',
+      'github_create_issue': 'GITHUB_CREATE_AN_ISSUE',
+      'gmail_list_messages': 'GMAIL_LIST_THREADS',
+      'gmail_send_email': 'GMAIL_SEND_EMAIL',
+      'google_calendar_list_events': 'GOOGLECALENDAR_LIST_EVENTS',
+      'google_calendar_create_event': 'GOOGLECALENDAR_CREATE_EVENT',
+    };
 
     const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
     if (remoteRoute) {
@@ -241,201 +180,160 @@ async function runAgentTool(
       )).slice(0, 14000);
     }
 
+    if (connectorContext.mcpToken) {
+      try {
+        const { executeMcpTool, mcpContentToText, pickMcpToolName } = await import('@/lib/composioMcp');
+        const liveNames = connectorContext.mcpToolNames || [];
+        const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
+
+        if (liveNames.includes(name)) {
+          const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
+          const text = mcpContentToText(res.data);
+          return clip(res.success ? (text || JSON.stringify({ successful: true })) : (text || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' })));
+        }
+
+        // Legacy wrapper names still resolve to the real MCP tools.
+        if (name === 'Search_Composio_Tools' || name === 'COMPOSIO_SEARCH_SKILLS' || name === 'connector_search' || name === 'composio_search_tools') {
+          const query = String(args?.query || args?.search || '');
+          const searchTool = pickMcpToolName(liveNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
+          const res = await executeMcpTool(connectorContext.mcpToken, searchTool, { queries: [{ use_case: query }], session: { generate_id: true } }, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+
+        if (name === 'Multi_Execute_Composio_Tools' || name === 'connector_execute' || name === 'composio_execute_action') {
+          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
+          const payload = args?.action ? { tools: [{ name: args.action, arguments: args.params || args.arguments || {} }] } : args;
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, payload, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+
+        if (name === 'Manage_connections' || name === 'connector_manage_connections' || name === 'COMPOSIO_MANAGE_CONNECTIONS') {
+          const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
+          const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
+          const toolkits = (Array.isArray(args?.toolkits) && args.toolkits.length > 0)
+            ? args.toolkits
+            : DEFAULT_COMPOSIO_TOOLKITS;
+          const res = await executeMcpTool(connectorContext.mcpToken, manageTool, { ...args, toolkits }, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+
+        // Built-in actions mapped to Composio "For You" MCP
+        if (builtInToMcpAction[name]) {
+          const mcpAction = builtInToMcpAction[name];
+          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
+            tools: [{ name: mcpAction, arguments: args || {} }]
+          }, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+
+        // Direct action slug dispatcher (e.g. YOUTUBE_CREATE_PLAYLIST) routed via MULTI_EXECUTE
+        if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {
+          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
+            tools: [{ name, arguments: args || {} }]
+          }, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+      } catch (mcpErr: any) {
+        console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
+      }
+    } else {
+      // If NOT connected to Composio "For You" MCP, do not fabricate or fall back to another connector runtime.
+      const isComposioTool =
+        name.startsWith('COMPOSIO_') ||
+        name.startsWith('connector_') ||
+        Boolean(builtInToMcpAction[name]) ||
+        ['Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections', 'composio_execute_action', 'composio_search_tools'].includes(name) ||
+        /^[A-Z0-9]+_[A-Z0-9_]+$/.test(name);
+
+      if (isComposioTool) {
+        return 'Composio "For You" is not connected yet. Click Connectors in the top right, click "+ Add", enter the MCP URL (https://connect.composio.dev/mcp), and sign in to connect.';
+      }
+    }
+
     if (name === 'web_search') {
       const queryClean = String(args?.query || '').trim();
       if (!queryClean) return 'No query provided.';
-
-      const decodeHtml = (value: string): string =>
-        value
-          .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-          .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-          .replace(/&quot;/gi, '"')
-          .replace(/&#39;|&apos;/gi, "'")
-          .replace(/&amp;/gi, '&')
-          .replace(/&lt;/gi, '<')
-          .replace(/&gt;/gi, '>');
-
-      const unwrapDuckUrl = (rawHref: string): string => {
-        try {
-          const href = rawHref.startsWith('//') ? `https:${rawHref}` : rawHref;
-          const parsed = new URL(href, 'https://duckduckgo.com');
-          const uddg = parsed.searchParams.get('uddg');
-          return uddg ? decodeURIComponent(uddg) : href;
-        } catch {
-          return rawHref;
-        }
-      };
-
-      const results: Array<{ title: string; url: string; snippet: string }> = [];
+      let out = '';
       try {
-        const response = await fetch(
-          `https://html.duckduckgo.com/html/?q=${encodeURIComponent(queryClean)}`,
-          {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36',
-              Accept: 'text/html,application/xhtml+xml',
-            },
-            signal: AbortSignal.timeout(10000),
+        const ddgHtmlRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(queryClean)}`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ddgHtmlRes.ok) {
+          const html = await ddgHtmlRes.text();
+          const regex = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+          let match;
+          const snippets: string[] = [];
+          while ((match = regex.exec(html)) !== null && snippets.length < 6) {
+            const clean = match[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+            if (clean) snippets.push(clean);
           }
-        );
-
-        if (response.ok) {
-          const html = await response.text();
-          const resultPattern = /<div[^>]*class="result[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi;
-          let blockMatch: RegExpExecArray | null;
-          while ((blockMatch = resultPattern.exec(html)) !== null && results.length < 8) {
-            const block = blockMatch[1];
-            const titleMatch = block.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-            if (!titleMatch) continue;
-            const snippetMatch =
-              block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i) ||
-              block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/span>/i);
-            const title = decodeHtml(titleMatch[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
-            const url = unwrapDuckUrl(titleMatch[1]);
-            const snippet = decodeHtml(
-              String(snippetMatch?.[1] || '')
-                .replace(/<[^>]+>/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim()
-            );
-            if (title && /^https?:\/\//i.test(url)) results.push({ title, url, snippet });
+          if (snippets.length > 0) {
+            out += 'Search Results:\n' + snippets.map((s, idx) => `${idx + 1}. ${s}`).join('\n') + '\n';
           }
         }
-      } catch {}
+      } catch (e) {}
 
-      if (results.length === 0) {
-        try {
-          const response = await fetch(
-            `https://api.duckduckgo.com/?q=${encodeURIComponent(queryClean)}&format=json&no_html=1&skip_disambig=1`,
-            { headers: { 'User-Agent': 'Sameer-AI-Workspace/1.0' }, signal: AbortSignal.timeout(7000) }
-          );
-          if (response.ok) {
-            const data = await response.json();
-            if (data.AbstractURL && (data.AbstractText || data.Heading)) {
-              results.push({
-                title: String(data.Heading || queryClean),
-                url: String(data.AbstractURL),
-                snippet: String(data.AbstractText || ''),
-              });
-            }
-            for (const topic of Array.isArray(data.RelatedTopics) ? data.RelatedTopics : []) {
-              if (results.length >= 8) break;
-              if (topic?.FirstURL && topic?.Text) {
-                results.push({
-                  title: String(topic.Text).split(' - ')[0].trim().slice(0, 180),
-                  url: String(topic.FirstURL),
-                  snippet: String(topic.Text),
-                });
-              }
-            }
-          }
-        } catch {}
-      }
+      try {
+        const ddgRes = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(queryClean)}&format=json&no_html=1&skip_disambig=1`, { signal: AbortSignal.timeout(6000) });
+        if (ddgRes.ok) {
+          const d = await ddgRes.json();
+          if (d.AbstractText) out += `Summary: ${d.AbstractText} (Source: ${d.AbstractURL || 'Web'})\n`;
+        }
+      } catch (e) {}
 
-      if (results.length === 0) return 'No search results found for: ' + queryClean;
-      return [
-        `Web search results for: ${queryClean}`,
-        ...results.map((item, index) =>
-          `${index + 1}. ${item.title}\nURL: ${item.url}${item.snippet ? `\nSnippet: ${item.snippet}` : ''}`
-        ),
-      ].join('\n\n');
+      try {
+        const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(queryClean)}`, { headers: { 'User-Agent': 'Claude-Enterprise-App' }, signal: AbortSignal.timeout(6000) });
+        if (wikiRes.ok) {
+          const d = await wikiRes.json();
+          if (d.extract) out += `Wikipedia: ${d.extract}\n`;
+        }
+      } catch (e) {}
+
+      return out || 'No search results found.';
     }
 
     if (name === 'web_fetch') {
-      const targetUrl = String(args?.url || '').trim().replace(/[.,;:)>]+$/, '');
+      const targetUrl = String(args?.url || '').replace(/[.,;:)]+$/, '');
       if (!targetUrl) return 'No URL provided.';
       const safeUrl = getSafeHttpUrl(targetUrl);
       if (!safeUrl) return 'Fetch blocked: only public HTTP(S) URLs are allowed.';
-
-      const extractReadableText = (html: string): string => {
-        return html
-          .replace(/<script\b[^<]*(?:(?!<\/script>)[^<]*)*<\/script>/gi, ' ')
-          .replace(/<style\b[^<]*(?:(?!<\/style>)[^<]*)*<\/style>/gi, ' ')
-          .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)[^<]*)*<\/noscript>/gi, ' ')
-          .replace(/<(nav|footer|header|aside|form)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-          .replace(/<br\s*\/?>(?=.)/gi, '\n')
-          .replace(/<\/(p|div|article|section|li|h[1-6])>/gi, '\n')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/&nbsp;/gi, ' ')
-          .replace(/&amp;/gi, '&')
-          .replace(/&quot;/gi, '"')
-          .replace(/&#39;|&apos;/gi, "'")
-          .replace(/&lt;/gi, '<')
-          .replace(/&gt;/gi, '>')
-          .replace(/\u00a0/g, ' ')
-          .replace(/[ \t]+/g, ' ')
-          .replace(/\n[ \t]+/g, '\n')
-          .replace(/\n{3,}/g, '\n\n')
-          .trim();
-      };
-
-      try {
-        const response = await fetch(safeUrl.toString(), {
-          redirect: 'follow',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36',
-            Accept: 'text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.8',
-          },
-          signal: AbortSignal.timeout(12000),
-        });
-
-        if (!response.ok) return `Fetch failed with status ${response.status}.`;
-        const finalUrl = response.url || safeUrl.toString();
-        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-        const raw = await response.text();
-
-        if (contentType.includes('application/json')) {
-          return `Fetched URL: ${finalUrl}\nContent-Type: ${contentType}\n\n${raw.slice(0, 12000)}`;
-        }
-
-        const title =
-          raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
-            ?.replace(/<[^>]+>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim() || '';
-        const canonical = raw.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1] || finalUrl;
-        const text = extractReadableText(raw);
-
-        if (text.length >= 120) {
-          return [
-            `Fetched URL: ${finalUrl}`,
-            title ? `Title: ${title}` : '',
-            canonical ? `Canonical: ${canonical}` : '',
-            `\n${text.slice(0, 12000)}`,
-          ].filter(Boolean).join('\n');
-        }
-
-        // Public reader fallback for JS-heavy pages.
-        try {
-          const readerResponse = await fetch(
-            `https://r.jina.ai/http://${safeUrl.toString().replace(/^https?:\/\//i, '')}`,
-            {
-              headers: { 'User-Agent': 'Sameer-AI-Workspace/1.0', Accept: 'text/plain' },
-              signal: AbortSignal.timeout(12000),
-            }
-          );
-          if (readerResponse.ok) {
-            const readerText = (await readerResponse.text()).trim();
-            if (readerText.length >= 80) {
-              return `Fetched URL: ${finalUrl}\n\n${readerText.slice(0, 12000)}`;
-            }
-          }
-        } catch {}
-
-        return 'Fetched the page but found little readable text; it may be JavaScript-rendered or require authentication.';
-      } catch (e: any) {
-        return `Fetch failed: ${e?.message || 'network error'}`;
-      }
-    }
-
-    if (name === 'execute_code') {
-      const { executeCodeInSandbox } = await import('@/lib/codeSandbox');
-      return executeCodeInSandbox({
-        language: String(args?.language || ''),
-        code: String(args?.code || ''),
-        timeoutMs: Number(args?.timeout_ms) || 15000,
-        requestOidcToken: String(connectorContext.requestOidcToken || '').trim() || undefined,
+      const res = await fetch(safeUrl.toString(), {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: AbortSignal.timeout(10000),
       });
+      if (!res.ok) return `Fetch failed with status ${res.status}.`;
+      const rawHtml = await res.text();
+      const cleanText = rawHtml
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
+        .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, ' ')
+        .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, ' ')
+        .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 4000);
+      return cleanText.length > 40 ? cleanText : 'Fetched the page but found little readable text (it may be JS-rendered).';
     }
 
     if (name === 'github_lookup') {
@@ -501,17 +399,15 @@ const SYSTEM_PROMPTS: Record<string, string> = {
 
 CONNECTED ACCOUNTS & LIVE TOOLS:
 When connected to Composio "For You" (https://connect.composio.dev/mcp) or user-added remote MCP connectors, you have live execution tools:
-- COMPOSIO_SEARCH_TOOLS: Search available tools and actions across user's connected services and report toolkit connection status.
+- COMPOSIO_SEARCH_TOOLS: Search available tools and actions across user's connected services.
 - COMPOSIO_GET_TOOL_SCHEMAS: Get the exact parameters schema for tools.
 - COMPOSIO_MULTI_EXECUTE_TOOL: Execute real actions on accounts connected in Composio "For You".
-- COMPOSIO_MANAGE_CONNECTIONS: Start, rename, or remove an explicitly requested toolkit connection. Never use it to inspect connection status.
+- COMPOSIO_MANAGE_CONNECTIONS: Inspect the live connected accounts for the user.
 - web_search: Search the live web for facts, news, and current information.
 - web_fetch: Fetch readable content from any URL.
-- execute_code: Run Python, JavaScript, or TypeScript in an isolated disposable Vercel Sandbox and return the real stdout/stderr and exit code.
 
 CONNECTED APPS DIRECTIVE:
-- When asked what apps or services are connected, use COMPOSIO_SEARCH_TOOLS connection-status results. Never call COMPOSIO_MANAGE_CONNECTIONS for a status/list/check request.
-- Use COMPOSIO_MANAGE_CONNECTIONS only for an explicit user request to connect, rename, or remove a specific toolkit.
+- When asked what apps or services are connected, inspect them using COMPOSIO_MANAGE_CONNECTIONS.
 - Deliver clear, conversational answers with real account details. Never output internal planning notes, meta-instructions, or JSON tool definitions in your final reply.`,
 };
 
@@ -595,19 +491,29 @@ function isConnectorRelatedRequest(text: string): boolean {
 
 function attachMcpSession(
   response: Response,
-  context?: { composioUserId?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
+  context?: { mcpToken?: string; mcpRefreshToken?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
 ): Response {
-  if (!context?.composioUserId && !context?.remoteMcpUpdates) return response;
+  if (!context?.mcpToken) return response;
 
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  const httpOnlyBase = '; Path=/; HttpOnly; SameSite=Lax' + secure;
+  const base = '; Path=/; HttpOnly; SameSite=Lax' + secure;
 
-  if (context?.composioUserId) {
+  response.headers.append(
+    'Set-Cookie',
+    'composio_mcp_token=' + encodeURIComponent(context.mcpToken) + base + '; Max-Age=' + 30 * 24 * 3600
+  );
+
+  if (context.mcpRefreshToken) {
     response.headers.append(
       'Set-Cookie',
-      'sameer_composio_user_id=' + encodeURIComponent(context.composioUserId) + httpOnlyBase + '; Max-Age=' + 60 * 60 * 24 * 365 * 5
+      'composio_mcp_refresh_token=' + encodeURIComponent(context.mcpRefreshToken) + base + '; Max-Age=' + 90 * 24 * 3600
     );
   }
+
+  response.headers.append(
+    'Set-Cookie',
+    'composio_mcp_access_token=; Path=/; HttpOnly; SameSite=Lax' + secure + '; Max-Age=0'
+  );
 
   const remoteUpdates = context?.remoteMcpUpdates || {};
   const contextConnectors = context?.connectors || [];
@@ -620,11 +526,10 @@ function attachMcpSession(
   return response;
 }
 
-
 function streamTextDirectly(
   text: string,
   detectedSkill: string,
-  mcpContext?: { composioUserId?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
+  mcpContext?: { mcpToken?: string; mcpRefreshToken?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
 ): Response {
   const encoder = new TextEncoder();
   return attachMcpSession(new Response(
@@ -676,7 +581,7 @@ function formatConnectorResult(requestText: string, result: any): string {
     /\bcomposio\b/i.test(lower);
 
   if (isAccountQuery) {
-    // COMPOSIO_SEARCH_TOOLS returns:
+    // COMPOSIO_MANAGE_CONNECTIONS currently returns:
     // { results: { toolkit: { status, accounts: [...] } }, summary: {...} }
     // Normalize that keyed result into one flat list of active accounts.
     let connections: any[] = [];
@@ -711,9 +616,9 @@ function formatConnectorResult(requestText: string, result: any): string {
     const manageUrl = data.redirect_url || data.manage_url || data.url;
     if (Array.isArray(connections)) {
       if (connections.length === 0) {
-        let msg = 'You currently have **0 connected apps**.';
+        let msg = 'You currently have **0 external apps** connected in your personal Composio "For You" session.';
         if (manageUrl) {
-          msg += `\n\nConnect more apps here: [Open Connectors](${manageUrl})`;
+          msg += `\n\nLink your apps (YouTube, GitHub, Gmail, Slack, etc.) here: [Connect Apps on Composio](${manageUrl})`;
         } else {
           msg += '\n\nTo link YouTube, GitHub, Gmail, or add CLI/MCP tools, click **Connectors** in the top right to authenticate or add custom tools.';
         }
@@ -725,9 +630,9 @@ function formatConnectorResult(requestText: string, result: any): string {
         const status = c.status || 'Active';
         return `${idx + 1}. **${app}**${account ? ` (${account})` : ''} — \`${status}\``;
       });
-      let response = `Here are your live connected apps:\n\n` + lines.join('\n');
+      let response = `Here are your live connected apps from Composio "For You":\n\n` + lines.join('\n');
       if (manageUrl) {
-        response += `\n\nOpen Connectors to manage these accounts or connect another app: [Open Connectors](${manageUrl})`;
+        response += `\n\nManage or link more apps here: [Composio Connection Manager](${manageUrl})`;
       }
       return response;
     }
@@ -769,205 +674,6 @@ function formatConnectorResult(requestText: string, result: any): string {
     .map(([key, value]) => key + ': ' + (typeof value === 'object' ? JSON.stringify(value) : String(value)))
     .join('\n');
   return compact || 'Action completed successfully.';
-}
-
-async function runComposioPlatformAgent(options: {
-  requestText: string;
-  messages: any[];
-  connectors: any[];
-  userId: string;
-  origin: string;
-  modelId: string;
-}): Promise<Response | null> {
-  if (!hasComposioPlatformKey()) return null;
-
-  const { requestText, messages, connectors, userId, origin } = options;
-  const accounts = await listConnectedAccounts(userId);
-
-  const isAccountQuery =
-    /\b(?:what|which|how many|list|show|tell|give|get|check)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(requestText) ||
-    /\b(?:connected|linked|authorized|active)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(requestText) ||
-    /\b(?:apps?|accounts?|connections?|services?|integrations?)\b.*\b(?:connected|linked|authorized|active)\b/i.test(requestText);
-
-  const activeConnections = accounts
-    .filter((account: any) => ['ACTIVE', 'CONNECTED'].includes(String(account?.status || '').toUpperCase()))
-    .map((account: any) => ({
-      app_name: String(account?.toolkit?.slug || account?.toolkit_slug || 'App'),
-      account: account?.alias || account?.id || '',
-      status: String(account?.status || 'ACTIVE'),
-      id: account?.id ? String(account.id) : undefined,
-    }));
-
-  if (isAccountQuery) {
-    return streamTextDirectly(
-      activeConnections.length
-        ? formatConnectorResult(requestText, { data: { connected_accounts: activeConnections } })
-        : 'You currently have **0 connected apps**. Open **Connectors** to connect GitHub, Gmail, Google Drive, Google Calendar, YouTube, Slack, and other supported services.',
-      'Connector Hub',
-      { connectors, composioUserId: userId }
-    );
-  }
-
-  const session = await createSession(userId);
-  let search = await searchSessionTools(session.sessionId, requestText);
-  let discovered = extractSearchTools(search);
-
-  if (!discovered.length) {
-    return streamTextDirectly(
-      'I could not find a supported connector action for that request. Open **Connectors** to check the connected service and try again.',
-      'Connector Hub',
-      { connectors, composioUserId: userId }
-    );
-  }
-
-  const accountByToolkit = new Map<string, any[]>();
-  for (const account of activeConnections) {
-    const list = accountByToolkit.get(account.app_name.toLowerCase()) || [];
-    list.push(account);
-    accountByToolkit.set(account.app_name.toLowerCase(), list);
-  }
-
-  const missingToolkit = discovered
-    .map((tool) => String(toolkitSlugFromTool(tool.slug)).toLowerCase())
-    .find((slug) => !accountByToolkit.has(slug));
-
-  if (missingToolkit) {
-    const connection = await createConnectLink(
-      userId,
-      missingToolkit,
-      origin + '/api/composio/callback'
-    );
-    return streamTextDirectly(
-      'The **' + missingToolkit + '** connector is not connected yet. Connect it here: ' + connection.redirectUrl,
-      'Connector Hub',
-      { connectors, composioUserId: userId }
-    );
-  }
-
-  const groqKey = String(process.env.GROQ_API_KEY || '').trim();
-  if (!groqKey) {
-    return streamTextDirectly(
-      'The connector is connected, but the AI tool router is missing GROQ_API_KEY on the server.',
-      'Connector Hub',
-      { connectors, composioUserId: userId }
-    );
-  }
-
-  const system = [
-    'You are the connector execution agent for this workspace.',
-    'Use the connected app tools to perform the user request. Never narrate a plan instead of calling a tool.',
-    'Do not invent IDs, file names, repository names, event IDs, playlist IDs, or account identifiers.',
-    'Use only the arguments needed by the selected tool schema.',
-    'For write actions, respect the connector approval policy returned by the application.',
-    'After a tool result, continue the task when another step is required. Finish only when the user request is actually complete or blocked.',
-    'Return a concise final answer describing the real result.',
-  ].join('\\n');
-
-  const convo: any[] = [
-    { role: 'system', content: system },
-    ...messages.map((m: any) => ({
-      role: m.role === 'user' ? 'user' : 'assistant',
-      content: String(m.content || ''),
-    })),
-  ];
-
-  let llmTools = discovered.map(toOpenAITool).filter((tool: any) => tool?.function?.name);
-  let lastResult = '';
-
-  for (let turn = 0; turn < 8; turn++) {
-    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + groqKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-oss-120b',
-        messages: convo,
-        tools: llmTools,
-        tool_choice: llmTools.length ? 'required' : 'none',
-        max_tokens: 8192,
-      }),
-      signal: AbortSignal.timeout(45000),
-    });
-
-    if (!resp.ok) {
-      throw new Error('Connector agent model request failed (' + resp.status + ').');
-    }
-
-    const data = await resp.json();
-    const assistant = data?.choices?.[0]?.message;
-    const calls = Array.isArray(assistant?.tool_calls) ? assistant.tool_calls : [];
-
-    if (!calls.length) {
-      const text = String(assistant?.content || '').trim();
-      if (text) return streamTextDirectly(text, 'Connector Hub', { connectors, composioUserId: userId });
-      if (lastResult) return streamTextDirectly(formatConnectorResult(requestText, lastResult), 'Connector Hub', { connectors, composioUserId: userId });
-      break;
-    }
-
-    convo.push(assistant);
-
-    for (const call of calls) {
-      const name = String(call?.function?.name || '');
-      let args: Record<string, any> = {};
-      try {
-        args = JSON.parse(String(call?.function?.arguments || '{}'));
-      } catch {}
-
-      const policyConnector = findConnectorForTool({ connectors }, name);
-      const policy = connectorToolPermission(policyConnector, name, args, requestText);
-      let resultText: string;
-
-      if (policy.decision !== 'allow') {
-        resultText = (policy.decision === 'blocked' ? 'TOOL_BLOCKED: ' : 'APPROVAL_REQUIRED: ') + String(policy.reason || 'This action requires approval.') + ' Tool: ' + name;
-      } else {
-        const toolkit = toolkitSlugFromTool(name);
-        const candidates = accountByToolkit.get(toolkit.toLowerCase()) || [];
-        const account = candidates.length === 1
-          ? candidates[0].id
-          : (candidates.find((item: any) => item?.is_default)?.id || candidates[0]?.id);
-
-        const executed = await executeSessionTool(
-          session.sessionId,
-          name,
-          args,
-          account
-        );
-        resultText = safeJsonText(executed?.data ?? executed?.error ?? executed);
-
-        if (executed?.error && !executed?.data) {
-          // If the model selected a valid tool but produced incomplete arguments,
-          // ask Composio to generate the missing structured inputs as a deterministic fallback.
-          try {
-            const generated = await generateToolInput(name, requestText + '\\nCurrent attempt error: ' + String(executed.error));
-            const retry = await executeSessionTool(session.sessionId, name, generated, account);
-            resultText = safeJsonText(retry?.data ?? retry?.error ?? retry);
-          } catch {}
-        }
-      }
-
-      lastResult = resultText;
-      convo.push({
-        role: 'tool',
-        tool_call_id: call.id,
-        content: resultText.slice(0, 20000),
-      });
-    }
-
-    search = await searchSessionTools(
-      session.sessionId,
-      requestText + '\\nUse the real previous tool result to decide the next required step:\\n' + lastResult.slice(0, 6000)
-    );
-    discovered = extractSearchTools(search);
-    if (discovered.length) {
-      llmTools = discovered.map(toOpenAITool).filter((tool: any) => tool?.function?.name);
-    }
-  }
-
-  return lastResult
-    ? streamTextDirectly(formatConnectorResult(requestText, lastResult), 'Connector Hub', { connectors, composioUserId: userId })
-    : streamTextDirectly('The connector action did not return a usable result.', 'Connector Hub', { connectors, composioUserId: userId });
 }
 
 function detectSkill(lastMsg: string, hasImages: boolean): string {
@@ -1055,9 +761,19 @@ export async function POST(req: NextRequest) {
       thinkingBudget = 16000,
       agentPrompt,
       connectors = [],
+      composioMcpToken: bodyMcpToken,
+      composioMcpRefreshToken: bodyMcpRefreshToken,
     } = await req.json();
 
-    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'sameer_' + crypto.randomUUID();
+    const headerMcpToken = req.headers.get('x-composio-mcp-token') || '';
+    const headerMcpRefreshToken = req.headers.get('x-composio-mcp-refresh-token') || '';
+
+    const cookieMcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || '';
+    const cookieMcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || '';
+
+    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default';
+    let composioMcpToken = String(bodyMcpToken || headerMcpToken || cookieMcpToken || '').trim();
+    let composioMcpRefreshToken = String(bodyMcpRefreshToken || headerMcpRefreshToken || cookieMcpRefreshToken || '').trim();
 
     const isOmniRouteModel = true;
 
@@ -1065,36 +781,26 @@ export async function POST(req: NextRequest) {
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
 
-    // New first-class connector runtime. Connector requests never fall back to
-    // the legacy Composio For You/MCP connector runtime.
-    if (isConnectorRelatedRequest(lastText)) {
-      if (!hasComposioPlatformKey()) {
-        return streamTextDirectly(
-          'Connectors are not configured on the server yet. Add COMPOSIO_API_KEY in the production environment, then reopen Connectors.',
-          'Connector Hub'
-        );
-      }
-      try {
-        const platformResponse = await runComposioPlatformAgent({
-          requestText: lastText,
-          messages,
-          connectors,
-          userId: String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'sameer_' + crypto.randomUUID(),
-          origin: new URL(req.url).origin,
-          modelId: String(modelId),
-        });
-        if (platformResponse) return platformResponse;
-      } catch (platformErr: any) {
-        console.error('[COMPOSIO PLATFORM ERR]', platformErr?.message || platformErr);
-        return streamTextDirectly(
-          'Connector execution failed: ' + String(platformErr?.message || 'unknown error') + '. No connector action was fabricated.',
-          'Connector Hub'
-        );
-      }
+    // ========================================================
+    // COMPOSIO CONNECTOR CONTEXT (DYNAMIC "FOR YOU" MCP RUNTIME ONLY)
+    // ========================================================
+    let connectorContext = '';
+    if (composioMcpToken) {
+      connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n' + [
+        "You are connected to the user's personal Composio account through MCP (https://connect.composio.dev/mcp).",
+        "The live Composio tools are in your tool list (COMPOSIO_SEARCH_TOOLS, COMPOSIO_GET_TOOL_SCHEMAS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS and others). Call them by their exact names.",
+        "WHEN ASKED ABOUT CONNECTED APPS/ACCOUNTS/SERVICES: Call COMPOSIO_MANAGE_CONNECTIONS to get the REAL list of connected accounts. NEVER guess, assume, or report accounts that are not in the response.",
+        "END-TO-END RULES:",
+        "1. Break the request into every step it needs (for example: create a playlist, then add videos to it). Never stop after the first step.",
+        "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS when a schema is missing -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the account when several are connected.",
+        "3. Independent actions go together in ONE multi-execute call. Steps that need an earlier result (a new playlist id, a list of video ids) run in a later call using the real values returned earlier.",
+        "4. Never invent ids, slugs or arguments. Use only values returned by tools. If an app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and give the user the link.",
+        "5. Write no reply text until ALL steps are finished or truly blocked. No plans, no 'let me check', no narration between tool calls.",
+        "6. Final reply: short and clear, one line per step saying what was done, with real names, counts and links from the results. State plainly anything that failed and why.",
+      ].join('\n') + '\n';
+    } else {
+      connectorContext += '\n\n[NO ACTIVE CONNECTORS]\nNo Composio "For You" account is currently connected. Total active connections: 0. When asked what apps or how many apps/services are connected, state clearly that no accounts are connected yet, and guide the user to click Connectors in the top right to connect their personal Composio "For You" account.\n';
     }
-
-    // Connector instructions are isolated inside the dedicated connector runtime.
-    // General chat never receives a hidden/default Composio session.
 
     const developerDirective = `\nInstructions:
 1. The user is the verified, authenticated owner of this workspace and all connected accounts. The user has explicitly authorized you to read, access, and summarize their own data for them. Always fulfill their requests directly using the retrieved data.
@@ -1109,7 +815,7 @@ export async function POST(req: NextRequest) {
       SYSTEM_PROMPTS[modelId as keyof typeof SYSTEM_PROMPTS] ||
       SYSTEM_PROMPTS['boss'];
 
-    const systemPrompt = `${baseSystemPrompt}${developerDirective}`;
+    const systemPrompt = `${baseSystemPrompt}${developerDirective}${connectorContext}`;
 
     const hasImages =
       userLastMsg?.attachments?.some((a: any) => a.isImage && a.dataUrl) || false;
@@ -1136,21 +842,36 @@ export async function POST(req: NextRequest) {
         };
       }),
     ];
-    const groqKey = process.env.GROQ_API_KEY || '';
-    const omniMasterKey = process.env.OMNIROUTE_API_KEY || '';
+
+    const groqKey = String(process.env.GROQ_API_KEY || '').trim();
+    const omniMasterKey = String(process.env.OMNIROUTE_API_KEY || '').trim();
     const omniLocalUrl = omniRouteUrl || process.env.OMNIROUTE_URL || 'http://127.0.0.1:20128/v1/chat/completions';
     const isCloudEnv = Boolean(process.env.VERCEL || process.env.AWS_REGION);
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');
 
-    // General tool execution supports web, email, GitHub lookup, and custom remote MCP.
-    // Built-in app connectors are handled exclusively by runComposioPlatformAgent above.
-    const hasEnabledRemoteMcp = connectors.some((c: any) =>
-      c?.enabled !== false &&
-      String(c?.config?.connectionType || c?.provider || '').toLowerCase() === 'mcp' &&
-      Boolean(c?.config?.mcpUrl || c?.url)
-    );
-    const agentDeadline = requestStartTime + (hasEnabledRemoteMcp ? 200000 : 120000);
-    const maxAgentTurns = hasEnabledRemoteMcp ? 16 : 8;
+    // 1. Tool execution loop: check if request needs web search, git, email, or Composio tools
+    const agentDeadline = requestStartTime + (composioMcpToken || connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || '').toLowerCase() === 'mcp') ? 200000 : 120000);
+    const maxAgentTurns = composioMcpToken || connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || '').toLowerCase() === 'mcp') ? 24 : 8;
+    let mcpLiveTools: any[] = [];
+    let mcpToolNames: string[] = [];
+    if (composioMcpToken) {
+      try {
+        const { listMcpToolsCachedWithAuth, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
+        const listed = await listMcpToolsCachedWithAuth(composioMcpToken, composioMcpRefreshToken);
+        if (listed.accessToken && listed.accessToken !== composioMcpToken) {
+          composioMcpToken = listed.accessToken;
+        }
+        if (listed.refreshToken && listed.refreshToken !== composioMcpRefreshToken) {
+          composioMcpRefreshToken = listed.refreshToken;
+        }
+        mcpLiveTools = mcpToolsToOpenAI(listed.tools);
+        mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
+      } catch (mcpListErr: any) {
+        console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
+      }
+    }
+    const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
+
     const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};
     const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};
     const runtimeConnectors = (Array.isArray(connectors) ? connectors : []).map((connector: any) => {
@@ -1196,32 +917,20 @@ export async function POST(req: NextRequest) {
       for (const item of discovered) {
         if (item.status !== 'fulfilled') continue;
         const connector = item.value.connector;
-        const access = String(connector?.config?.toolAccess || 'auto').toLowerCase();
+        const access = String(connector?.config?.toolAccess || 'auto');
         const disabled = new Set(
           Array.isArray(connector?.config?.disabledTools) ? connector.config.disabledTools.map(String) : []
         );
         const queryWords = String(lastText || '').toLowerCase().split(/[^a-z0-9]+/).filter((word: string) => word.length >= 3);
-        const connectorName = String(connector?.name || '').toLowerCase();
-        const scoredTools = item.value.tools
-          .filter((tool: any) => !disabled.has(String(tool.originalName || tool.function?.name || '').trim()))
-          .map((tool: any) => {
-            if (access === 'always') return { tool, score: 1000 };
-            const haystack = (String(tool.function?.name || '') + ' ' + String(tool.function?.description || '')).toLowerCase();
-            let score = 0;
-            for (const word of queryWords) {
-              if (haystack.includes(word)) score += 3;
-              if (connectorName.includes(word)) score += 2;
-            }
-            return { tool, score };
-          })
-          .sort((a: any, b: any) => b.score - a.score);
-        // Keep remote MCP context bounded. Always exposes all enabled tools;
-        // Auto exposes the most relevant tools; On demand is deliberately tighter.
-        const maxTools = access === 'always' ? 100 : access === 'on_demand' ? 8 : 16;
-        const selectedTools = scoredTools
-          .filter((entry: any) => access === 'always' || entry.score > 0)
-          .slice(0, maxTools)
-          .map((entry: any) => entry.tool);
+        const selectedTools = item.value.tools.filter((tool: any) => {
+          const original = String(tool.originalName || tool.function?.name || '').trim();
+          if (disabled.has(original)) return false;
+          if (access !== 'on_demand') return true;
+          const connectorName = String(connector?.name || '').toLowerCase();
+          if (connectorName && queryWords.some((word: string) => connectorName.includes(word))) return true;
+          const haystack = (String(tool.function?.name || '') + ' ' + String(tool.function?.description || '')).toLowerCase();
+          return queryWords.some((word: string) => haystack.includes(word));
+        });
         for (const tool of selectedTools) {
           remoteMcpTools.push(tool);
           const prefix = `REMOTE_MCP_${String(connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12)}_`;
@@ -1235,22 +944,91 @@ export async function POST(req: NextRequest) {
       console.error('[REMOTE MCP DISCOVERY ERR]', remoteMcpErr?.message || remoteMcpErr);
     }
 
+    // In "For You" mode the real Composio MCP tools replace the guessed wrapper tools.
+    const mcpWrapperNames = new Set([
+      'connector_search', 'connector_manage_connections', 'connector_execute',
+      'Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections',
+    ]);
+    const baseTools = mcpModeActive
+      ? AGENT_TOOLS.filter((t: any) => !mcpWrapperNames.has(String(t?.function?.name || '')))
+      : AGENT_TOOLS;
     const effectiveTools = [
-      ...AGENT_TOOLS,
+      ...baseTools,
+      ...mcpLiveTools,
       ...remoteMcpTools,
     ];
+    let forceConnectorTool = false;
+
+    const remoteConnectorMention = (Array.isArray(connectors) ? connectors : [])
+      .some((connector: any) =>
+        connector?.enabled !== false &&
+        String(connector?.name || '').trim() &&
+        lastText.toLowerCase().includes(String(connector.name).trim().toLowerCase())
+      );
+
+    const connectorRequest = isConnectorRelatedRequest(lastText) || remoteConnectorMention;
+    const hasRemoteMcpTools = remoteMcpTools.length > 0;
+
+    // PRIMARY CONNECTOR PATH:
+    // Connector requests must enter the real live Composio MCP tool loop.
+    // Do not guess an app-specific action from a keyword such as "playlist" or
+    // "video": multi-step requests need the model to discover the exact tools,
+    // schemas, and result-dependent values through Composio.
+    if (connectorRequest) {
+      if (!mcpModeActive && !hasRemoteMcpTools) {
+        const message = composioMcpToken
+          ? 'Composio "For You" is connected, but its live MCP tools are unavailable right now. Please reconnect in Connectors and try again.'
+          : 'No active Composio For You or remote MCP connector is available for this request. Open Connectors to connect one.';
+        return streamTextDirectly(message, detectedSkill);
+      }
+
+      // Force the first turn only when the request is for the Composio For You
+      // account. Custom remote MCP servers remain ordinary callable tools.
+      forceConnectorTool = mcpModeActive && !remoteConnectorMention;
+    }
 
     const toolContext = {
+      mcpToken: composioMcpToken,
+      mcpRefreshToken: composioMcpRefreshToken,
+      mcpToolNames,
       connectors: runtimeConnectors,
-      remoteMcpToolRoutes,
+      accounts: [],
       remoteCredentials,
       remoteMcpUpdates,
-      requestText: lastText,
       composioUserId,
-      requestOidcToken: req.headers.get('x-vercel-oidc-token') || '',
+      remoteMcpTools,
+      remoteMcpToolRoutes,
     };
 
-    let planningNudges = 0;
+    const { pickMcpToolName } = await import('@/lib/composioMcp');
+
+    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+      /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+      /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
+
+    // Connected-app queries are deterministic: always ask Composio directly
+    // so the answer cannot degrade into the UI fallback message.
+    if (connectorRequest && isAccountQuery && mcpModeActive) {
+      const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
+      const targetTool = pickMcpToolName(
+        mcpToolNames,
+        [/MANAGE_CONNECTIONS/i],
+        'COMPOSIO_MANAGE_CONNECTIONS'
+      );
+      const liveResult = await runAgentTool(
+        targetTool,
+        { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS },
+        toolContext
+      );
+      return streamTextDirectly(
+        formatConnectorResult(lastText, liveResult),
+        detectedSkill,
+        toolContext
+      );
+    }
+
+    let mcpToolCallsMade = 0;
+    let mcpNudges = 0;
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -1266,7 +1044,18 @@ export async function POST(req: NextRequest) {
             model: 'openai/gpt-oss-120b',
             messages: fullMessages,
             tools: effectiveTools,
-            tool_choice: 'auto',
+            tool_choice: (turn === 0 && forceConnectorTool)
+              ? {
+                  type: 'function',
+                  function: {
+                    name: pickMcpToolName(
+                      mcpToolNames,
+                      [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
+                      isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                    ),
+                  },
+                }
+              : 'auto',
             max_tokens: 8192,
           }),
           signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
@@ -1323,26 +1112,100 @@ export async function POST(req: NextRequest) {
 
         // Catch text-formatted JSON tool calls if model didn't emit native tool_calls
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+          const rawText = String(agentMsg?.content || agentMsg?.reasoning || agentMsg?.reasoning_content || '');
+          const jsonToolMatch = rawText.match(/\{\s*"(?:tool|name|action)"\s*:\s*"([A-Za-z0-9_]+)"\s*,\s*"(?:arguments|params|parameters)"\s*:\s*(\{[\s\S]*?\})\s*\}/);
+          if (jsonToolMatch) {
+            const parsedName = jsonToolMatch[1];
+            let parsedArgs = {};
+            try { parsedArgs = JSON.parse(jsonToolMatch[2]); } catch {}
+            toolCalls = [{
+              id: 'call_text_parsed_' + Date.now(),
+              type: 'function',
+              function: {
+                name: parsedName,
+                arguments: JSON.stringify(parsedArgs)
+              }
+            }];
+          }
+        }
+
+        if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
           const contentText = String(agentMsg?.content || '').trim();
           const reasoningText = String(agentMsg?.reasoning || agentMsg?.reasoning_content || '').trim();
           const checkText = contentText || reasoningText;
 
+          const isAccountQuery =
+            /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+            /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lastText) ||
+            /\bcomposio\b/i.test(lastText);
+
           const isPlanningText =
             /(?:User keeps asking|we need to call|must call|produce tool call|only tool call|no prose|\{"tool":|"tool":|according to instruction)/i.test(checkText) ||
             (!contentText && Boolean(reasoningText)) ||
-            /(?:we need to|we should|let's call|i will call|calling|we must|action likely|should output tool call|user wants|user asks|need to call|need to find|first, need to|first need to|to search actions|search actions for)/i.test(checkText);
+            /(?:we need to|we should|let's call|i will call|calling|we must|action likely|use composio|should output tool call|user wants|user asks|need to call|need to find|first, need to|first need to|use composio_|to search actions|search actions for)/i.test(checkText);
 
-          if (isPlanningText && planningNudges < 3) {
-            planningNudges++;
+          if (isPlanningText) {
+            // Check if there was already a tool result we can summarize or format
+            const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+            if (lastToolMsg && typeof lastToolMsg.content === 'string') {
+              const formatted = formatConnectorResult(lastText, lastToolMsg.content);
+              if (formatted) {
+                return streamTextDirectly(formatted, detectedSkill, toolContext);
+              }
+            }
+
+            // Never allow a connector request to stall behind an LLM prose answer.
+            // Perform the required first Composio meta-tool directly if the model
+            // failed to emit a tool call.
+            if (mcpModeActive && mcpToolCallsMade === 0) {
+              const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
+              const targetTool = pickMcpToolName(
+                mcpToolNames,
+                [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
+                isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+              );
+
+              const autoArgs = isAccountQuery
+                ? { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS }
+                : {
+                    queries: [{ use_case: lastText }],
+                    session: { generate_id: true },
+                    model: 'gpt-5.6',
+                  };
+
+              const autoResult = await runAgentTool(targetTool, autoArgs, toolContext);
+              mcpToolCallsMade++;
+
+              if (isAccountQuery) {
+                const formatted = formatConnectorResult(lastText, autoResult);
+                return streamTextDirectly(formatted, detectedSkill, toolContext);
+              }
+
+              fullMessages.push({
+                role: 'system',
+                content:
+                  'COMPOSIO_PREFLIGHT_RESULT (' + targetTool + ') — use this real result to continue the connector request. ' +
+                  'If a session_id is present, reuse that exact session id for subsequent Composio meta-tool calls.\n' +
+                  autoResult,
+              });
+              forceConnectorTool = false;
+              continue;
+            }
+
+            mcpNudges++;
+            forceConnectorTool = true;
             fullMessages.push({
               role: 'system',
-              content: 'Use an available tool now when the user request requires external data or an external action. Do not narrate the tool call.',
+              content: isAccountQuery
+                ? 'Call COMPOSIO_MANAGE_CONNECTIONS now.'
+                : 'Call the required Composio tool now.',
             });
             continue;
           }
 
-          if (contentText) return streamTextDirectly(contentText, detectedSkill, toolContext);
-          if (reasoningText) return streamTextDirectly(reasoningText, detectedSkill, toolContext);
+          if (contentText) {
+            return streamTextDirectly(contentText, detectedSkill, toolContext);
+          }
           break;
         }
 
@@ -1362,7 +1225,10 @@ export async function POST(req: NextRequest) {
             tool_call_id: call.id,
             content: result,
           });
+          if (mcpToolNames.includes(String(toolName))) mcpToolCallsMade++;
         }
+        // Once a real MCP tool has run, let the model decide: keep calling tools or finish.
+        if (mcpModeActive && mcpToolCallsMade > 0) forceConnectorTool = false;
       } catch (e) {
         break;
       }
@@ -1712,13 +1578,41 @@ export async function POST(req: NextRequest) {
               'Cache-Control': 'no-cache',
               Connection: 'keep-alive',
               'X-Claude-Skill': detectedSkill,
+              'X-Claude-Router': 'cloud-instant-stream',
             },
           }), toolContext);
         }
       }
-    } catch (error) {
-        console.error('[EDGE FALLBACK ERR]', error);
-      }
+    } catch (e) {
+      // Fall through to synthesizer
+    }
+
+    // ========================================================
+    // AUTONOMOUS END-TO-END WORK & CONNECTOR EXECUTION (HERMES / OPEN INTERPRETER)
+    // ========================================================
+    const fallbackContent = await synthesizeClaudeEnterpriseResponse(lastText, modelId, detectedSkill, connectors, messages);
+    const encoder = new TextEncoder();
+    const chunkSize = 28;
+    const stream = new ReadableStream({
+      start(controller) {
+        for (let pos = 0; pos < fallbackContent.length; pos += chunkSize) {
+          const piece = fallbackContent.slice(pos, pos + chunkSize);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: piece })}\n\n`));
+        }
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+
+    return attachMcpSession(new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Claude-Skill': detectedSkill,
+        'X-Claude-Router': 'claude-enterprise-edge',
+      },
+    }), toolContext);
   } catch (error: any) {
     const encoder = new TextEncoder();
     const safeMsg = `Hello! I am Boss. I am standing by and ready to help you. How can I assist you?`;

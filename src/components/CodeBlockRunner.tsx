@@ -34,10 +34,13 @@ export default function CodeBlockRunner({ code, language, className, children }:
     setOutput(null);
 
     try {
-      // All three clients use the same cloud execution path:
-      // Web -> /api/execute -> Vercel Sandbox
-      // Desktop -> hosted app -> /api/execute -> Vercel Sandbox
-      // Android -> hosted app/WebView -> /api/execute -> Vercel Sandbox
+      const electronAPI = typeof window !== 'undefined' ? (window as any).electronAPI : null;
+      if (electronAPI?.executeCode) {
+        const nativeResult = await electronAPI.executeCode(code, language || 'python');
+        setOutput(nativeResult);
+        return;
+      }
+
       const res = await fetch('/api/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -47,13 +50,13 @@ export default function CodeBlockRunner({ code, language, className, children }:
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json();
       setOutput(
         res.ok
           ? data
           : {
               stdout: data?.stdout || '',
-              stderr: data?.stderr || data?.error || 'Code execution is not available right now.',
+              stderr: data?.error || data?.stderr || 'Code execution is not available from this web session. Use the desktop app for host execution.',
               exitCode: data?.exitCode ?? res.status,
               executionTimeMs: data?.executionTimeMs || 0,
               error: data?.error,
@@ -62,17 +65,17 @@ export default function CodeBlockRunner({ code, language, className, children }:
     } catch (err: any) {
       setOutput({
         stdout: '',
-        stderr: err?.message || 'Execution failed to start',
+        stderr: err.message || 'Execution failed to start',
         exitCode: 1,
         executionTimeMs: 0,
-        error: err?.message,
+        error: err.message,
       });
     } finally {
       setIsRunning(false);
     }
   };
 
-  const isExecutable = ['python', 'py', 'javascript', 'js', 'node', 'typescript', 'ts'].includes(
+  const isExecutable = ['python', 'py', 'javascript', 'js', 'node', 'typescript', 'ts', 'bash', 'sh', 'powershell', 'ps1', 'cmd'].includes(
     (language || '').toLowerCase()
   );
 
@@ -97,7 +100,7 @@ export default function CodeBlockRunner({ code, language, className, children }:
               onClick={handleRun}
               disabled={isRunning}
               className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-[#292720] hover:bg-[#38352b] border border-[#3e3b30] text-[#f4efe6] text-[11px] font-medium transition-all shadow-sm active:scale-95 disabled:opacity-50"
-              title="Run code in an isolated cloud sandbox"
+              title="Run code with Open Interpreter engine"
             >
               {isRunning ? (
                 <>
@@ -137,13 +140,13 @@ export default function CodeBlockRunner({ code, language, className, children }:
         <code className={className}>{children || code}</code>
       </pre>
 
-      {/* Terminal Drawer (sandbox output) */}
+      {/* Terminal Drawer (Open Interpreter output) */}
       {showTerminal && (
         <div className="border-t border-[#2d2b24] bg-[#0c0b0a] font-mono text-xs animate-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#12110e] border-b border-[#23211a] text-[11px]">
             <div className="flex items-center space-x-2">
               <Terminal className="w-3.5 h-3.5 text-[#cc785c]" />
-              <span className="font-semibold text-[#d4cfc3]">Sandbox · Terminal</span>
+              <span className="font-semibold text-[#d4cfc3]">Open Interpreter · Terminal</span>
               {output && (
                 <span
                   className={`flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] ${

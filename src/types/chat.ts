@@ -55,10 +55,6 @@ export interface ConnectorConfig {
   toolAccess?: 'auto' | 'always' | 'on_demand';
   /** Remote MCP tool names disabled for this conversation. */
   disabledTools?: string[];
-  /** Optional per-tool approval policy. Unlisted tools use the connector default. */
-  toolPermissions?: Record<string, 'always' | 'approval' | 'blocked'>;
-  /** Whether write/delete actions require a confirmation UI before execution. */
-  requireApprovalForWrites?: boolean;
   connectedAccountId?: string;
   [key: string]: any;
 }

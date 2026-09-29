@@ -17,12 +17,5 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Capture the full compiler output so failures can be diagnosed from Actions artifacts.
-      - name: Build with log
-        run: npm run build 2>&1 | tee build.log
-      - name: Upload build log
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: connector-build-log
-          path: build.log
+      # Build the exact PR merge ref so connector changes are checked before merge.
+      - run: npm run build

@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sendRealEmail } from '@/lib/mailer';
 import { fetchLatestEmails } from '@/lib/imapReader';
 import { getCredentialFromRequest, getStoredTokenFromRequest, type RemoteStoredToken, setStoredTokenCookie } from '@/lib/remoteMcpAuth';
+import {
+  createConnectLink,
+  createSession,
+  executeSessionTool,
+  extractSearchTools,
+  generateToolInput,
+  hasComposioPlatformKey,
+  listConnectedAccounts,
+  searchSessionTools,
+  toOpenAITool,
+  toolkitSlugFromTool,
+  safeJsonText,
+} from '@/lib/composioPlatform';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -776,6 +789,205 @@ function formatConnectorResult(requestText: string, result: any): string {
     .map(([key, value]) => key + ': ' + (typeof value === 'object' ? JSON.stringify(value) : String(value)))
     .join('\n');
   return compact || 'Action completed successfully.';
+}
+
+async function runComposioPlatformAgent(options: {
+  requestText: string;
+  messages: any[];
+  connectors: any[];
+  userId: string;
+  origin: string;
+  modelId: string;
+}): Promise<Response | null> {
+  if (!hasComposioPlatformKey()) return null;
+
+  const { requestText, messages, connectors, userId, origin } = options;
+  const accounts = await listConnectedAccounts(userId);
+
+  const isAccountQuery =
+    /\b(?:what|which|how many|list|show|tell|give|get|check)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(requestText) ||
+    /\b(?:connected|linked|authorized|active)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(requestText) ||
+    /\b(?:apps?|accounts?|connections?|services?|integrations?)\b.*\b(?:connected|linked|authorized|active)\b/i.test(requestText);
+
+  const activeConnections = accounts
+    .filter((account: any) => ['ACTIVE', 'CONNECTED'].includes(String(account?.status || '').toUpperCase()))
+    .map((account: any) => ({
+      app_name: String(account?.toolkit?.slug || account?.toolkit_slug || 'App'),
+      account: account?.alias || account?.id || '',
+      status: String(account?.status || 'ACTIVE'),
+      id: account?.id ? String(account.id) : undefined,
+    }));
+
+  if (isAccountQuery) {
+    return streamTextDirectly(
+      activeConnections.length
+        ? formatConnectorResult(requestText, { data: { connected_accounts: activeConnections } })
+        : 'You currently have **0 connected apps**. Open **Connectors** to connect GitHub, Gmail, Google Drive, Google Calendar, YouTube, Slack, and other supported services.',
+      'Connector Hub',
+      { connectors, composioUserId: userId }
+    );
+  }
+
+  const session = await createSession(userId);
+  let search = await searchSessionTools(session.sessionId, requestText);
+  let discovered = extractSearchTools(search);
+
+  if (!discovered.length) {
+    return streamTextDirectly(
+      'I could not find a supported connector action for that request. Open **Connectors** to check the connected service and try again.',
+      'Connector Hub',
+      { connectors, composioUserId: userId }
+    );
+  }
+
+  const accountByToolkit = new Map<string, any[]>();
+  for (const account of activeConnections) {
+    const list = accountByToolkit.get(account.app_name.toLowerCase()) || [];
+    list.push(account);
+    accountByToolkit.set(account.app_name.toLowerCase(), list);
+  }
+
+  const missingToolkit = discovered
+    .map((tool) => String(toolkitSlugFromTool(tool.slug)).toLowerCase())
+    .find((slug) => !accountByToolkit.has(slug));
+
+  if (missingToolkit) {
+    const connection = await createConnectLink(
+      userId,
+      missingToolkit,
+      origin + '/api/composio/callback'
+    );
+    return streamTextDirectly(
+      'The **' + missingToolkit + '** connector is not connected yet. Connect it here: ' + connection.redirectUrl,
+      'Connector Hub',
+      { connectors, composioUserId: userId }
+    );
+  }
+
+  const groqKey = String(process.env.GROQ_API_KEY || '').trim();
+  if (!groqKey) {
+    return streamTextDirectly(
+      'The connector is connected, but the AI tool router is missing GROQ_API_KEY on the server.',
+      'Connector Hub',
+      { connectors, composioUserId: userId }
+    );
+  }
+
+  const system = [
+    'You are the connector execution agent for this workspace.',
+    'Use the connected app tools to perform the user request. Never narrate a plan instead of calling a tool.',
+    'Do not invent IDs, file names, repository names, event IDs, playlist IDs, or account identifiers.',
+    'Use only the arguments needed by the selected tool schema.',
+    'For write actions, respect the connector approval policy returned by the application.',
+    'After a tool result, continue the task when another step is required. Finish only when the user request is actually complete or blocked.',
+    'Return a concise final answer describing the real result.',
+  ].join('\\n');
+
+  const convo: any[] = [
+    { role: 'system', content: system },
+    ...messages.map((m: any) => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: String(m.content || ''),
+    })),
+  ];
+
+  let llmTools = discovered.map(toOpenAITool).filter((tool: any) => tool?.function?.name);
+  let lastResult = '';
+
+  for (let turn = 0; turn < 8; turn++) {
+    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + groqKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-oss-120b',
+        messages: convo,
+        tools: llmTools,
+        tool_choice: llmTools.length ? 'required' : 'none',
+        max_tokens: 8192,
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+
+    if (!resp.ok) {
+      throw new Error('Connector agent model request failed (' + resp.status + ').');
+    }
+
+    const data = await resp.json();
+    const assistant = data?.choices?.[0]?.message;
+    const calls = Array.isArray(assistant?.tool_calls) ? assistant.tool_calls : [];
+
+    if (!calls.length) {
+      const text = String(assistant?.content || '').trim();
+      if (text) return streamTextDirectly(text, 'Connector Hub', { connectors, composioUserId: userId });
+      if (lastResult) return streamTextDirectly(formatConnectorResult(requestText, lastResult), 'Connector Hub', { connectors, composioUserId: userId });
+      break;
+    }
+
+    convo.push(assistant);
+
+    for (const call of calls) {
+      const name = String(call?.function?.name || '');
+      let args: Record<string, any> = {};
+      try {
+        args = JSON.parse(String(call?.function?.arguments || '{}'));
+      } catch {}
+
+      const policyConnector = findConnectorForTool({ connectors }, name);
+      const policy = connectorToolPermission(policyConnector, name, args, requestText);
+      let resultText: string;
+
+      if (policy.decision !== 'allow') {
+        resultText = (policy.decision === 'blocked' ? 'TOOL_BLOCKED: ' : 'APPROVAL_REQUIRED: ') + String(policy.reason || 'This action requires approval.') + ' Tool: ' + name;
+      } else {
+        const toolkit = toolkitSlugFromTool(name);
+        const candidates = accountByToolkit.get(toolkit.toLowerCase()) || [];
+        const account = candidates.length === 1
+          ? candidates[0].id
+          : (candidates.find((item: any) => item?.is_default)?.id || candidates[0]?.id);
+
+        const executed = await executeSessionTool(
+          session.sessionId,
+          name,
+          args,
+          account
+        );
+        resultText = safeJsonText(executed?.data ?? executed?.error ?? executed);
+
+        if (executed?.error && !executed?.data) {
+          // If the model selected a valid tool but produced incomplete arguments,
+          // ask Composio to generate the missing structured inputs as a deterministic fallback.
+          try {
+            const generated = await generateToolInput(name, requestText + '\\nCurrent attempt error: ' + String(executed.error));
+            const retry = await executeSessionTool(session.sessionId, name, generated, account);
+            resultText = safeJsonText(retry?.data ?? retry?.error ?? retry);
+          } catch {}
+        }
+      }
+
+      lastResult = resultText;
+      convo.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: resultText.slice(0, 20000),
+      });
+    }
+
+    search = await searchSessionTools(
+      session.sessionId,
+      requestText + '\\nUse the real previous tool result to decide the next required step:\\n' + lastResult.slice(0, 6000)
+    );
+    discovered = extractSearchTools(search);
+    if (discovered.length) {
+      llmTools = discovered.map(toOpenAITool).filter((tool: any) => tool?.function?.name);
+    }
+  }
+
+  return lastResult
+    ? streamTextDirectly(formatConnectorResult(requestText, lastResult), 'Connector Hub', { connectors, composioUserId: userId })
+    : streamTextDirectly('The connector action did not return a usable result.', 'Connector Hub', { connectors, composioUserId: userId });
 }
 
 function detectSkill(lastMsg: string, hasImages: boolean): string {

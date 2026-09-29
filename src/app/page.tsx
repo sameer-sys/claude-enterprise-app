@@ -31,47 +31,35 @@ const DEFAULT_SESSION: Session = {
 
 function normalizeConnectors(raw: any[]): Connector[] {
   const defaults = createDefaultConnectors();
-  const base = defaults[0];
-  const input = Array.isArray(raw) ? raw.filter((c: any) => c && typeof c === 'object') : [];
+  const byId = new Map<string, Connector>(defaults.map((connector) => [connector.id, connector]));
+  const input = Array.isArray(raw) ? raw.filter((connector: any) => connector && typeof connector === 'object') : [];
 
-  // Keep the built-in Composio connector plus user-added custom MCP/CLI
-  // connectors. Legacy prebuilt connector cards are intentionally not restored.
-  const savedComposio = input.find((c: any) =>
-    c?.id === 'conn-composio' ||
-    String(c?.name || '').toLowerCase().includes('composio') ||
-    String(c?.url || '').includes('connect.composio.dev')
-  );
-  const custom = input.filter((c: any) =>
-    c?.id !== savedComposio?.id &&
-    c?.isCustom === true
-  ).filter((c: any) => {
-    const type = String(c?.config?.connectionType || c?.provider || '').toLowerCase();
-    const url = String(c?.config?.mcpUrl || c?.url || '');
-    return type === 'mcp' && !url.startsWith('cli://') && !['cli', 'stdio'].includes(type);
-  }).map((c: any) => {
-    const safeConfig = { ...(c.config || {}) };
-    // Credentials are server-side HttpOnly cookies; scrub legacy browser copies.
+  for (const connector of input) {
+    const type = String(connector?.config?.connectionType || connector?.provider || '').toLowerCase();
+    const url = String(connector?.config?.mcpUrl || connector?.url || '').trim();
+    if (type !== 'mcp' || !/^https?:\/\//i.test(url)) continue;
+
+    const safeConfig = { ...(connector.config || {}) };
     delete safeConfig.authToken;
     delete safeConfig.apiKey;
     delete safeConfig.clientSecret;
-    return { ...c, config: safeConfig };
-  });
 
-  const composio: Connector = {
-    ...base,
-    ...(savedComposio || {}),
-    id: 'conn-composio',
-    name: savedComposio?.name || base.name,
-    enabled: true,
-    status: savedComposio?.status === 'connected' ? 'connected' : 'idle',
-    config: {
-      ...(base.config || {}),
-      ...(savedComposio?.config || {}),
-    },
-    url: savedComposio?.url || base.url,
-  };
+    const safe = {
+      ...connector,
+      config: { ...safeConfig, connectionType: 'mcp', mcpUrl: url },
+      url,
+    } as Connector;
 
-  return [composio, ...custom];
+    const base = byId.get(safe.id);
+    byId.set(
+      safe.id,
+      base
+        ? { ...base, ...safe, config: { ...(base.config || {}), ...(safe.config || {}) } }
+        : safe
+    );
+  }
+
+  return Array.from(byId.values());
 }
 
 function extractArtifact(content: string): Artifact | undefined {
@@ -325,48 +313,8 @@ export default function Home() {
     activeSession.connectors && activeSession.connectors.length > 0
       ? activeSession.connectors
       : createDefaultConnectors();
-  const [composioActiveAccountCount, setComposioActiveAccountCount] = useState(0);
-  const activeConnectorsCount = composioActiveAccountCount;
 
-  useEffect(() => {
-    const refreshComposioCount = async () => {
-      try {
-        const q = new URLSearchParams();
-        const res = await fetch('/api/composio?' + q.toString(), { cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        const accounts = Array.isArray(data?.connectedAccounts) ? data.connectedAccounts : [];
-        const active = accounts.filter((a: any) => String(a?.status).toUpperCase() === 'ACTIVE');
-        setComposioActiveAccountCount(active.length);
-        setSessions((prev) => prev.map((s) => ({
-          ...s,
-          connectors: normalizeConnectors(s.connectors || []).map((conn) => {
-            if (conn.id !== 'conn-composio') return conn;
-            return {
-              ...conn,
-              status: active.length ? 'connected' : 'idle',
-              config: {
-                ...conn.config,
-                composioAccountCount: active.length,
-                connectedAccountIds: active.map((a: any) => a.id),
-              },
-            };
-          }),
-        })));
-      } catch {}
-    };
-
-    refreshComposioCount();
-    const onComposioMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === 'sameer-composio-connected') refreshComposioCount();
-    };
-    window.addEventListener('message', onComposioMessage);
-    const timer = window.setInterval(refreshComposioCount, 30000);
-    return () => {
-      window.removeEventListener('message', onComposioMessage);
-      window.clearInterval(timer);
-    };
-  }, []);
+  const activeConnectorsCount = currentSessionConnectors.filter((connector) => connector.enabled && connector.status === 'connected').length;
 
   const handleToggleConnector = (id: string) => {
     setSessions((prev) =>
@@ -390,10 +338,6 @@ export default function Home() {
           c.id === id
             ? {
                 ...c,
-                status:
-                  id === 'conn-composio' && Number((config as any)?.composioAccountCount || 0) > 0
-                    ? 'connected'
-                    : c.status,
                 config: { ...c.config, ...config },
               }
             : c

@@ -760,13 +760,13 @@ export default function ChatArea({
         <button
           onClick={onOpenConnectors}
           className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] hover:border-[#cc785c]/60 text-xs font-semibold text-[#f2eee6] transition-all shadow-sm group active:scale-95"
-          title="Composio Connectors (Live)"
+          title="Connectors (Live)"
         >
           <Cpu className="w-3.5 h-3.5 text-[#cc785c] group-hover:rotate-12 transition-transform shrink-0" />
           <span>Connectors</span>
           <span className="text-[#4a473f]">•</span>
           <span className="text-[11px] text-[#cc785c] font-mono">
-            composio
+            connectors
           </span>
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block shadow-sm shadow-emerald-400/50" />
         </button>

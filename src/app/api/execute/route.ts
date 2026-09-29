@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const executionStart = Date.now();
     const resultText = await executeCodeInSandbox({
       language,
       code,
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
         stdout,
         stderr,
         exitCode,
-        executionTimeMs: 0,
+        executionTimeMs: Date.now() - executionStart,
         result: resultText,
       },
       { status: unavailable ? 503 : failed ? 500 : 200 }

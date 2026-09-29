@@ -314,7 +314,7 @@ export default function Home() {
       ? activeSession.connectors
       : createDefaultConnectors();
 
-  const activeConnectorsCount = currentSessionConnectors.filter((connector) => connector.enabled && connector.status === 'connected').length;
+  const activeConnectorsCount = currentSessionConnectors.filter((connector) => connector.enabled).length;
 
   const handleToggleConnector = (id: string) => {
     setSessions((prev) =>

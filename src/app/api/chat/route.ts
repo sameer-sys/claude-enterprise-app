@@ -782,24 +782,41 @@ export async function POST(req: NextRequest) {
     const lowerText = lastText.toLowerCase();
 
     // ========================================================
-    // COMPOSIO CONNECTOR CONTEXT (DYNAMIC "FOR YOU" MCP RUNTIME ONLY)
+    // CONNECTOR CONTEXT
+    // Native directory connectors are independent remote MCP servers.
+    // Composio is only active when the user explicitly adds/uses its
+    // remote MCP server and supplies its MCP authorization.
     // ========================================================
     let connectorContext = '';
+
+    const enabledRemoteConnectors = (Array.isArray(connectors) ? connectors : [])
+      .filter((connector: any) => {
+        const cfg = connector?.config || {};
+        const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+        const url = String(cfg.mcpUrl || connector?.url || '').trim();
+        return connector?.enabled !== false && type === 'mcp' && /^https?:\/\//i.test(url);
+      });
+
+    if (enabledRemoteConnectors.length > 0) {
+      connectorContext += '\n\n[ACTIVE REMOTE MCP CONNECTORS]\n' +
+        enabledRemoteConnectors.map((connector: any) => {
+          const url = String(connector?.config?.mcpUrl || connector?.url || '').trim();
+          return '- ' + String(connector?.name || connector?.id || 'Connector') + ' → ' + url +
+            '. Use this connector\'s discovered tools for requests about that service.';
+        }).join('\n') +
+        '\nRules: use the real discovered MCP tools; never invent data; complete the requested action and then summarize the real result.\n';
+    }
+
     if (composioMcpToken) {
-      connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n' + [
-        "You are connected to the user's personal Composio account through MCP (https://connect.composio.dev/mcp).",
-        "The live Composio tools are in your tool list (COMPOSIO_SEARCH_TOOLS, COMPOSIO_GET_TOOL_SCHEMAS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS and others). Call them by their exact names.",
-        "WHEN ASKED ABOUT CONNECTED APPS/ACCOUNTS/SERVICES: Call COMPOSIO_MANAGE_CONNECTIONS to get the REAL list of connected accounts. NEVER guess, assume, or report accounts that are not in the response.",
-        "END-TO-END RULES:",
-        "1. Break the request into every step it needs (for example: create a playlist, then add videos to it). Never stop after the first step.",
-        "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS when a schema is missing -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the account when several are connected.",
-        "3. Independent actions go together in ONE multi-execute call. Steps that need an earlier result (a new playlist id, a list of video ids) run in a later call using the real values returned earlier.",
-        "4. Never invent ids, slugs or arguments. Use only values returned by tools. If an app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and give the user the link.",
-        "5. Write no reply text until ALL steps are finished or truly blocked. No plans, no 'let me check', no narration between tool calls.",
-        "6. Final reply: short and clear, one line per step saying what was done, with real names, counts and links from the results. State plainly anything that failed and why.",
+      connectorContext += '\n\n[EXPLICIT COMPOSIO REMOTE MCP ACTIVE]\n' + [
+        'Composio is active only as an explicitly authorized remote MCP server.',
+        'Use its live MCP tools for that remote connector and do not treat Composio as the native connector directory.',
+        'Never claim a connected app or action without a real MCP result.',
       ].join('\n') + '\n';
-    } else {
-      connectorContext += '\n\n[NO ACTIVE CONNECTORS]\nNo Composio "For You" account is currently connected. Total active connections: 0. When asked what apps or how many apps/services are connected, state clearly that no accounts are connected yet, and guide the user to click Connectors in the top right to connect their personal Composio "For You" account.\n';
+    }
+
+    if (!enabledRemoteConnectors.length && !composioMcpToken) {
+      connectorContext += '\n\n[NO ACTIVE REMOTE MCP CONNECTORS]\nNo connector is enabled for this conversation.\n';
     }
 
     const developerDirective = `\nInstructions:
@@ -808,7 +825,8 @@ export async function POST(req: NextRequest) {
 3. Only use triple-backtick code blocks for actual code, commands, or file contents. Never wrap a plain-text explanation in a code block.
 4. Be direct, authoritative, and completely honest. Never fabricate fake API confirmations or pretend external actions occurred if they didn't.
 5. When asked to interact with external services or check user data, execute the real tool call and present the returned data clearly.
-6. Present your final answer directly to the user in clean Markdown. Never explain your thought process or output raw JSON tool definitions in prose.\n`;
+6. Never narrate a tool call you are about to make. If a connected-app action is required, make the real tool call first and only then answer with the result.
+7. Present your final answer directly to the user in clean Markdown. Never explain your thought process or output raw JSON tool definitions in prose.\n`;
 
     const baseSystemPrompt =
       agentPrompt ||
@@ -899,18 +917,21 @@ export async function POST(req: NextRequest) {
         .filter((connector: any) => {
           const cfg = connector?.config || {};
           const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
-          const isComposio = String(connector?.name || '').toLowerCase().includes('composio') ||
-            String(cfg.mcpUrl || connector?.url || '').includes('connect.composio.dev');
           return connector?.enabled !== false &&
             type === 'mcp' &&
-            !isComposio &&
             Boolean(cfg.mcpUrl || connector?.url);
         })
         .slice(0, 5);
 
       const discovered = await Promise.allSettled(
         remoteConnectors.map((connector: any) =>
-          listRemoteMcpTools(connector).then((tools: any[]) => ({ connector, tools }))
+          listRemoteMcpTools(connector, {
+            credentials: remoteCredentials[String(connector.id)],
+            onCredentialsUpdated: (next) => {
+              remoteCredentials[String(connector.id)] = next;
+              remoteMcpUpdates[String(connector.id)] = next;
+            },
+          }).then((tools: any[]) => ({ connector, tools }))
         )
       );
 
@@ -984,7 +1005,7 @@ export async function POST(req: NextRequest) {
 
       // Force the first turn only when the request is for the Composio For You
       // account. Custom remote MCP servers remain ordinary callable tools.
-      forceConnectorTool = mcpModeActive && !remoteConnectorMention;
+      forceConnectorTool = Boolean(hasRemoteMcpTools) || (mcpModeActive && !remoteConnectorMention);
     }
 
     const toolContext = {
@@ -1044,18 +1065,21 @@ export async function POST(req: NextRequest) {
             model: 'openai/gpt-oss-120b',
             messages: fullMessages,
             tools: effectiveTools,
-            tool_choice: (turn === 0 && forceConnectorTool)
-              ? {
-                  type: 'function',
-                  function: {
-                    name: pickMcpToolName(
-                      mcpToolNames,
-                      [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
-                      isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
-                    ),
-                  },
-                }
-              : 'auto',
+            tool_choice:
+              turn === 0 && connectorRequest && forceConnectorTool
+                ? (mcpModeActive
+                    ? {
+                        type: 'function',
+                        function: {
+                          name: pickMcpToolName(
+                            mcpToolNames,
+                            [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
+                            isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                          ),
+                        },
+                      }
+                    : 'required')
+                : 'auto',
             max_tokens: 8192,
           }),
           signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),

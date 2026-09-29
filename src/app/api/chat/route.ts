@@ -349,9 +349,9 @@ async function runAgentTool(
 
       const extractReadableText = (html: string): string => {
         return html
-          .replace(/<script\b[^<]*(?:(?!<\/script>)[^<]*)*<\/script>/gis, ' ')
-          .replace(/<style\b[^<]*(?:(?!<\/style>)[^<]*)*<\/style>/gis, ' ')
-          .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)[^<]*)*<\/noscript>/gis, ' ')
+          .replace(/<script\b[^<]*(?:(?!<\/script>)[^<]*)*<\/script>/gi, ' ')
+          .replace(/<style\b[^<]*(?:(?!<\/style>)[^<]*)*<\/style>/gi, ' ')
+          .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)[^<]*)*<\/noscript>/gi, ' ')
           .replace(/<(nav|footer|header|aside|form)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
           .replace(/<br\s*\/?>(?=.)/gi, '\n')
           .replace(/<\/(p|div|article|section|li|h[1-6])>/gi, '\n')

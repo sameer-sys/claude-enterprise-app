@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   newFile: () => ipcRenderer.invoke('new-file'),
   executeCode: (code, language) => ipcRenderer.invoke('execute-code', { code, language }),
 
+  // Local MCP/CLI connectors (Electron only; never exposed to the cloud runtime)
+  localMcpCall: (connector, method, params = {}) => ipcRenderer.invoke('local-mcp-call', { connector, method, params }),
+  localMcpClose: (connectorId) => ipcRenderer.invoke('local-mcp-close', { connectorId }),
+
   // App info
   getVersion: () => ipcRenderer.invoke('get-version'),
 

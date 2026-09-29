@@ -130,6 +130,34 @@ function getSafeHttpUrl(raw: string): URL | null {
   }
 }
 
+function connectorToolPermission(connector: any, toolName: string, args: any, requestText: string): { decision: 'allow' | 'approval' | 'blocked'; reason?: string } {
+  const cfg = connector?.config || {};
+  const permissions = cfg.toolPermissions && typeof cfg.toolPermissions === 'object' ? cfg.toolPermissions : {};
+  const exact = permissions[toolName] || permissions[String(toolName).toUpperCase()] || permissions[String(toolName).toLowerCase()];
+  if (exact === 'blocked') return { decision: 'blocked', reason: 'This connector tool is blocked in your connector settings.' };
+  if (exact === 'always') return { decision: 'allow' };
+  if (exact === 'approval') return { decision: 'approval', reason: 'This tool requires approval.' };
+
+  const lower = String(toolName || '').toLowerCase();
+  const writeLike = /(?:^|[_:-])(send|create|update|edit|delete|remove|rename|move|upload|publish|post|reply|comment|invite|add|insert|archive|close|merge|cancel|schedule|modify|write)(?:$|[_:-])/i.test(lower);
+  if (writeLike && cfg.requireApprovalForWrites !== false) {
+    const approvalWords = /\b(?:approve|approved|allow|continue|confirm|yes|do it|go ahead|proceed)\b/i.test(String(requestText || ''));
+    // A later user turn containing an explicit approval can authorize the exact
+    // action the model is retrying; ordinary write requests remain gated.
+    if (!approvalWords) return { decision: 'approval', reason: 'This is a write action and requires your confirmation.' };
+  }
+  return { decision: 'allow' };
+}
+
+function findConnectorForTool(connectorContext: any, toolName: string): any {
+  const remote = connectorContext.remoteMcpToolRoutes?.[toolName]?.connector;
+  if (remote) return remote;
+  const connectors = Array.isArray(connectorContext.connectors) ? connectorContext.connectors : [];
+  const lower = String(toolName || '').toLowerCase();
+  const composio = connectors.find((c: any) => String(c?.id || '') === 'conn-composio' || String(c?.name || '').toLowerCase().includes('composio'));
+  return lower.includes('composio') || /^[A-Z0-9]+_[A-Z0-9_]+$/.test(toolName) ? composio : undefined;
+}
+
 async function runAgentTool(
   name: string,
   args: any,
@@ -149,6 +177,13 @@ async function runAgentTool(
   } = {}
 ): Promise<string> {
   try {
+    const policyConnector = findConnectorForTool(connectorContext, name);
+    const policy = connectorToolPermission(policyConnector, name, args, String(connectorContext.requestText || ''));
+    if (policy.decision === 'blocked') return 'TOOL_BLOCKED: ' + (policy.reason || 'This connector tool is blocked.');
+    if (policy.decision === 'approval') {
+      return 'APPROVAL_REQUIRED: ' + (policy.reason || 'Please confirm this action before I execute it.') + ' Tool: ' + name + '. I have not executed the action.';
+    }
+
     // Handle Composio "For You" MCP execution
     const builtInToMcpAction: Record<string, string> = {
       'youtube_list_playlists': 'YOUTUBE_LIST_USER_PLAYLISTS',

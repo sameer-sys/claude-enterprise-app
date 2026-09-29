@@ -88,7 +88,7 @@ exit
     },
     {
       q: 'How do I install on Windows or Android?',
-      a: 'Click "Download for Windows" to get the 1-click desktop launcher, or click "Download for Android" to install the mobile companion. In Google Chrome or Microsoft Edge, you can also click the "Install App" button in the address bar to install it as an offline-capable PWA.',
+      a: 'Click "Download Windows App (.exe)" to get the native Windows installer, or click "Download Android App (.apk)" to install the native Android app. In Google Chrome or Microsoft Edge, you can also click the "Install App" button in the address bar to install it as an offline-capable PWA.',
     },
     {
       q: 'Is OpenWork Cloud really 100% Free Forever ($0)?',
@@ -371,7 +371,7 @@ exit
               className="w-full py-3 px-4 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2 active:scale-95"
             >
               <Download className="w-4 h-4 stroke-[2.5]" />
-              <span>Download for Windows (.bat / .exe)</span>
+              <span>Download Windows App (.exe) (.bat / .exe)</span>
             </button>
           </div>
 

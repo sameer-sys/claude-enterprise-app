@@ -496,42 +496,6 @@ function streamTextDirectly(
   ), mcpContext);
 }
 
-function compactComposioToolResult(requestText: string, toolName: string, data: any): string {
-  let parsed = data;
-  if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { return parsed.trim().slice(0, 12000); } }
-  if (Array.isArray(parsed)) return parsed.slice(0, 20).map((item: any, i: number) => `${i + 1}. ${typeof item === 'string' ? item : JSON.stringify(item)}`).join('\\n');
-  if (!parsed || typeof parsed !== 'object') return String(parsed ?? '');
-  if (/SEARCH_TOOLS/i.test(toolName)) {
-    const candidates: any[] = [];
-    const collect = (value: any) => {
-      if (Array.isArray(value)) for (const item of value) collect(item);
-      else if (value && typeof value === 'object') {
-        const name = value.name || value.tool_name || value.toolName;
-        const description = value.description || value.tool_description || value.summary;
-        if (name) candidates.push({ name: String(name), description: String(description || '').slice(0, 300) });
-        for (const key of ['tools','results','items','data']) if (value[key] !== undefined) collect(value[key]);
-      }
-    };
-    collect(parsed);
-    const unique = Array.from(new Map(candidates.map((x) => [x.name, x])).values()).slice(0, 25);
-    if (unique.length) return 'Relevant Composio tools found:\\n' + unique.map((x, i) => (i + 1) + '. ' + x.name + (x.description ? ' — ' + x.description : '')).join('\\n');
-    return 'Composio tool search completed, but no directly usable tool names were returned. Try a more specific search.';
-  }
-  if (/GET_TOOL_SCHEMAS/i.test(toolName)) {
-    const schemas: any[] = [];
-    const collectSchemas = (value: any) => {
-      if (Array.isArray(value)) for (const item of value) collectSchemas(item);
-      else if (value && typeof value === 'object') {
-        const name = value.name || value.tool_name || value.toolName;
-        if (name && (value.input_schema || value.inputSchema || value.parameters || value.description)) schemas.push({ name: String(name), description: String(value.description || '').slice(0, 300), schema: value.input_schema || value.inputSchema || value.parameters || {} });
-        for (const key of ['tools','schemas','results','items','data']) if (value[key] !== undefined) collectSchemas(value[key]);
-      }
-    };
-    collectSchemas(parsed);
-    if (schemas.length) return JSON.stringify({ tool_schemas: schemas.slice(0, 12) });
-  }
-  return formatConnectorResult(requestText, { data: parsed });
-}
 function formatConnectorResult(requestText: string, result: any): string {
   let data = result?.data ?? result;
   const lower = String(requestText || '').toLowerCase();
@@ -608,7 +572,7 @@ function formatConnectorResult(requestText: string, result: any): string {
         const status = c.status || 'Active';
         return `${idx + 1}. **${app}**${account ? ` (${account})` : ''} — \`${status}\``;
       });
-      let response = `Here are your live connected apps from Composio "For You":\n\n` + lines.join('\n');
+      let response = `Here are your live connected apps:\n\n` + lines.join('\n');
       if (manageUrl) {
         response += `\n\nOpen Connectors to manage these accounts or connect another app: [Open Connectors](${manageUrl})`;
       }

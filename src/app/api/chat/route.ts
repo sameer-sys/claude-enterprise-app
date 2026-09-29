@@ -1709,11 +1709,12 @@ export async function POST(req: NextRequest) {
               'Content-Type': 'text/event-stream',
               'Cache-Control': 'no-cache',
               Connection: 'keep-alive',
-              'X-Claude-Skill': detectedSkill,              'X-Claude-Skill': detectedSkill,
+              'X-Claude-Skill': detectedSkill,
             },
           }), toolContext);
         }
-      } catch (error) {
+      }
+    } catch (error) {
         console.error('[EDGE FALLBACK ERR]', error);
       }
     }

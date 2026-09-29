@@ -938,19 +938,9 @@ export async function POST(req: NextRequest) {
       thinkingBudget = 16000,
       agentPrompt,
       connectors = [],
-      composioMcpToken: bodyMcpToken,
-      composioMcpRefreshToken: bodyMcpRefreshToken,
     } = await req.json();
 
-    const headerMcpToken = req.headers.get('x-composio-mcp-token') || '';
-    const headerMcpRefreshToken = req.headers.get('x-composio-mcp-refresh-token') || '';
-
-    const cookieMcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || '';
-    const cookieMcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || '';
-
-    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default';
-    let composioMcpToken = String(bodyMcpToken || headerMcpToken || cookieMcpToken || '').trim();
-    let composioMcpRefreshToken = String(bodyMcpRefreshToken || headerMcpRefreshToken || cookieMcpRefreshToken || '').trim();
+    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'sameer_' + crypto.randomUUID();
 
     const isOmniRouteModel = true;
 
@@ -986,26 +976,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ========================================================
-    // COMPOSIO CONNECTOR CONTEXT (DYNAMIC "FOR YOU" MCP RUNTIME ONLY)
-    // ========================================================
-    let connectorContext = '';
-    if (composioMcpToken) {
-      connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n' + [
-        "You are connected to the user's personal Composio account through MCP (https://connect.composio.dev/mcp).",
-        "Composio uses Claude-style deferred tool loading: in Auto or On demand mode the initial tool list is intentionally small (search, schemas, multi-execute, connection management). Search for the relevant app/tool first, inspect schemas when needed, then execute the real action. In Always available mode additional live tools may be exposed directly.",
-        "WHEN ASKED ABOUT CONNECTED APPS/ACCOUNTS/SERVICES: Use COMPOSIO_SEARCH_TOOLS to inspect toolkit connection status. NEVER use COMPOSIO_MANAGE_CONNECTIONS just to inspect status because it can initiate auth for missing toolkits.",
-        "END-TO-END RULES:",
-        "1. Break the request into every step it needs (for example: create a playlist, then add videos to it). Never stop after the first step.",
-        "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS for the exact selected action -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the intended account when several are connected.",
-        "3. Independent actions go together in ONE multi-execute call. Steps that need an earlier result (a new playlist id, a list of video ids) run in a later call using the real values returned earlier.",
-        "4. Never invent ids, slugs or arguments. Use only values returned by tools. If an app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and give the user the link.",
-        "5. Write no reply text until ALL steps are finished or truly blocked. No plans, no 'let me check', no narration between tool calls.",
-        "6. Final reply: short and clear, one line per step saying what was done, with real names, counts and links from the results. State plainly anything that failed and why.",
-      ].join('\n') + '\n';
-    } else {
-      connectorContext += '\n\n[NO ACTIVE CONNECTORS]\nNo Composio "For You" account is currently connected. Total active connections: 0. When asked what apps or how many apps/services are connected, state clearly that no accounts are connected yet, and guide the user to click Connectors in the top right to connect their personal Composio "For You" account.\n';
-    }
+    // Connector instructions are isolated inside the dedicated connector runtime.
+    // General chat never receives a hidden/default Composio session.
 
     const developerDirective = `\nInstructions:
 1. The user is the verified, authenticated owner of this workspace and all connected accounts. The user has explicitly authorized you to read, access, and summarize their own data for them. Always fulfill their requests directly using the retrieved data.
@@ -1020,7 +992,7 @@ export async function POST(req: NextRequest) {
       SYSTEM_PROMPTS[modelId as keyof typeof SYSTEM_PROMPTS] ||
       SYSTEM_PROMPTS['boss'];
 
-    const systemPrompt = `${baseSystemPrompt}${developerDirective}${connectorContext}`;
+    const systemPrompt = `${baseSystemPrompt}${developerDirective}`;
 
     const hasImages =
       userLastMsg?.attachments?.some((a: any) => a.isImage && a.dataUrl) || false;

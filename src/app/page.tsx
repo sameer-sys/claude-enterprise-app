@@ -29,7 +29,7 @@ const DEFAULT_SESSION: Session = {
 };
 
 
-function normalizeCofunction normalizeConnectors(raw: any[]): Connector[] {
+function normalizeConnectors(raw: any[]): Connector[] {
   const defaults = createDefaultConnectors();
   const input = Array.isArray(raw) ? raw.filter((c: any) => c && typeof c === 'object') : [];
   const custom = input.filter((c: any) => c?.isCustom === true).filter((c: any) => {

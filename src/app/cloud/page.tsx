@@ -37,35 +37,8 @@ export default function OpenWorkCloudPage() {
   const [demoOutput, setDemoOutput] = useState<string | null>(null);
   const [isDemoRunning, setIsDemoRunning] = useState(false);
 
-  const handleDownloadWindows = () => {
-    const launcherScript = `@echo off
-title Claude Enterprise & OpenWork Cloud Launcher
-echo ========================================================
-echo Launching Claude Enterprise Pro Max - OpenWork Cloud
-echo URL: https://claude-enterprise-app.vercel.app
-echo ========================================================
-start https://claude-enterprise-app.vercel.app
-exit
-`;
-    const blob = new Blob([launcherScript], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Claude-Enterprise-OpenWork-Setup.bat';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadAndroid = () => {
-    const androidPayload = `[InternetShortcut]\nURL=https://claude-enterprise-app.vercel.app\nIconIndex=0`;
-    const blob = new Blob([androidPayload], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Claude-OpenWork-Mobile.url';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const desktopDownloadUrl = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Setup.exe';
+  const androidDownloadUrl = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Android.apk';
 
   const runDemo = () => {
     setIsDemoRunning(true);
@@ -88,7 +61,7 @@ exit
     },
     {
       q: 'How do I install on Windows or Android?',
-      a: 'Click "Download for Windows" to get the 1-click desktop launcher, or click "Download for Android" to install the mobile companion. In Google Chrome or Microsoft Edge, you can also click the "Install App" button in the address bar to install it as an offline-capable PWA.',
+      a: 'Click "Download Windows App (.exe)" to get the native Windows installer, or click "Download Android App (.apk)" to install the native Android app. The web app remains available separately; these downloads are native app packages.',
     },
     {
       q: 'Is OpenWork Cloud really 100% Free Forever ($0)?',
@@ -357,7 +330,7 @@ exit
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#cc785c]" />
-                  <span>Direct launch setup script (.bat)</span>
+                  <span>Native Windows installer (.exe)</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#cc785c]" />
@@ -366,13 +339,12 @@ exit
               </ul>
             </div>
 
-            <button
-              onClick={handleDownloadWindows}
+            <a href={desktopDownloadUrl}
               className="w-full py-3 px-4 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2 active:scale-95"
             >
               <Download className="w-4 h-4 stroke-[2.5]" />
-              <span>Download for Windows (.bat / .exe)</span>
-            </button>
+              <span>Download Windows App (.exe)</span>
+            </a>
           </div>
 
           {/* Android Mobile Companion */}
@@ -394,7 +366,7 @@ exit
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
-                  <span>1-Tap Add to Home Screen (PWA)</span>
+                  <span>Native Android application package</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
@@ -403,13 +375,12 @@ exit
               </ul>
             </div>
 
-            <button
-              onClick={handleDownloadAndroid}
+            <a href={androidDownloadUrl}
               className="w-full py-3 px-4 rounded-xl bg-[#25231e] hover:bg-[#302e27] border border-[#3e3b31] text-[#ece9e2] font-bold text-xs shadow-sm transition-all flex items-center justify-center space-x-2 active:scale-95"
             >
               <Download className="w-4 h-4 text-[#cc785c]" />
-              <span>Download Mobile App (.apk / PWA)</span>
-            </button>
+              <span>Download Android App (.apk)</span>
+            </a>
           </div>
 
           {/* Web App Direct Access */}

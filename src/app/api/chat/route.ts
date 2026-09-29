@@ -1722,8 +1722,8 @@ export async function POST(req: NextRequest) {
     const safeMsg = `Hello! I am Boss. I am standing by and ready to help you. How can I assist you?`;
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: safeMsg })}\\n\\n`));
-        controller.enqueue(encoder.encode('data: [DONE]\\n\\n'));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: safeMsg })}\n\n`));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         controller.close();
       },
     });

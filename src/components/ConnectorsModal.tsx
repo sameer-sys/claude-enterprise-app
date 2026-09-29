@@ -30,7 +30,7 @@ const APP_DEFS = [
 function isRemoteMcpConnector(connector: Connector): boolean {
   const type = String(connector?.config?.connectionType || connector?.provider || '').toLowerCase();
   const url = String(connector?.config?.mcpUrl || connector?.url || '');
-  return type === 'mcp' && /^https?:\\/\\//i.test(url);
+  return type === 'mcp' && /^https?:\/\//i.test(url);
 }
 
 function sanitizeConnector(connector: Connector): Connector {

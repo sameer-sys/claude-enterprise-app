@@ -1240,6 +1240,16 @@ export async function POST(req: NextRequest) {
       ...remoteMcpTools,
     ];
 
+    const toolContext = {
+      connectors: runtimeConnectors,
+      remoteMcpToolRoutes,
+      remoteCredentials,
+      remoteMcpUpdates,
+      requestText: lastText,
+      composioUserId,
+      requestOidcToken: req.headers.get('x-vercel-oidc-token') || '',
+    };
+
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
 

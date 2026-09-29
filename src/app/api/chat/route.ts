@@ -1106,9 +1106,11 @@ export async function POST(req: NextRequest) {
         return streamTextDirectly(message, detectedSkill);
       }
 
-      // Force the first turn only when the request is for the Composio For You
-      // account. Custom remote MCP servers remain ordinary callable tools.
-      forceConnectorTool = mcpModeActive && !remoteConnectorMention && composioToolAccess !== 'always';
+      // Connector work must start with a real discovery/tool call. Never let
+      // the LLM replace an action with a narrated plan just because the connector
+      // is configured as "always available".
+      const isExplicitConnectionManagement = /\b(?:connect|add|authorize|link|reconnect|disconnect|unlink|remove)\b/i.test(lastText);
+      forceConnectorTool = mcpModeActive && !remoteConnectorMention && !isExplicitConnectionManagement;
     }
 
     const toolContext = {
@@ -1127,8 +1129,9 @@ export async function POST(req: NextRequest) {
 
     const { pickMcpToolName } = await import('@/lib/composioMcp');
 
-    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
+    const isAccountQuery = /\b(?:what|which|how many|list|show|tell|give|get|check)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
       /\b(?:connected|linked|authorized|active)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
+      /\b(?:apps?|accounts?|connections?|services?|integrations?)\b.*\b(?:connected|linked|authorized|active)\b/i.test(lastText) ||
       /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
 
     // Connected-app queries are deterministic and READ-ONLY.
@@ -1268,8 +1271,9 @@ export async function POST(req: NextRequest) {
           const checkText = contentText || reasoningText;
 
           const isAccountQuery =
-            /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-            /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lastText) ||
+            /\b(?:what|which|how many|list|show|tell|give|get|check)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
+            /\b(?:connected|linked|authorized|active)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
+            /\b(?:apps?|accounts?|connections?|services?|integrations?)\b.*\b(?:connected|linked|authorized|active)\b/i.test(lastText) ||
             /\bcomposio\b/i.test(lastText);
 
           const isPlanningText =

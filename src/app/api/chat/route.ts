@@ -930,6 +930,7 @@ export async function POST(req: NextRequest) {
         console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
       }
     }
+    let mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
     const composioConnector = (Array.isArray(connectors) ? connectors : []).find((connector: any) =>
       String(connector?.id || '') === 'conn-composio' ||
       String(connector?.name || '').toLowerCase().includes('composio')
@@ -947,6 +948,7 @@ export async function POST(req: NextRequest) {
       mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
     }
 
+    mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
     const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};
     const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};
     const runtimeConnectors = (Array.isArray(connectors) ? connectors : []).map((connector: any) => {

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft, Copy, Globe, Loader2, LogIn, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
+import { cloneNativeConnectors } from '@/lib/nativeConnectors';
 
 export interface ConnectorsModalProps {
   isOpen: boolean;
@@ -17,25 +18,10 @@ export interface ConnectorsModalProps {
   sessionId?: string;
 }
 
-export const DEFAULT_CONNECTORS: Connector[] = [{
-  id: 'conn-composio',
-  name: 'Composio For You',
-  description: 'Your personal Composio MCP connection for connected accounts and actions.',
-  icon: 'composio',
-  enabled: true,
-  status: 'idle',
-  category: 'Integrations',
-  section: 'custom',
-  isCustom: true,
-  isVerified: true,
-  provider: 'mcp',
-  capabilities: ['OAuth', 'Tool Search', 'Multi Execute'],
-  config: { connectionType: 'mcp', providerName: 'Composio For You', mcpUrl: 'https://connect.composio.dev/mcp', toolAccess: 'always' },
-  url: 'https://connect.composio.dev/mcp',
-}];
+export const DEFAULT_CONNECTORS: Connector[] = cloneNativeConnectors();
 
 export function createDefaultConnectors(): Connector[] {
-  return DEFAULT_CONNECTORS.map((c) => ({ ...c, config: { ...c.config } }));
+  return cloneNativeConnectors();
 }
 
 function isRemoteMcpConnector(connector: Connector): boolean {
@@ -53,18 +39,17 @@ function sanitizeConnector(connector: Connector): Connector {
 }
 
 function mergeConnectorState(active: Connector[], persisted: Connector[]): Connector[] {
-  const inputs = [
-    ...active.filter(isRemoteMcpConnector).map(sanitizeConnector),
-    ...persisted.filter(isRemoteMcpConnector).map(sanitizeConnector),
-    ...createDefaultConnectors(),
-  ];
-  const seen = new Set<string>();
-  return inputs.filter((connector) => {
-    const key = connector.id || connector.name;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const defaults = createDefaultConnectors();
+  const byId = new Map<string, Connector>(defaults.map((connector) => [connector.id, connector]));
+  for (const connector of [...persisted, ...active]) {
+    if (!connector || typeof connector !== 'object' || !isRemoteMcpConnector(connector)) continue;
+    const safe = sanitizeConnector({ ...connector, config: { ...(connector.config || {}), connectionType: 'mcp' } });
+    const base = byId.get(connector.id);
+    byId.set(connector.id, base
+      ? { ...base, ...safe, config: { ...(base.config || {}), ...(safe.config || {}), connectionType: 'mcp' } }
+      : safe);
+  }
+  return Array.from(byId.values());
 }
 
 export default function ConnectorsModal({
@@ -74,7 +59,6 @@ export default function ConnectorsModal({
   const [search, setSearch] = useState('');
   const [connectors, setConnectors] = useState<Connector[]>(createDefaultConnectors());
   const [selected, setSelected] = useState<Connector | null>(null);
-  const [composioConnected, setComposioConnected] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
@@ -91,7 +75,7 @@ export default function ConnectorsModal({
 
   const persistCustom = (items: Connector[]) => {
     try {
-      localStorage.setItem('claude_custom_connectors', JSON.stringify(items.filter((c) => c.id !== 'conn-composio').map(sanitizeConnector)));
+      localStorage.setItem('claude_custom_connectors', JSON.stringify(items.filter((c) => c.isCustom === true).map(sanitizeConnector)));
     } catch {}
   };
 
@@ -104,22 +88,6 @@ export default function ConnectorsModal({
       setConnectors(mergeConnectorState(activeConnectors || [], []));
     }
   }, [activeConnectors]);
-
-  useEffect(() => {
-    if (!isOpen) { setView('list'); setStatusMessage(''); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/composio', { method: 'GET', cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        const connected = Boolean(data?.mcpConnected && data?.mode === 'for_you');
-        setComposioConnected(connected);
-        setConnectors((prev) => prev.map((c) => c.id === 'conn-composio' ? { ...c, status: connected ? 'connected' : 'idle' } : c));
-      } catch {}
-    })();
-    return () => { cancelled = true; };
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -143,7 +111,7 @@ export default function ConnectorsModal({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!selected || selected.id === 'conn-composio' || !isOpen) { setTools([]); return; }
+    if (!selected || !isOpen) { setTools([]); return; }
     let cancelled = false;
     fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check', connector: selected }) })
       .then((res) => res.json().catch(() => ({})))
@@ -155,12 +123,6 @@ export default function ConnectorsModal({
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if (event.data?.type === 'sameer-composio-mcp-connected') {
-        if (event.data?.status === 'success') {
-          setComposioConnected(true); setConnectors((prev) => prev.map((c) => c.id === 'conn-composio' ? { ...c, status: 'connected' } : c)); setStatusMessage('Composio For You connected.');
-        } else if (event.data?.error) setStatusMessage('OAuth Error: ' + event.data.error);
-        setAuthenticating(false);
-      }
       if (event.data?.type === 'sameer-remote-mcp-connected') {
         const id = String(event.data?.connectorId || '');
         if (event.data?.status === 'success') {
@@ -174,17 +136,6 @@ export default function ConnectorsModal({
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, []);
-
-  const openComposioOAuth = async () => {
-    setAuthenticating(true); setStatusMessage('Opening Composio For You sign-in…');
-    try {
-      const res = await fetch('/api/composio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get_mcp_oauth_url' }) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.authUrl) throw new Error(data?.error || 'Failed to start Composio OAuth.');
-      const popup = window.open(data.authUrl, 'composio_for_you_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
-      if (!popup) window.open(data.authUrl, '_blank');
-    } catch (err: any) { setAuthenticating(false); setStatusMessage(String(err?.message || err)); }
-  };
 
   const openRemoteOAuth = async (connector: Connector) => {
     setAuthenticating(true); setStatusMessage('Starting secure MCP OAuth…');
@@ -223,18 +174,24 @@ export default function ConnectorsModal({
   };
 
   const disconnectConnector = async (connector: Connector) => {
-    if (connector.id === 'conn-composio') {
-      await fetch('/api/composio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disconnect_mcp' }) }).catch(() => {});
-      setComposioConnected(false); setConnectors((prev) => prev.map((c) => c.id === connector.id ? { ...c, status: 'idle' } : c)); setStatusMessage('Composio For You disconnected from this browser session.'); return;
-    }
-    await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disconnect', connectorId: connector.id, serverUrl: connector.url }) }).catch(() => {});
-    setConnectors((prev) => prev.map((c) => c.id === connector.id ? { ...c, status: 'ready' } : c));
-    setSelected((prev) => prev?.id === connector.id ? { ...prev, status: 'ready' } : prev);
-    setStatusMessage('Connector disconnected. Its configuration is still saved.');
+    await fetch('/api/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'disconnect', connectorId: connector.id, serverUrl: connector.url }),
+    }).catch(() => {});
+    setConnectors((prev) => prev.map((item) =>
+      item.id === connector.id ? { ...item, status: 'ready', enabled: false } : item
+    ));
+    setSelected((prev) => prev?.id === connector.id ? { ...prev, status: 'ready', enabled: false } : prev);
+    if (connector.enabled) onToggleConnector(connector.id);
+    if (connector.isCustom) persistCustom(connectors.map((item) =>
+      item.id === connector.id ? { ...item, status: 'ready', enabled: false } : item
+    ));
+    setStatusMessage('Connector disconnected.');
   };
 
   const removeConnector = async (connector: Connector) => {
-    if (connector.id === 'conn-composio') return;
+    if (!connector.isCustom) return;
     await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disconnect', connectorId: connector.id, serverUrl: connector.url }) }).catch(() => {});
     const next = connectors.filter((c) => c.id !== connector.id);
     setConnectors(next); persistCustom(next); onRemoveCustomConnector?.(connector.id); setSelected(null); setView('list');
@@ -244,7 +201,7 @@ export default function ConnectorsModal({
     if (!selected) return;
     const next = { ...selected, config: { ...(selected.config || {}), ...config } };
     setSelected(next); setConnectors((prev) => prev.map((c) => c.id === selected.id ? next : c)); onUpdateConnectorConfig?.(selected.id, next.config || {});
-    if (next.id !== 'conn-composio') persistCustom(connectors.map((c) => c.id === next.id ? next : c));
+    if (next.isCustom) persistCustom(connectors.map((c) => c.id === next.id ? next : c));
   };
 
   const filtered = connectors.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || String(c.url || '').toLowerCase().includes(search.toLowerCase()));
@@ -261,14 +218,14 @@ export default function ConnectorsModal({
           </div>
           <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2">
             {filtered.map((connector) => {
-              const isComposio = connector.id === 'conn-composio'; const connected = isComposio ? composioConnected : connector.status === 'connected';
+              const connected = connector.status === 'connected';
               return <div key={connector.id} className="flex items-center justify-between p-3.5 rounded-xl border border-[#2d2b25] bg-[#1e1c18]">
                 <button className="flex items-center gap-3 min-w-0 text-left" onClick={() => { setSelected({ ...(currentMap.get(connector.id) || connector), ...connector }); setView('detail'); }}>
                   <div className="w-9 h-9 rounded-lg border border-[#38352d] bg-[#2a2722] flex items-center justify-center text-[#cc785c]"><Zap className="w-4 h-4"/></div>
-                  <div className="min-w-0"><div className="flex items-center gap-2"><span className="font-semibold text-sm truncate">{connector.name}</span><span className={`text-[10px] px-2 py-0.5 rounded-full border ${connected ? 'border-emerald-800 text-emerald-400' : 'border-amber-800 text-amber-400'}`}>{connected ? (isComposio ? 'Connected (For You)' : 'Connected') : 'Sign in needed'}</span></div><div className="text-xs text-[#8f8a80] truncate max-w-xl">{connector.url}</div></div>
+                  <div className="min-w-0"><div className="flex items-center gap-2"><span className="font-semibold text-sm truncate">{connector.name}</span><span className={`text-[10px] px-2 py-0.5 rounded-full border ${connected ? 'border-emerald-800 text-emerald-400' : 'border-amber-800 text-amber-400'}`}>{connected ? 'Connected' : connector.isCustom ? 'Sign in needed' : 'Available'}</span></div><div className="text-xs text-[#8f8a80] truncate max-w-xl">{connector.url}</div></div>
                 </button>
                 <div className="flex items-center gap-2">
-                  {!connected && <button onClick={() => isComposio ? openComposioOAuth() : openRemoteOAuth(connector)} disabled={authenticating} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <LogIn className="w-3.5 h-3.5 inline mr-1"/>}Connect</button>}
+                  {!connected && <button onClick={() => openRemoteOAuth(connector)} disabled={authenticating} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <LogIn className="w-3.5 h-3.5 inline mr-1"/>}Connect</button>}
                   <button onClick={() => onToggleConnector(connector.id)} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold ${connector.enabled ? 'border-emerald-800 text-emerald-400' : 'border-[#38352d] text-[#8f8a80]'}`}>{connector.enabled ? 'Enabled' : 'Disabled'}</button>
                 </div>
               </div>;
@@ -292,11 +249,11 @@ export default function ConnectorsModal({
         {view === 'detail' && selected && <div className="h-full flex flex-col">
           <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-[#2d2b25]"><button onClick={() => setView('list')} className="flex items-center gap-1.5 text-xs text-[#8f8a80]"><ChevronLeft className="w-4 h-4"/>Your connectors</button><button onClick={onClose} className="p-1.5 text-[#8f8a80]"><X className="w-4 h-4"/></button></div>
           <div className="flex-1 overflow-y-auto px-8 py-5 space-y-6">
-            <div className="flex items-center justify-between gap-4"><div className="min-w-0"><h3 className="font-bold text-base flex items-center gap-2">{selected.name}{selected.id === 'conn-composio' && <span className="text-[10px] px-2 py-0.5 rounded-full border border-emerald-800 text-emerald-400">For You</span>}</h3><div className="flex items-center gap-1 text-xs text-[#8f8a80] mt-1"><span className="truncate">{selected.url}</span><button onClick={() => { navigator.clipboard.writeText(selected.url || ''); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check className="w-3 h-3 text-emerald-400"/> : <Copy className="w-3 h-3"/>}</button></div></div>
-              <div className="flex items-center gap-2">{selected.status === 'connected' ? <button onClick={() => disconnectConnector(selected)} className="px-3.5 py-1.5 rounded-xl border border-[#38352d] text-xs">Disconnect</button> : <button onClick={() => selected.id === 'conn-composio' ? openComposioOAuth() : openRemoteOAuth(selected)} disabled={authenticating} className="px-3.5 py-1.5 rounded-xl bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : 'Connect'}</button>}{selected.id !== 'conn-composio' && <button onClick={() => removeConnector(selected)} className="px-3.5 py-1.5 rounded-xl border border-red-900/60 text-red-300 text-xs"><Trash2 className="w-3.5 h-3.5 inline mr-1"/>Remove</button>}</div>
+            <div className="flex items-center justify-between gap-4"><div className="min-w-0"><h3 className="font-bold text-base flex items-center gap-2">{selected.name}</h3><div className="flex items-center gap-1 text-xs text-[#8f8a80] mt-1"><span className="truncate">{selected.url}</span><button onClick={() => { navigator.clipboard.writeText(selected.url || ''); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check className="w-3 h-3 text-emerald-400"/> : <Copy className="w-3 h-3"/>}</button></div></div>
+              <div className="flex items-center gap-2">{selected.status === 'connected' ? <button onClick={() => disconnectConnector(selected)} className="px-3.5 py-1.5 rounded-xl border border-[#38352d] text-xs">Disconnect</button> : <button onClick={() => openRemoteOAuth(selected)} disabled={authenticating} className="px-3.5 py-1.5 rounded-xl bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : 'Connect'}</button>}{selected.isCustom && <button onClick={() => removeConnector(selected)} className="px-3.5 py-1.5 rounded-xl border border-red-900/60 text-red-300 text-xs"><Trash2 className="w-3.5 h-3.5 inline mr-1"/>Remove</button>}</div>
             </div>
             <div className="pt-4 border-t border-[#2d2b25] space-y-4"><div className="flex items-center justify-between"><div><h4 className="text-xs font-semibold">Tool access</h4><p className="text-[11px] text-[#6d685f]">Choose when this connector is loaded in this conversation.</p></div><select value={selected.config?.toolAccess || 'auto'} onChange={(e) => updateConfig({ toolAccess: e.target.value as any })} className="px-3 py-1.5 rounded-lg border border-[#38352d] bg-[#22201b] text-xs"><option value="auto">Auto</option><option value="always">Always available</option><option value="on_demand">On demand</option></select></div>
-              {selected.id === 'conn-composio' ? <div className="p-3.5 rounded-xl bg-[#141310] border border-[#282620] text-xs text-[#8f8a80]">The For You connector uses Composio's live tool discovery and account-aware execution. The app never uses Platform auth configs for this connector.</div> : <div><div className="flex items-center justify-between mb-2"><h4 className="text-xs font-semibold">Available tools</h4><span className="text-[10px] text-[#6d685f]">{tools.length} discovered</span></div><div className="border border-[#282620] rounded-xl divide-y divide-[#24221c] max-h-56 overflow-y-auto">{tools.length === 0 ? <div className="p-3 text-[11px] text-[#6d685f]">Authenticate the connector or reopen this view to discover tools.</div> : tools.map((tool) => { const disabled = new Set((selected.config?.disabledTools || []).map(String)); const blocked = disabled.has(tool); return <div key={tool} className="flex items-center justify-between px-3 py-2 text-xs"><span className={blocked ? 'line-through text-[#6d685f]' : 'text-[#b8b2a7]'}>{tool}</span><button type="button" onClick={() => { const next = new Set((selected.config?.disabledTools || []).map(String)); if (next.has(tool)) next.delete(tool); else next.add(tool); updateConfig({ disabledTools: Array.from(next) }); }} className={`px-2 py-1 rounded border text-[10px] ${blocked ? 'border-emerald-800 text-emerald-400' : 'border-red-900/60 text-red-300'}`}>{blocked ? 'Enable' : 'Block'}</button></div>; })}</div></div>}
+              <div><div className="flex items-center justify-between mb-2"><h4 className="text-xs font-semibold">Available tools</h4><span className="text-[10px] text-[#6d685f]">{tools.length} discovered</span></div><div className="border border-[#282620] rounded-xl divide-y divide-[#24221c] max-h-56 overflow-y-auto">{tools.length === 0 ? <div className="p-3 text-[11px] text-[#6d685f]">Authenticate the connector or reopen this view to discover tools.</div> : tools.map((tool) => { const disabled = new Set((selected.config?.disabledTools || []).map(String)); const blocked = disabled.has(tool); return <div key={tool} className="flex items-center justify-between px-3 py-2 text-xs"><span className={blocked ? 'line-through text-[#6d685f]' : 'text-[#b8b2a7]'}>{tool}</span><button type="button" onClick={() => { const next = new Set((selected.config?.disabledTools || []).map(String)); if (next.has(tool)) next.delete(tool); else next.add(tool); updateConfig({ disabledTools: Array.from(next) }); }} className={`px-2 py-1 rounded border text-[10px] ${blocked ? 'border-emerald-800 text-emerald-400' : 'border-red-900/60 text-red-300'}`}>{blocked ? 'Enable' : 'Block'}</button></div>; })}</div></div>}
             </div>
             {statusMessage && <div className="p-3 rounded-lg border border-[#4a4133] bg-[#231f18] text-xs text-[#cc785c]">{statusMessage}</div>}
           </div>

@@ -162,34 +162,26 @@ function connectorToolPermission(connector: any, toolName: string, args: any, re
   return { decision: 'allow' };
 }
 
+
 function findConnectorForTool(connectorContext: any, toolName: string): any {
   const remote = connectorContext.remoteMcpToolRoutes?.[toolName]?.connector;
   if (remote) return remote;
+
   const connectors = Array.isArray(connectorContext.connectors) ? connectorContext.connectors : [];
-  const lower = String(toolName || '').toLowerCase();
-  const toolkit = lower.split('_')[0];
-  const composio = connectors.find((c: any) =>
-    String(c?.id || '') === 'conn-composio' ||
-    String(c?.name || '').toLowerCase().includes('composio') ||
-    (String(c?.provider || '').toLowerCase() === 'composio' &&
-      String(c?.config?.composioToolkit || '').toLowerCase() === toolkit)
+  const toolkit = String(toolName || '').toLowerCase().split('_')[0];
+  return connectors.find((connector: any) =>
+    connector?.enabled !== false &&
+    String(connector?.provider || '').toLowerCase() === 'composio' &&
+    String(connector?.config?.composioToolkit || '').toLowerCase() === toolkit
   );
-  return lower.includes('composio') || /^[A-Z0-9]+_[A-Z0-9_]+$/.test(toolName) ? composio : undefined;
 }
 
 async function runAgentTool(
   name: string,
   args: any,
   connectorContext: {
-    apiKey?: string;
-    mcpToken?: string;
-    mcpRefreshToken?: string;
-    mcpToolNames?: string[];
-    remoteMcpTools?: any[];
     remoteMcpToolRoutes?: Record<string, { connector: any; originalToolName: string }>;
     connectors?: any[];
-    accounts?: any[];
-    composioUserId?: string;
     remoteCredentials?: Record<string, RemoteStoredToken | undefined>;
     remoteMcpUpdates?: Record<string, RemoteStoredToken>;
     requestText?: string;
@@ -202,19 +194,6 @@ async function runAgentTool(
     if (policy.decision === 'approval') {
       return 'APPROVAL_REQUIRED: ' + (policy.reason || 'Please confirm this action before I execute it.') + ' Tool: ' + name + '. I have not executed the action.';
     }
-
-    // Handle Composio "For You" MCP execution
-    const builtInToMcpAction: Record<string, string> = {
-      'youtube_list_playlists': 'YOUTUBE_LIST_USER_PLAYLISTS',
-      'youtube_create_playlist': 'YOUTUBE_CREATE_PLAYLIST',
-      'youtube_add_video_to_playlist': 'YOUTUBE_INSERT_PLAYLIST_ITEM',
-      'github_list_repos': 'GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER',
-      'github_create_issue': 'GITHUB_CREATE_AN_ISSUE',
-      'gmail_list_messages': 'GMAIL_LIST_THREADS',
-      'gmail_send_email': 'GMAIL_SEND_EMAIL',
-      'google_calendar_list_events': 'GOOGLECALENDAR_LIST_EVENTS',
-      'google_calendar_create_event': 'GOOGLECALENDAR_CREATE_EVENT',
-    };
 
     const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
     if (remoteRoute) {
@@ -233,113 +212,6 @@ async function runAgentTool(
           },
         }
       )).slice(0, 14000);
-    }
-
-    if (connectorContext.mcpToken) {
-      try {
-        const { executeMcpTool, mcpContentToText, pickMcpToolName } = await import('@/lib/composioMcp');
-        const liveNames = connectorContext.mcpToolNames || [];
-        const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
-
-        if (liveNames.includes(name)) {
-          const isConnectionStatusRequest =
-            isConnectorRelatedRequest(String(connectorContext.requestText || '')) &&
-            /\b(?:connected|linked|authorized|integrated|active|available|configured|apps?|accounts?|services?|connections?|connectors?|integrations?)\b/i.test(String(connectorContext.requestText || '')) &&
-            !/\b(?:connect|add|authorize|link|reconnect|rename|remove|disconnect|unlink)\b/i.test(String(connectorContext.requestText || ''));
-
-          if (/MANAGE_CONNECTIONS/i.test(name) && isConnectionStatusRequest) {
-            const { getComposioToolkitConnectionStatuses, DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
-            const statusRes = await getComposioToolkitConnectionStatuses(
-              connectorContext.mcpToken,
-              connectorContext.mcpRefreshToken,
-              DEFAULT_COMPOSIO_TOOLKITS
-            );
-            if (statusRes.newAccessToken) connectorContext.mcpToken = statusRes.newAccessToken;
-            if (statusRes.newRefreshToken) connectorContext.mcpRefreshToken = statusRes.newRefreshToken;
-            if (!statusRes.success) return 'Unable to read Composio connection status: ' + String(statusRes.error || 'unknown error');
-            const connected = statusRes.statuses.flatMap((entry: any) =>
-              (entry.accounts || []).map((account: any) => ({ ...account, app_name: entry.toolkit }))
-            );
-            return formatConnectorResult(String(connectorContext.requestText || ''), { data: { connected_accounts: connected } });
-          }
-
-          const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          const rawText = mcpContentToText(res.data);
-          if (!res.success) return clip(rawText || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' }));
-          const compact = /(?:SEARCH_TOOLS|GET_TOOL_SCHEMAS|MULTI_EXECUTE)/i.test(name)
-            ? compactComposioToolResult(String(connectorContext.requestText || ''), name, rawText)
-            : rawText;
-          return clip(compact || JSON.stringify({ successful: true }));
-        }
-
-        // Legacy wrapper names still resolve to the real MCP tools.
-        if (name === 'Search_Composio_Tools' || name === 'COMPOSIO_SEARCH_SKILLS' || name === 'connector_search' || name === 'composio_search_tools') {
-          const query = String(args?.query || args?.search || '');
-          const searchTool = pickMcpToolName(liveNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
-          const res = await executeMcpTool(connectorContext.mcpToken, searchTool, { queries: [{ use_case: query }], session: { generate_id: true } }, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-
-        if (name === 'Multi_Execute_Composio_Tools' || name === 'connector_execute' || name === 'composio_execute_action') {
-          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          const payload = args?.action ? { tools: [{ name: args.action, arguments: args.params || args.arguments || {} }] } : args;
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, payload, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-
-        if (name === 'Manage_connections' || name === 'connector_manage_connections' || name === 'COMPOSIO_MANAGE_CONNECTIONS') {
-          const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-          const toolkits = Array.isArray(args?.toolkits) ? args.toolkits.map(String).filter(Boolean) : [];
-          if (!toolkits.length) return 'COMPOSIO_MANAGE_CONNECTIONS requires explicit toolkit names.';
-          const res = await executeMcpTool(connectorContext.mcpToken, manageTool, { ...args, toolkits }, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-
-        // Built-in actions mapped to Composio "For You" MCP
-        if (builtInToMcpAction[name]) {
-          const mcpAction = builtInToMcpAction[name];
-          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
-            tools: [{ name: mcpAction, arguments: args || {} }]
-          }, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-
-        // Direct action slug dispatcher (e.g. YOUTUBE_CREATE_PLAYLIST) routed via MULTI_EXECUTE
-        if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {
-          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
-            tools: [{ name, arguments: args || {} }]
-          }, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-      } catch (mcpErr: any) {
-        console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
-      }
-    } else {
-      // If NOT connected to Composio "For You" MCP, do not fabricate or fall back to another connector runtime.
-      const isComposioTool =
-        name.startsWith('COMPOSIO_') ||
-        name.startsWith('connector_') ||
-        Boolean(builtInToMcpAction[name]) ||
-        ['Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections', 'composio_execute_action', 'composio_search_tools'].includes(name) ||
-        /^[A-Z0-9]+_[A-Z0-9_]+$/.test(name);
-
-      if (isComposioTool) {
-        return 'Composio "For You" is not connected yet. Click Connectors in the top right, click "+ Add", enter the MCP URL (https://connect.composio.dev/mcp), and sign in to connect.';
-      }
     }
 
     if (name === 'web_search') {

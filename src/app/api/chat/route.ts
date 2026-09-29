@@ -52,6 +52,32 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'execute_code',
+      description: 'Run Python, JavaScript, or TypeScript code in an isolated temporary cloud sandbox. Use this when the user asks you to execute, test, calculate with, debug by running, or verify code. Never claim code was executed unless this tool returns an execution result.',
+      parameters: {
+        type: 'object',
+        properties: {
+          language: {
+            type: 'string',
+            enum: ['python', 'javascript', 'typescript'],
+            description: 'Programming language.',
+          },
+          code: {
+            type: 'string',
+            description: 'Complete source code to execute.',
+          },
+          timeout_ms: {
+            type: 'number',
+            description: 'Optional execution timeout in milliseconds, from 1000 to 30000.',
+          },
+        },
+        required: ['language', 'code'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'github_lookup',
       description: 'Get real repository stats and recent commits for a GitHub repo.',
       parameters: {
@@ -401,6 +427,15 @@ async function runAgentTool(
       }
     }
 
+    if (name === 'execute_code') {
+      const { executeCodeInSandbox } = await import('@/lib/codeSandbox');
+      return executeCodeInSandbox({
+        language: String(args?.language || ''),
+        code: String(args?.code || ''),
+        timeoutMs: Number(args?.timeout_ms) || 15000,
+      });
+    }
+
     if (name === 'github_lookup') {
       const repo = String(args?.repo || '').trim();
       if (!repo) return 'No repo provided.';
@@ -470,6 +505,7 @@ When connected to Composio "For You" (https://connect.composio.dev/mcp) or user-
 - COMPOSIO_MANAGE_CONNECTIONS: Start, rename, or remove an explicitly requested toolkit connection. Never use it to inspect connection status.
 - web_search: Search the live web for facts, news, and current information.
 - web_fetch: Fetch readable content from any URL.
+- execute_code: Run Python, JavaScript, or TypeScript in an isolated disposable Vercel Sandbox and return the real stdout/stderr and exit code.
 
 CONNECTED APPS DIRECTIVE:
 - When asked what apps or services are connected, use COMPOSIO_SEARCH_TOOLS connection-status results. Never call COMPOSIO_MANAGE_CONNECTIONS for a status/list/check request.

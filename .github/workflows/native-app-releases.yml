@@ -19,7 +19,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run electron:build
+      - run: npx electron-builder --win --x64 --publish never
       - name: Normalize Windows installer name
         shell: pwsh
         run: |

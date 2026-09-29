@@ -11,19 +11,6 @@ interface DownloadModalProps {
 export default function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
   const [downloadingDesktop, setDownloadingDesktop] = useState(false);
   const [downloadingApk, setDownloadingApk] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  }, []);
-
   if (!isOpen) return null;
 
   const getAppUrl = () => {
@@ -35,46 +22,14 @@ export default function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
 
   const handleDownloadWindows = () => {
     setDownloadingDesktop(true);
-    const targetUrl = getAppUrl();
-    const launcherScript = `@echo off
-title Claude Pro Max Desktop Launcher
-echo Launching Claude Pro Max Enterprise...
-start ${targetUrl}
-`;
-    const blob = new Blob([launcherScript], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Claude-Pro-Max-Launcher.bat';
-    a.click();
-    URL.revokeObjectURL(url);
+    window.location.href = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Setup.exe';
     setTimeout(() => setDownloadingDesktop(false), 2500);
   };
 
   const handleDownloadApk = () => {
     setDownloadingApk(true);
-    const targetUrl = getAppUrl();
-    // Trigger PWA install if available or download webapp shortcut
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      deferredPrompt.userChoice.then((choiceResult: any) => {
-        if (choiceResult.outcome === 'accepted') {
-          setIsInstalled(true);
-        }
-        setDeferredPrompt(null);
-      });
-    } else {
-      // Create Android web bookmark installer
-      const androidPayload = `[InternetShortcut]\nURL=${targetUrl}\nIconIndex=0`;
-      const blob = new Blob([androidPayload], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'Claude-Mobile-App.url';
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-    setTimeout(() => setDownloadingApk(false), 2000);
+    window.location.href = 'https://github.com/sameer-sys/claude-enterprise-app/releases/latest/download/Sameer-AI-Workspace-Android.apk';
+    setTimeout(() => setDownloadingApk(false), 2500);
   };
 
   return (
@@ -128,11 +83,11 @@ start ${targetUrl}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-[#cc785c]" />
-                    <span>Global hotkey (Ctrl+Shift+C)</span>
+                    <span>Native Electron desktop runtime</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-[#cc785c]" />
-                    <span>100% Free • No license key required</span>
+                    <span>Windows 10 / 11 (64-bit) installer</span>
                   </div>
                 </div>
               </div>
@@ -149,7 +104,7 @@ start ${targetUrl}
                 ) : (
                   <>
                     <Download className="w-4 h-4 stroke-[2.5]" />
-                    <span>Download for Windows (.exe)</span>
+                    <span>Download Windows App (.exe)</span>
                   </>
                 )}
               </button>
@@ -172,15 +127,15 @@ start ${targetUrl}
                 <div className="space-y-1 text-[11px] text-[#baa898]">
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Works on Android & iPhone</span>
+                    <span>Real Android app package (.apk)</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>1-Tap Add to Home Screen (PWA)</span>
+                    <span>Native Android app container</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Direct APK Installer Package</span>
+                    <span>iOS app will be distributed through Apple signing/App Store</span>
                   </div>
                 </div>
               </div>
@@ -197,7 +152,7 @@ start ${targetUrl}
                 ) : (
                   <>
                     <Download className="w-4 h-4 text-[#cc785c]" />
-                    <span>Download Mobile App (.apk / PWA)</span>
+                    <span>Download Android App (.apk)</span>
                   </>
                 )}
               </button>
@@ -212,7 +167,7 @@ start ${targetUrl}
               </div>
               <div>
                 <p className="text-[#ece9e2] font-medium">Use on phone directly via browser:</p>
-                <p className="text-[11px] text-[#8a8579]">Open <span className="font-mono text-[#cc785c]">{getAppUrl()}</span> on your mobile browser & tap "Install App"</p>
+                <p className="text-[11px] text-[#8a8579]">The Android button downloads the real installable APK. The web app remains available separately.</p>
               </div>
             </div>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400">

@@ -1,4 +1,4 @@
-const VERCEL_API_BASE = 'https://vercel.com/api';
+const VERCEL_API_BASE = 'https://api.vercel.com';
 
 type CodeLanguage = 'python' | 'javascript' | 'typescript';
 
@@ -84,7 +84,7 @@ async function parseCommandStream(response: Response): Promise<{ exitCode: numbe
       if (item?.stream === 'stdout') stdout += String(item.data || '');
       else if (item?.stream === 'stderr') stderr += String(item.data || '');
       else if (item?.stream === 'error') stderr += String(item.data?.message || item.data || '');
-      else if (item?.command && typeof item.command.exitCode === 'number') exitCode = item.command.exitCode;
+      else if (item?.command && item.command.exitCode != null) exitCode = Number(item.command.exitCode);
     } catch {
       // Ignore any non-JSON transport fragments.
     }
@@ -124,7 +124,7 @@ export async function executeCodeInSandbox(input: {
         timeout: timeoutMs,
         resources: { vcpus: 1 },
         persistent: false,
-        networkPolicy: { allow: {} },
+        networkPolicy: { mode: 'custom', allowedDomains: [], allowedCIDRs: [], deniedCIDRs: [] },
       }),
     });
 

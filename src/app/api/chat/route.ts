@@ -1009,7 +1009,7 @@ export async function POST(req: NextRequest) {
     const baseTools = mcpModeActive
       ? AGENT_TOOLS.filter((t: any) => !mcpWrapperNames.has(String(t?.function?.name || '')))
       : AGENT_TOOLS;
-    const effectiveTools = connectorRequestWillUseNativeRemoteTools()
+    const effectiveTools = hasFocusedRemoteTools && !mcpModeActive
       ? connectorFocusedTools
       : [
           ...baseTools,
@@ -1018,7 +1018,46 @@ export async function POST(req: NextRequest) {
         ];
     let forceConnectorTool = false;
 
-    const connectorRequestWillUseNativeRemoteTools = () => hasFocusedRemoteTools && !mcpModeActive;
+
+    const pickFocusedRemoteTool = () => {
+      if (!connectorFocusedTools.length) return '';
+      const query = String(lastText || '').toLowerCase();
+      const words = query.split(/[^a-z0-9]+/).filter((word: string) => word.length >= 3);
+      const actionWords = ['create','add','send','reply','update','edit','delete','remove','move','rename','upload','download','search','find','list','show','get','read','check','schedule','post','comment'];
+      const preferred = actionWords.filter((word) => query.includes(word));
+      let best = connectorFocusedTools[0];
+      let bestScore = -Infinity;
+
+      for (const tool of connectorFocusedTools) {
+        const name = String(tool?.originalName || tool?.function?.name || '').toLowerCase();
+        const description = String(tool?.function?.description || '').toLowerCase();
+        const haystack = name + ' ' + description;
+        let score = 0;
+
+        for (const word of words) {
+          if (name.includes(word)) score += 8;
+          else if (description.includes(word)) score += 3;
+        }
+
+        for (const action of preferred) {
+          if (name.includes(action)) score += 5;
+        }
+
+        if (/(repository|repositories|repo|repos)/.test(query) && /(repository|repositories|repo|repos)/.test(haystack)) score += 35;
+        if (/(pull request|pr|issue|commit|branch)/.test(query) && /(pull|request|issue|commit|branch)/.test(haystack)) score += 20;
+        if (/(email|inbox|mail|message|thread)/.test(query) && /(email|mail|message|thread)/.test(haystack)) score += 35;
+        if (/(calendar|meeting|event|schedule)/.test(query) && /(calendar|event|meeting|schedule)/.test(haystack)) score += 35;
+        if (/(drive|file|folder|document)/.test(query) && /(file|folder|document|drive)/.test(haystack)) score += 35;
+        if (/(slack|channel)/.test(query) && /(slack|channel|message|thread)/.test(haystack)) score += 35;
+        if (/(notion|page|database)/.test(query) && /(notion|page|database)/.test(haystack)) score += 35;
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = tool;
+        }
+      }
+      return String(best?.function?.name || '');
+    };
 
     const remoteConnectorMention = (Array.isArray(connectors) ? connectors : [])
       .some((connector: any) =>
@@ -1121,7 +1160,7 @@ export async function POST(req: NextRequest) {
                     : ({
                         type: 'function',
                         function: {
-                          name: String(connectorFocusedTools[0]?.function?.name || ''),
+                          name: pickFocusedRemoteTool(),
                         },
                       }))
                 : 'auto',

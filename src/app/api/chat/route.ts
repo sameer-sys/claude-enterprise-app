@@ -154,7 +154,13 @@ function findConnectorForTool(connectorContext: any, toolName: string): any {
   if (remote) return remote;
   const connectors = Array.isArray(connectorContext.connectors) ? connectorContext.connectors : [];
   const lower = String(toolName || '').toLowerCase();
-  const composio = connectors.find((c: any) => String(c?.id || '') === 'conn-composio' || String(c?.name || '').toLowerCase().includes('composio'));
+  const toolkit = lower.split('_')[0];
+  const composio = connectors.find((c: any) =>
+    String(c?.id || '') === 'conn-composio' ||
+    String(c?.name || '').toLowerCase().includes('composio') ||
+    (String(c?.provider || '').toLowerCase() === 'composio' &&
+      String(c?.config?.composioToolkit || '').toLowerCase() === toolkit)
+  );
   return lower.includes('composio') || /^[A-Z0-9]+_[A-Z0-9_]+$/.test(toolName) ? composio : undefined;
 }
 

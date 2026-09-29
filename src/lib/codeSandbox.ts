@@ -12,8 +12,8 @@ function decodeJwtClaims(token: string): { owner_id?: string; project_id?: strin
   }
 }
 
-function getSandboxAuth(): { token: string; teamId: string; projectId: string } | null {
-  const token = String(process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL_TOKEN || '').trim();
+function getSandboxAuth(requestOidcToken?: string): { token: string; teamId: string; projectId: string } | null {
+  const token = String(requestOidcToken || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL_TOKEN || '').trim();
   if (!token) return null;
 
   const claims = decodeJwtClaims(token);
@@ -58,10 +58,10 @@ function normalizeLanguage(raw: string): CodeLanguage | null {
 function runtimeFor(language: CodeLanguage): { image: string; command: string; args: string[] } {
   switch (language) {
     case 'python':
-      return { image: 'vercel/sandbox/python:3.14', command: 'python', args: ['-c'] };
+      return { image: 'vercel/sandbox/universal:latest', command: 'python', args: ['-c'] };
     case 'typescript':
       return {
-        image: 'vercel/sandbox/node:24',
+        image: 'vercel/sandbox/universal:latest',
         command: 'node',
         args: ['--experimental-strip-types', '--input-type=module', '-e'],
       };
@@ -97,8 +97,9 @@ export async function executeCodeInSandbox(input: {
   language: string;
   code: string;
   timeoutMs?: number;
+  requestOidcToken?: string;
 }): Promise<string> {
-  const auth = getSandboxAuth();
+  const auth = getSandboxAuth(input.requestOidcToken);
   if (!auth) {
     return 'CODE_EXECUTION_UNAVAILABLE: Vercel Sandbox authentication is not configured. Set VERCEL_OIDC_TOKEN, or VERCEL_TOKEN together with VERCEL_TEAM_ID and VERCEL_PROJECT_ID.';
   }
@@ -123,7 +124,7 @@ export async function executeCodeInSandbox(input: {
         timeout: timeoutMs,
         resources: { vcpus: 1 },
         persistent: false,
-        networkPolicy: { allow: [] },
+        networkPolicy: { allow: {} },
       }),
     });
 

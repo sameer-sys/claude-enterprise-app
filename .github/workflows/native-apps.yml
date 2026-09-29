@@ -1,0 +1,88 @@
+name: Build Native Apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: Build Windows Desktop Installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run electron:build
+      - shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path dist-electron -Filter *.exe | Select-Object -First 1
+          if (-not $installer) { throw "Electron installer was not produced." }
+          Copy-Item $installer.FullName "dist-electron/Sameer-AI-Workspace-Setup.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist-electron/Sameer-AI-Workspace-Setup.exe
+
+  android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - name: Install Capacitor dependencies
+        working-directory: mobile
+        run: npm install
+      - name: Generate Android project
+        working-directory: mobile
+        run: npx cap add android
+      - name: Build debug APK
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug
+      - name: Prepare stable APK name
+        run: |
+          mkdir -p mobile-dist
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile-dist/Sameer-AI-Workspace-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: mobile-dist/Sameer-AI-Workspace-Android.apk
+
+  release:
+    name: Publish Native App Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: release-assets
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: release-assets
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" release-assets/* \
+            --repo "${{ github.repository }}" \
+            --title "Sameer AI Workspace ${{ github.ref_name }}" \
+            --generate-notes

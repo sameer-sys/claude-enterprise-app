@@ -205,22 +205,28 @@ export function connectorForToolkit(toolkit: string): ComposioCatalogItem | unde
 
 export function toOpenAITool(tool: any): any {
   const slug = String(tool?.slug || '');
-  const input = tool?.input_parameters || tool?.input_schema || tool?.inputSchema || {};
-  const properties: Record<string, any> = {};
-  const required: string[] = [];
+  const rawInput = tool?.input_parameters || tool?.input_schema || tool?.inputSchema || {};
+  const input = rawInput && typeof rawInput === 'object' && rawInput.properties
+    ? rawInput
+    : { type: 'object', properties: rawInput };
 
-  if (input && typeof input === 'object') {
-    for (const [key, value] of Object.entries(input)) {
-      const v: any = value || {};
-      properties[key] = {
-        type: v.type || 'string',
-        description: String(v.description || '').slice(0, 500),
-        ...(v.enum ? { enum: v.enum } : {}),
-        ...(v.items ? { items: v.items } : {}),
-      };
-      if (v.required === true) required.push(key);
-    }
+  const properties: Record<string, any> = {};
+  const inputProperties = input?.properties && typeof input.properties === 'object' ? input.properties : {};
+  for (const [key, value] of Object.entries(inputProperties)) {
+    const v: any = value || {};
+    properties[key] = {
+      type: v.type || 'string',
+      description: String(v.description || '').slice(0, 500),
+      ...(v.enum ? { enum: v.enum } : {}),
+      ...(v.items ? { items: v.items } : {}),
+      ...(v.oneOf ? { oneOf: v.oneOf } : {}),
+      ...(v.anyOf ? { anyOf: v.anyOf } : {}),
+    };
   }
+
+  const required = Array.isArray(input?.required)
+    ? input.required.map(String)
+    : Object.entries(inputProperties).filter(([, value]: any) => value?.required === true).map(([key]) => key);
 
   return {
     type: 'function',
@@ -231,7 +237,7 @@ export function toOpenAITool(tool: any): any {
         type: 'object',
         properties,
         ...(required.length ? { required } : {}),
-        additionalProperties: true,
+        additionalProperties: input?.additionalProperties !== false,
       },
     },
   };

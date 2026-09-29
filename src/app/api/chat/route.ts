@@ -1102,9 +1102,15 @@ export async function POST(req: NextRequest) {
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
 
-    // New first-class connector runtime. When configured, connector requests
-    // never enter the legacy Composio For You/MCP path.
+    // New first-class connector runtime. Connector requests never fall back to
+    // the legacy Composio For You/MCP connector runtime.
     if (isConnectorRelatedRequest(lastText)) {
+      if (!hasComposioPlatformKey()) {
+        return streamTextDirectly(
+          'Connectors are not configured on the server yet. Add COMPOSIO_API_KEY in the production environment, then reopen Connectors.',
+          'Connector Hub'
+        );
+      }
       try {
         const platformResponse = await runComposioPlatformAgent({
           requestText: lastText,
@@ -1117,12 +1123,10 @@ export async function POST(req: NextRequest) {
         if (platformResponse) return platformResponse;
       } catch (platformErr: any) {
         console.error('[COMPOSIO PLATFORM ERR]', platformErr?.message || platformErr);
-        if (hasComposioPlatformKey()) {
-          return streamTextDirectly(
-            'Connector execution failed: ' + String(platformErr?.message || 'unknown error') + '. No connector action was fabricated.',
-            'Connector Hub'
-          );
-        }
+        return streamTextDirectly(
+          'Connector execution failed: ' + String(platformErr?.message || 'unknown error') + '. No connector action was fabricated.',
+          'Connector Hub'
+        );
       }
     }
 

@@ -67,7 +67,7 @@ export default function DownloadPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-[#cc785c]" />
-                  <span>Works on Chrome & Edge — 100% Free</span>
+                  <span>Native Windows installer — 64-bit</span>
                 </div>
               </div>
             </div>
@@ -110,20 +110,20 @@ export default function DownloadPage() {
               </div>
             </div>
 
-            <button
-              
+            <a
+              href={androidDownloadUrl}
               className="w-full py-3 px-4 rounded-xl bg-[#2b2923] hover:bg-[#38352d] border border-[#3e3b32] text-[#ece9e2] font-bold text-sm shadow-sm transition-all flex items-center justify-center space-x-2 active:scale-95"
             >
               <Download className="w-4 h-4 text-[#cc785c]" />
-              <span>Download Mobile App (.apk / PWA)</span>
-            </button>
+              <span>Download Android App (.apk)</span>
+            </a>
           </div>
         </div>
 
         {/* Security badge */}
         <div className="flex items-center justify-center space-x-2 text-xs text-[#8a8579]">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Official signed builds • 100% Free & Open Source</span>
+          <span>Official native builds • Web app remains unchanged</span>
         </div>
       </main>
     </div>

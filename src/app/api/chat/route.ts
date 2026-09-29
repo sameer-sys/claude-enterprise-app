@@ -304,24 +304,24 @@ async function runAgentTool(
 
         if (response.ok) {
           const html = await response.text();
-          const resultPattern = /<div[^>]*class="result[^"]*"[^>]*>([\\s\\S]*?)<\\/div>\\s*<\\/div>/gi;
+          const resultPattern = /<div[^>]*class="result[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi;
           let blockMatch: RegExpExecArray | null;
           while ((blockMatch = resultPattern.exec(html)) !== null && results.length < 8) {
             const block = blockMatch[1];
-            const titleMatch = block.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\\s\\S]*?)<\\/a>/i);
+            const titleMatch = block.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
             if (!titleMatch) continue;
             const snippetMatch =
-              block.match(/class="result__snippet"[^>]*>([\\s\\S]*?)<\\/a>/i) ||
-              block.match(/class="result__snippet"[^>]*>([\\s\\S]*?)<\\/span>/i);
-            const title = decodeHtml(titleMatch[2].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim());
+              block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i) ||
+              block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/span>/i);
+            const title = decodeHtml(titleMatch[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
             const url = unwrapDuckUrl(titleMatch[1]);
             const snippet = decodeHtml(
               String(snippetMatch?.[1] || '')
                 .replace(/<[^>]+>/g, ' ')
-                .replace(/\\s+/g, ' ')
+                .replace(/\s+/g, ' ')
                 .trim()
             );
-            if (title && /^https?:\\/\\//i.test(url)) results.push({ title, url, snippet });
+            if (title && /^https?:\/\//i.test(url)) results.push({ title, url, snippet });
           }
         }
       } catch {}
@@ -372,12 +372,12 @@ async function runAgentTool(
 
       const extractReadableText = (html: string): string => {
         return html
-          .replace(/<script\\b[^<]*(?:(?!<\\/script>)[^<]*)*<\\/script>/gis, ' ')
-          .replace(/<style\\b[^<]*(?:(?!<\\/style>)[^<]*)*<\\/style>/gis, ' ')
-          .replace(/<noscript\\b[^<]*(?:(?!<\\/noscript>)[^<]*)*<\\/noscript>/gis, ' ')
-          .replace(/<(nav|footer|header|aside|form)\\b[^>]*>[\\s\\S]*?<\\/\\1>/gi, ' ')
-          .replace(/<br\\s*\\/?>(?=.)/gi, '\\n')
-          .replace(/<\\/(p|div|article|section|li|h[1-6])>/gi, '\\n')
+          .replace(/<script\\b[^<]*(?:(?!<\/script>)[^<]*)*<\/script>/gis, ' ')
+          .replace(/<style\\b[^<]*(?:(?!<\/style>)[^<]*)*<\/style>/gis, ' ')
+          .replace(/<noscript\\b[^<]*(?:(?!<\/noscript>)[^<]*)*<\/noscript>/gis, ' ')
+          .replace(/<(nav|footer|header|aside|form)\\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+          .replace(/<br\s*\/?>(?=.)/gi, '\\n')
+          .replace(/<\/(p|div|article|section|li|h[1-6])>/gi, '\\n')
           .replace(/<[^>]+>/g, ' ')
           .replace(/&nbsp;/gi, ' ')
           .replace(/&amp;/gi, '&')
@@ -412,9 +412,9 @@ async function runAgentTool(
         }
 
         const title =
-          raw.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1]
+          raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
             ?.replace(/<[^>]+>/g, ' ')
-            .replace(/\\s+/g, ' ')
+            .replace(/\s+/g, ' ')
             .trim() || '';
         const canonical = raw.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1] || finalUrl;
         const text = extractReadableText(raw);
@@ -431,7 +431,7 @@ async function runAgentTool(
         // Public reader fallback for JS-heavy pages.
         try {
           const readerResponse = await fetch(
-            `https://r.jina.ai/http://${safeUrl.toString().replace(/^https?:\\/\\//i, '')}`,
+            `https://r.jina.ai/http://${safeUrl.toString().replace(/^https?:\/\//i, '')}`,
             {
               headers: { 'User-Agent': 'Sameer-AI-Workspace/1.0', Accept: 'text/plain' },
               signal: AbortSignal.timeout(12000),

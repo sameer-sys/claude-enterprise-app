@@ -75,7 +75,13 @@ export async function GET(req: NextRequest) {
         if (toolListRes.newAccessToken) activeMcpToken = toolListRes.newAccessToken;
         if ((toolListRes as any).newRefreshToken) activeRefreshToken = (toolListRes as any).newRefreshToken;
         if (toolListRes.success && Array.isArray(toolListRes.result?.tools)) {
-          tools = toolListRes.result.tools;
+          tools = toolListRes.result.tools
+          .filter((tool: any) => tool && typeof tool.name === 'string')
+          .slice(0, 80)
+          .map((tool: any) => ({
+            name: String(tool.name),
+            description: String(tool.description || '').slice(0, 300),
+          }));
         }
 
         const statusRes = await getComposioToolkitConnectionStatuses(

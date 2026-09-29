@@ -738,9 +738,9 @@ function formatConnectorResult(requestText: string, result: any): string {
     const manageUrl = data.redirect_url || data.manage_url || data.url;
     if (Array.isArray(connections)) {
       if (connections.length === 0) {
-        let msg = 'You currently have **0 external apps** connected in your personal Composio "For You" session.';
+        let msg = 'You currently have **0 connected apps**.';
         if (manageUrl) {
-          msg += `\n\nLink your apps (YouTube, GitHub, Gmail, Slack, etc.) here: [Connect Apps on Composio](${manageUrl})`;
+          msg += `\n\nConnect more apps here: [Open Connectors](${manageUrl})`;
         } else {
           msg += '\n\nTo link YouTube, GitHub, Gmail, or add CLI/MCP tools, click **Connectors** in the top right to authenticate or add custom tools.';
         }
@@ -754,7 +754,7 @@ function formatConnectorResult(requestText: string, result: any): string {
       });
       let response = `Here are your live connected apps from Composio "For You":\n\n` + lines.join('\n');
       if (manageUrl) {
-        response += `\n\nManage or link more apps here: [Composio Connection Manager](${manageUrl})`;
+        response += `\n\nOpen Connectors to manage these accounts or connect another app: [Open Connectors](${manageUrl})`;
       }
       return response;
     }

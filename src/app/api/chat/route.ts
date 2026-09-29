@@ -442,36 +442,19 @@ function isConnectorRelatedRequest(text: string): boolean {
 
 function attachMcpSession(
   response: Response,
-  context?: { mcpToken?: string; mcpRefreshToken?: string; composioUserId?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
+  context?: { composioUserId?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
 ): Response {
-  if (!context?.mcpToken && !context?.composioUserId) return response;
+  if (!context?.composioUserId && !context?.remoteMcpUpdates) return response;
 
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  const base = '; Path=/; HttpOnly; SameSite=Lax' + secure;
+  const httpOnlyBase = '; Path=/; HttpOnly; SameSite=Lax' + secure;
 
   if (context?.composioUserId) {
     response.headers.append(
       'Set-Cookie',
-      'sameer_composio_user_id=' + encodeURIComponent(context.composioUserId) + base + '; Max-Age=' + 60 * 60 * 24 * 365 * 5
+      'sameer_composio_user_id=' + encodeURIComponent(context.composioUserId) + httpOnlyBase + '; Max-Age=' + 60 * 60 * 24 * 365 * 5
     );
   }
-
-  response.headers.append(
-    'Set-Cookie',
-    'composio_mcp_token=' + encodeURIComponent(context.mcpToken) + base + '; Max-Age=' + 30 * 24 * 3600
-  );
-
-  if (context.mcpRefreshToken) {
-    response.headers.append(
-      'Set-Cookie',
-      'composio_mcp_refresh_token=' + encodeURIComponent(context.mcpRefreshToken) + base + '; Max-Age=' + 90 * 24 * 3600
-    );
-  }
-
-  response.headers.append(
-    'Set-Cookie',
-    'composio_mcp_access_token=; Path=/; HttpOnly; SameSite=Lax' + secure + '; Max-Age=0'
-  );
 
   const remoteUpdates = context?.remoteMcpUpdates || {};
   const contextConnectors = context?.connectors || [];
@@ -484,10 +467,11 @@ function attachMcpSession(
   return response;
 }
 
+
 function streamTextDirectly(
   text: string,
   detectedSkill: string,
-  mcpContext?: { mcpToken?: string; mcpRefreshToken?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
+  mcpContext?: { composioUserId?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
 ): Response {
   const encoder = new TextEncoder();
   return attachMcpSession(new Response(

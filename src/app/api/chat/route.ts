@@ -267,73 +267,188 @@ async function runAgentTool(
     if (name === 'web_search') {
       const queryClean = String(args?.query || '').trim();
       if (!queryClean) return 'No query provided.';
-      let out = '';
+
+      const decodeHtml = (value: string): string =>
+        value
+          .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+          .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+          .replace(/&quot;/gi, '"')
+          .replace(/&#39;|&apos;/gi, "'")
+          .replace(/&amp;/gi, '&')
+          .replace(/&lt;/gi, '<')
+          .replace(/&gt;/gi, '>');
+
+      const unwrapDuckUrl = (rawHref: string): string => {
+        try {
+          const href = rawHref.startsWith('//') ? `https:${rawHref}` : rawHref;
+          const parsed = new URL(href, 'https://duckduckgo.com');
+          const uddg = parsed.searchParams.get('uddg');
+          return uddg ? decodeURIComponent(uddg) : href;
+        } catch {
+          return rawHref;
+        }
+      };
+
+      const results: Array<{ title: string; url: string; snippet: string }> = [];
       try {
-        const ddgHtmlRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(queryClean)}`, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          },
-          signal: AbortSignal.timeout(8000),
-        });
-        if (ddgHtmlRes.ok) {
-          const html = await ddgHtmlRes.text();
-          const regex = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
-          let match;
-          const snippets: string[] = [];
-          while ((match = regex.exec(html)) !== null && snippets.length < 6) {
-            const clean = match[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-            if (clean) snippets.push(clean);
+        const response = await fetch(
+          `https://html.duckduckgo.com/html/?q=${encodeURIComponent(queryClean)}`,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36',
+              Accept: 'text/html,application/xhtml+xml',
+            },
+            signal: AbortSignal.timeout(10000),
           }
-          if (snippets.length > 0) {
-            out += 'Search Results:\n' + snippets.map((s, idx) => `${idx + 1}. ${s}`).join('\n') + '\n';
+        );
+
+        if (response.ok) {
+          const html = await response.text();
+          const resultPattern = /<div[^>]*class="result[^"]*"[^>]*>([\\s\\S]*?)<\\/div>\\s*<\\/div>/gi;
+          let blockMatch: RegExpExecArray | null;
+          while ((blockMatch = resultPattern.exec(html)) !== null && results.length < 8) {
+            const block = blockMatch[1];
+            const titleMatch = block.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\\s\\S]*?)<\\/a>/i);
+            if (!titleMatch) continue;
+            const snippetMatch =
+              block.match(/class="result__snippet"[^>]*>([\\s\\S]*?)<\\/a>/i) ||
+              block.match(/class="result__snippet"[^>]*>([\\s\\S]*?)<\\/span>/i);
+            const title = decodeHtml(titleMatch[2].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim());
+            const url = unwrapDuckUrl(titleMatch[1]);
+            const snippet = decodeHtml(
+              String(snippetMatch?.[1] || '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\\s+/g, ' ')
+                .trim()
+            );
+            if (title && /^https?:\\/\\//i.test(url)) results.push({ title, url, snippet });
           }
         }
-      } catch (e) {}
+      } catch {}
 
-      try {
-        const ddgRes = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(queryClean)}&format=json&no_html=1&skip_disambig=1`, { signal: AbortSignal.timeout(6000) });
-        if (ddgRes.ok) {
-          const d = await ddgRes.json();
-          if (d.AbstractText) out += `Summary: ${d.AbstractText} (Source: ${d.AbstractURL || 'Web'})\n`;
-        }
-      } catch (e) {}
+      if (results.length === 0) {
+        try {
+          const response = await fetch(
+            `https://api.duckduckgo.com/?q=${encodeURIComponent(queryClean)}&format=json&no_html=1&skip_disambig=1`,
+            { headers: { 'User-Agent': 'Sameer-AI-Workspace/1.0' }, signal: AbortSignal.timeout(7000) }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.AbstractURL && (data.AbstractText || data.Heading)) {
+              results.push({
+                title: String(data.Heading || queryClean),
+                url: String(data.AbstractURL),
+                snippet: String(data.AbstractText || ''),
+              });
+            }
+            for (const topic of Array.isArray(data.RelatedTopics) ? data.RelatedTopics : []) {
+              if (results.length >= 8) break;
+              if (topic?.FirstURL && topic?.Text) {
+                results.push({
+                  title: String(topic.Text).split(' - ')[0].trim().slice(0, 180),
+                  url: String(topic.FirstURL),
+                  snippet: String(topic.Text),
+                });
+              }
+            }
+          }
+        } catch {}
+      }
 
-      try {
-        const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(queryClean)}`, { headers: { 'User-Agent': 'Claude-Enterprise-App' }, signal: AbortSignal.timeout(6000) });
-        if (wikiRes.ok) {
-          const d = await wikiRes.json();
-          if (d.extract) out += `Wikipedia: ${d.extract}\n`;
-        }
-      } catch (e) {}
-
-      return out || 'No search results found.';
+      if (results.length === 0) return 'No search results found for: ' + queryClean;
+      return [
+        `Web search results for: ${queryClean}`,
+        ...results.map((item, index) =>
+          `${index + 1}. ${item.title}\\nURL: ${item.url}${item.snippet ? `\\nSnippet: ${item.snippet}` : ''}`
+        ),
+      ].join('\\n\\n');
     }
 
     if (name === 'web_fetch') {
-      const targetUrl = String(args?.url || '').replace(/[.,;:)]+$/, '');
+      const targetUrl = String(args?.url || '').trim().replace(/[.,;:)>]+$/, '');
       if (!targetUrl) return 'No URL provided.';
       const safeUrl = getSafeHttpUrl(targetUrl);
       if (!safeUrl) return 'Fetch blocked: only public HTTP(S) URLs are allowed.';
-      const res = await fetch(safeUrl.toString(), {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) return `Fetch failed with status ${res.status}.`;
-      const rawHtml = await res.text();
-      const cleanText = rawHtml
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
-        .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, ' ')
-        .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, ' ')
-        .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, ' ')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 4000);
-      return cleanText.length > 40 ? cleanText : 'Fetched the page but found little readable text (it may be JS-rendered).';
+
+      const extractReadableText = (html: string): string => {
+        return html
+          .replace(/<script\\b[^<]*(?:(?!<\\/script>)[^<]*)*<\\/script>/gis, ' ')
+          .replace(/<style\\b[^<]*(?:(?!<\\/style>)[^<]*)*<\\/style>/gis, ' ')
+          .replace(/<noscript\\b[^<]*(?:(?!<\\/noscript>)[^<]*)*<\\/noscript>/gis, ' ')
+          .replace(/<(nav|footer|header|aside|form)\\b[^>]*>[\\s\\S]*?<\\/\\1>/gi, ' ')
+          .replace(/<br\\s*\\/?>(?=.)/gi, '\\n')
+          .replace(/<\\/(p|div|article|section|li|h[1-6])>/gi, '\\n')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/&quot;/gi, '"')
+          .replace(/&#39;|&apos;/gi, "'")
+          .replace(/&lt;/gi, '<')
+          .replace(/&gt;/gi, '>')
+          .replace(/\\u00a0/g, ' ')
+          .replace(/[ \\t]+/g, ' ')
+          .replace(/\\n[ \\t]+/g, '\\n')
+          .replace(/\\n{3,}/g, '\\n\\n')
+          .trim();
+      };
+
+      try {
+        const response = await fetch(safeUrl.toString(), {
+          redirect: 'follow',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.8',
+          },
+          signal: AbortSignal.timeout(12000),
+        });
+
+        if (!response.ok) return `Fetch failed with status ${response.status}.`;
+        const finalUrl = response.url || safeUrl.toString();
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        const raw = await response.text();
+
+        if (contentType.includes('application/json')) {
+          return `Fetched URL: ${finalUrl}\\nContent-Type: ${contentType}\\n\\n${raw.slice(0, 12000)}`;
+        }
+
+        const title =
+          raw.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1]
+            ?.replace(/<[^>]+>/g, ' ')
+            .replace(/\\s+/g, ' ')
+            .trim() || '';
+        const canonical = raw.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1] || finalUrl;
+        const text = extractReadableText(raw);
+
+        if (text.length >= 120) {
+          return [
+            `Fetched URL: ${finalUrl}`,
+            title ? `Title: ${title}` : '',
+            canonical ? `Canonical: ${canonical}` : '',
+            `\\n${text.slice(0, 12000)}`,
+          ].filter(Boolean).join('\\n');
+        }
+
+        // Public reader fallback for JS-heavy pages.
+        try {
+          const readerResponse = await fetch(
+            `https://r.jina.ai/http://${safeUrl.toString().replace(/^https?:\\/\\//i, '')}`,
+            {
+              headers: { 'User-Agent': 'Sameer-AI-Workspace/1.0', Accept: 'text/plain' },
+              signal: AbortSignal.timeout(12000),
+            }
+          );
+          if (readerResponse.ok) {
+            const readerText = (await readerResponse.text()).trim();
+            if (readerText.length >= 80) {
+              return `Fetched URL: ${finalUrl}\\n\\n${readerText.slice(0, 12000)}`;
+            }
+          }
+        } catch {}
+
+        return 'Fetched the page but found little readable text; it may be JavaScript-rendered or require authentication.';
+      } catch (e: any) {
+        return `Fetch failed: ${e?.message || 'network error'}`;
+      }
     }
 
     if (name === 'github_lookup') {

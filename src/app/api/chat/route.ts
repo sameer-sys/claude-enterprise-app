@@ -212,8 +212,12 @@ async function runAgentTool(
           const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          const text = mcpContentToText(res.data);
-          return clip(res.success ? (text || JSON.stringify({ successful: true })) : (text || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' })));
+          const rawText = mcpContentToText(res.data);
+          if (!res.success) return clip(rawText || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' }));
+          const compact = /(?:SEARCH_TOOLS|GET_TOOL_SCHEMAS|MULTI_EXECUTE)/i.test(name)
+            ? compactComposioToolResult(String(connectorContext.requestText || ''), name, rawText)
+            : rawText;
+          return clip(compact || JSON.stringify({ successful: true }));
         }
 
         // Legacy wrapper names still resolve to the real MCP tools.
@@ -575,6 +579,42 @@ function streamTextDirectly(
   ), mcpContext);
 }
 
+function compactComposioToolResult(requestText: string, toolName: string, data: any): string {
+  let parsed = data;
+  if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { return parsed.trim().slice(0, 12000); } }
+  if (Array.isArray(parsed)) return parsed.slice(0, 20).map((item: any, i: number) => `${i + 1}. ${typeof item === 'string' ? item : JSON.stringify(item)}`).join('\\n');
+  if (!parsed || typeof parsed !== 'object') return String(parsed ?? '');
+  if (/SEARCH_TOOLS/i.test(toolName)) {
+    const candidates: any[] = [];
+    const collect = (value: any) => {
+      if (Array.isArray(value)) for (const item of value) collect(item);
+      else if (value && typeof value === 'object') {
+        const name = value.name || value.tool_name || value.toolName;
+        const description = value.description || value.tool_description || value.summary;
+        if (name) candidates.push({ name: String(name), description: String(description || '').slice(0, 300) });
+        for (const key of ['tools','results','items','data']) if (value[key] !== undefined) collect(value[key]);
+      }
+    };
+    collect(parsed);
+    const unique = Array.from(new Map(candidates.map((x) => [x.name, x])).values()).slice(0, 25);
+    if (unique.length) return 'Relevant Composio tools found:\\n' + unique.map((x, i) => (i + 1) + '. ' + x.name + (x.description ? ' — ' + x.description : '')).join('\\n');
+    return 'Composio tool search completed, but no directly usable tool names were returned. Try a more specific search.';
+  }
+  if (/GET_TOOL_SCHEMAS/i.test(toolName)) {
+    const schemas: any[] = [];
+    const collectSchemas = (value: any) => {
+      if (Array.isArray(value)) for (const item of value) collectSchemas(item);
+      else if (value && typeof value === 'object') {
+        const name = value.name || value.tool_name || value.toolName;
+        if (name && (value.input_schema || value.inputSchema || value.parameters || value.description)) schemas.push({ name: String(name), description: String(value.description || '').slice(0, 300), schema: value.input_schema || value.inputSchema || value.parameters || {} });
+        for (const key of ['tools','schemas','results','items','data']) if (value[key] !== undefined) collectSchemas(value[key]);
+      }
+    };
+    collectSchemas(parsed);
+    if (schemas.length) return JSON.stringify({ tool_schemas: schemas.slice(0, 12) });
+  }
+  return formatConnectorResult(requestText, { data: parsed });
+}
 function formatConnectorResult(requestText: string, result: any): string {
   let data = result?.data ?? result;
   const lower = String(requestText || '').toLowerCase();
@@ -809,11 +849,11 @@ export async function POST(req: NextRequest) {
     if (composioMcpToken) {
       connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n' + [
         "You are connected to the user's personal Composio account through MCP (https://connect.composio.dev/mcp).",
-        "The live Composio tools are in your tool list (COMPOSIO_SEARCH_TOOLS, COMPOSIO_GET_TOOL_SCHEMAS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS and others). Call them by their exact names.",
+        "Composio uses Claude-style deferred tool loading: in Auto or On demand mode the initial tool list is intentionally small (search, schemas, multi-execute, connection management). Search for the relevant app/tool first, inspect schemas when needed, then execute the real action. In Always available mode additional live tools may be exposed directly.",
         "WHEN ASKED ABOUT CONNECTED APPS/ACCOUNTS/SERVICES: Use COMPOSIO_SEARCH_TOOLS to inspect toolkit connection status. NEVER use COMPOSIO_MANAGE_CONNECTIONS just to inspect status because it can initiate auth for missing toolkits.",
         "END-TO-END RULES:",
         "1. Break the request into every step it needs (for example: create a playlist, then add videos to it). Never stop after the first step.",
-        "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS when a schema is missing -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the account when several are connected.",
+        "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS for the exact selected action -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the intended account when several are connected.",
         "3. Independent actions go together in ONE multi-execute call. Steps that need an earlier result (a new playlist id, a list of video ids) run in a later call using the real values returned earlier.",
         "4. Never invent ids, slugs or arguments. Use only values returned by tools. If an app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and give the user the link.",
         "5. Write no reply text until ALL steps are finished or truly blocked. No plans, no 'let me check', no narration between tool calls.",
@@ -890,8 +930,25 @@ export async function POST(req: NextRequest) {
         console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
       }
     }
-    const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
+    let mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
+    const composioConnector = (Array.isArray(connectors) ? connectors : []).find((connector: any) =>
+      String(connector?.id || '') === 'conn-composio' ||
+      String(connector?.name || '').toLowerCase().includes('composio')
+    );
+    const composioToolAccess = String(composioConnector?.config?.toolAccess || 'auto').toLowerCase();
+    const composioCoreTools = mcpLiveTools.filter((tool: any) => {
+      const name = String(tool?.function?.name || '');
+      return /(?:SEARCH_TOOLS|GET_TOOL_SCHEMAS|MULTI_EXECUTE_TOOL|MANAGE_CONNECTIONS)/i.test(name);
+    });
+    // Claude-style tool loading: Auto/On demand keep the full connector catalog
+    // out of the model context and start with the small discovery/execution surface.
+    // Always available intentionally exposes the complete live tool catalog.
+    if (mcpModeActive && composioToolAccess !== 'always') {
+      mcpLiveTools = composioCoreTools;
+      mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
+    }
 
+    mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
     const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};
     const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};
     const runtimeConnectors = (Array.isArray(connectors) ? connectors : []).map((connector: any) => {
@@ -937,20 +994,32 @@ export async function POST(req: NextRequest) {
       for (const item of discovered) {
         if (item.status !== 'fulfilled') continue;
         const connector = item.value.connector;
-        const access = String(connector?.config?.toolAccess || 'auto');
+        const access = String(connector?.config?.toolAccess || 'auto').toLowerCase();
         const disabled = new Set(
           Array.isArray(connector?.config?.disabledTools) ? connector.config.disabledTools.map(String) : []
         );
         const queryWords = String(lastText || '').toLowerCase().split(/[^a-z0-9]+/).filter((word: string) => word.length >= 3);
-        const selectedTools = item.value.tools.filter((tool: any) => {
-          const original = String(tool.originalName || tool.function?.name || '').trim();
-          if (disabled.has(original)) return false;
-          if (access !== 'on_demand') return true;
-          const connectorName = String(connector?.name || '').toLowerCase();
-          if (connectorName && queryWords.some((word: string) => connectorName.includes(word))) return true;
-          const haystack = (String(tool.function?.name || '') + ' ' + String(tool.function?.description || '')).toLowerCase();
-          return queryWords.some((word: string) => haystack.includes(word));
-        });
+        const connectorName = String(connector?.name || '').toLowerCase();
+        const scoredTools = item.value.tools
+          .filter((tool: any) => !disabled.has(String(tool.originalName || tool.function?.name || '').trim()))
+          .map((tool: any) => {
+            if (access === 'always') return { tool, score: 1000 };
+            const haystack = (String(tool.function?.name || '') + ' ' + String(tool.function?.description || '')).toLowerCase();
+            let score = 0;
+            for (const word of queryWords) {
+              if (haystack.includes(word)) score += 3;
+              if (connectorName.includes(word)) score += 2;
+            }
+            return { tool, score };
+          })
+          .sort((a: any, b: any) => b.score - a.score);
+        // Keep remote MCP context bounded. Always exposes all enabled tools;
+        // Auto exposes the most relevant tools; On demand is deliberately tighter.
+        const maxTools = access === 'always' ? 100 : access === 'on_demand' ? 8 : 16;
+        const selectedTools = scoredTools
+          .filter((entry: any) => access === 'always' || entry.score > 0)
+          .slice(0, maxTools)
+          .map((entry: any) => entry.tool);
         for (const tool of selectedTools) {
           remoteMcpTools.push(tool);
           const prefix = `REMOTE_MCP_${String(connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12)}_`;
@@ -1004,7 +1073,7 @@ export async function POST(req: NextRequest) {
 
       // Force the first turn only when the request is for the Composio For You
       // account. Custom remote MCP servers remain ordinary callable tools.
-      forceConnectorTool = mcpModeActive && !remoteConnectorMention;
+      forceConnectorTool = mcpModeActive && !remoteConnectorMention && composioToolAccess !== 'always';
     }
 
     const toolContext = {
@@ -1023,8 +1092,8 @@ export async function POST(req: NextRequest) {
 
     const { pickMcpToolName } = await import('@/lib/composioMcp');
 
-    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-      /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
+      /\b(?:connected|linked|authorized|active)\b.*\b(?:apps?|accounts?|connections?|services?|integrations?)\b/i.test(lastText) ||
       /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
 
     // Connected-app queries are deterministic and READ-ONLY.

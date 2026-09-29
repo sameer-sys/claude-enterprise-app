@@ -849,11 +849,11 @@ export async function POST(req: NextRequest) {
     if (composioMcpToken) {
       connectorContext += '\n\n[COMPOSIO "FOR YOU" MCP CONNECTOR ACTIVE]\n' + [
         "You are connected to the user's personal Composio account through MCP (https://connect.composio.dev/mcp).",
-        "The live Composio tools are in your tool list (COMPOSIO_SEARCH_TOOLS, COMPOSIO_GET_TOOL_SCHEMAS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_MANAGE_CONNECTIONS and others). Call them by their exact names.",
+        "Composio uses Claude-style deferred tool loading: in Auto or On demand mode the initial tool list is intentionally small (search, schemas, multi-execute, connection management). Search for the relevant app/tool first, inspect schemas when needed, then execute the real action. In Always available mode additional live tools may be exposed directly.",
         "WHEN ASKED ABOUT CONNECTED APPS/ACCOUNTS/SERVICES: Use COMPOSIO_SEARCH_TOOLS to inspect toolkit connection status. NEVER use COMPOSIO_MANAGE_CONNECTIONS just to inspect status because it can initiate auth for missing toolkits.",
         "END-TO-END RULES:",
         "1. Break the request into every step it needs (for example: create a playlist, then add videos to it). Never stop after the first step.",
-        "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS when a schema is missing -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the account when several are connected.",
+        "2. Workflow: COMPOSIO_SEARCH_TOOLS (first call: session {generate_id: true}, then reuse the returned session id) -> COMPOSIO_GET_TOOL_SCHEMAS for the exact selected action -> COMPOSIO_MULTI_EXECUTE_TOOL with schema-exact arguments and the intended account when several are connected.",
         "3. Independent actions go together in ONE multi-execute call. Steps that need an earlier result (a new playlist id, a list of video ids) run in a later call using the real values returned earlier.",
         "4. Never invent ids, slugs or arguments. Use only values returned by tools. If an app is not connected, use COMPOSIO_MANAGE_CONNECTIONS and give the user the link.",
         "5. Write no reply text until ALL steps are finished or truly blocked. No plans, no 'let me check', no narration between tool calls.",

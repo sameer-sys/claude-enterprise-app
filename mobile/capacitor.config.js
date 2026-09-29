@@ -5,7 +5,8 @@ const config = {
   webDir: 'www',
   server: {
     url: 'https://claude-enterprise-app.vercel.app',
-    cleartext: false
+    cleartext: false,
+    allowNavigation: ['claude-enterprise-app.vercel.app']
   }
 };
 

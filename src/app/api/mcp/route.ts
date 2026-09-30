@@ -118,7 +118,9 @@ export async function POST(req: NextRequest) {
       if (scopeList.length) auth.searchParams.set('scope', scopeList.join(' '));
       if (resource) auth.searchParams.set('resource', resource);
 
-      const oauthState: RemoteOAuthState = { state, connectorId: connector.id, name: connector.name, serverUrl: connector.url, redirectUri, codeVerifier: verifier, clientId, clientSecret, resource, tokenEndpoint: oauth.token_endpoint, authorizationEndpoint: oauth.authorization_endpoint, tokenEndpointAuthMethod: Array.isArray(oauth.token_endpoint_auth_methods_supported) && oauth.token_endpoint_auth_methods_supported.length ? String(oauth.token_endpoint_auth_methods_supported[0]) : undefined };
+      const supportedAuthMethods = Array.isArray(oauth.token_endpoint_auth_methods_supported) ? oauth.token_endpoint_auth_methods_supported.map(String).map((value) => value.toLowerCase()) : [];
+      const tokenEndpointAuthMethod = clientSecret && supportedAuthMethods.includes('client_secret_post') ? 'client_secret_post' : supportedAuthMethods.includes('none') ? 'none' : supportedAuthMethods[0];
+      const oauthState: RemoteOAuthState = { state, connectorId: connector.id, name: connector.name, serverUrl: connector.url, redirectUri, codeVerifier: verifier, clientId, clientSecret, resource, tokenEndpoint: oauth.token_endpoint, authorizationEndpoint: oauth.authorization_endpoint, tokenEndpointAuthMethod };
       const response = NextResponse.json({ success: true, authUrl: auth.toString() });
       response.headers.append('Set-Cookie', cookie(OAUTH_STATE_COOKIE + '=' + encodeURIComponent(encodeJson(oauthState)), 15 * 60));
       return response;

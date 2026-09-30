@@ -128,7 +128,27 @@ export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubCon
       URL.revokeObjectURL(downloadUrl);
 
       setCreated(true);
+      // Match the real ChatGPT-style app/plugin flow:
+      // create/register the app first, then immediately start the provider's
+      // real OAuth authorization. Never mark an OAuth connector connected
+      // merely because it was created.
       onCreatedConnector?.(connector);
+
+      if (authMode === 'oauth') {
+        setMessage('Plugin added. Opening the provider sign-in page…');
+        const authResponse = await fetch('/api/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'oauth_start', connector }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const authData = await authResponse.json().catch(() => ({}));
+        if (!authResponse.ok || !authData?.authUrl) {
+          throw new Error(authData?.error || 'The provider OAuth flow could not be started.');
+        }
+        const popup = window.open(authData.authUrl, 'plugin_provider_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
+        if (!popup) window.open(authData.authUrl, '_blank');
+      }
     } catch (error: any) {
       setMessage(String(error?.message || error));
     } finally {

@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
       if (scopeList.length) auth.searchParams.set('scope', scopeList.join(' '));
       if (resource) auth.searchParams.set('resource', resource);
 
-      const oauthState: RemoteOAuthState = { state, connectorId: connector.id, name: connector.name, serverUrl: connector.url, redirectUri, codeVerifier: verifier, clientId, clientSecret, resource, tokenEndpoint: oauth.token_endpoint, authorizationEndpoint: oauth.authorization_endpoint };
+      const oauthState: RemoteOAuthState = { state, connectorId: connector.id, name: connector.name, serverUrl: connector.url, redirectUri, codeVerifier: verifier, clientId, clientSecret, resource, tokenEndpoint: oauth.token_endpoint, authorizationEndpoint: oauth.authorization_endpoint, tokenEndpointAuthMethod: Array.isArray(oauth.token_endpoint_auth_methods_supported) && oauth.token_endpoint_auth_methods_supported.length ? String(oauth.token_endpoint_auth_methods_supported[0]) : undefined };
       const response = NextResponse.json({ success: true, authUrl: auth.toString() });
       response.headers.append('Set-Cookie', cookie(OAUTH_STATE_COOKIE + '=' + encodeURIComponent(encodeJson(oauthState)), 15 * 60));
       return response;
@@ -131,6 +131,22 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({ success: true });
       clearTokenCookie(response, connectorId, serverUrl);
       return response;
+    }
+
+    if (action === 'status') {
+      const items = Array.isArray(body?.connectors) ? body.connectors : [];
+      const results = await Promise.all(items.map(async (item: any) => {
+        const connector = connectorFromInput(item);
+        if (!connector.name || !connector.url) return { id: String(item?.id || ''), connected: false };
+        try {
+          const credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
+          const tools = await listRemoteMcpTools(connector, { credentials });
+          return { id: connector.id, connected: true, toolCount: tools.length };
+        } catch {
+          return { id: connector.id, connected: false };
+        }
+      }));
+      return NextResponse.json({ success: true, connectors: results });
     }
 
     if (action !== 'check') return NextResponse.json({ success: false, error: 'Unsupported MCP action.' }, { status: 400 });

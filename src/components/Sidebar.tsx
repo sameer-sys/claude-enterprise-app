@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -65,9 +65,9 @@ interface SidebarProps {
   onOpenFeatures?: () => void;
 }
 
-function formatRelativeTime(timestamp?: number): string {
-  if (!timestamp) return '';
-  const diffMs = Date.now() - timestamp;
+function formatRelativeTime(timestamp?: number, now = 0): string {
+  if (!timestamp || !now) return '';
+  const diffMs = now - timestamp;
   const diffMins = Math.floor(diffMs / (1000 * 60));
   if (diffMins < 1) return 'now';
   if (diffMins < 60) return `${diffMins}m`;
@@ -106,6 +106,11 @@ export default function Sidebar({
 }: SidebarProps) {
   const [search, setSearch] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  useEffect(() => {
+    setCurrentTime(Date.now());
+  }, []);
   const [isProjectsOpen, setIsProjectsOpen] = useState(false);
 
   // Filter out PM sessions (those with projectId) from main sessions list
@@ -348,7 +353,7 @@ export default function Sidebar({
             ) : (
               regularSessions.map((session) => {
                 const isActive = session.id === activeSessionId;
-                const timeLabel = formatRelativeTime(session.updatedAt || session.createdAt);
+                const timeLabel = formatRelativeTime(session.updatedAt || session.createdAt, currentTime);
                 return (
                   <div
                     key={session.id}

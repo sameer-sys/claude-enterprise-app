@@ -70,8 +70,9 @@ export async function POST(req: NextRequest) {
       if (!connector.name || !connector.url) return NextResponse.json({ success: false, error: 'Connector name and URL are required.' }, { status: 400 });
 
       const saved = getCredentialFromRequest(req, connector.id, connector.url) || {};
-      const suppliedId = String(body?.clientId || connector.config?.oauthClientId || saved.clientId || '').trim();
-      const suppliedSecret = String(body?.clientSecret || saved.clientSecret || '').trim();
+      const isGitHub = connector.id === 'conn-github' || /githubcopilot\.com\/mcp/i.test(connector.url);
+      const suppliedId = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_ID : '') || body?.clientId || connector.config?.oauthClientId || saved.clientId || '').trim();
+      const suppliedSecret = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_SECRET : '') || body?.clientSecret || saved.clientSecret || '').trim();
       const discovered = await discoverRemoteOAuth(connector.url, String(body?.resource || connector.config?.resource || '').trim() || undefined);
       const oauth = discovered.oauth;
       if (!oauth?.authorization_endpoint || !oauth?.token_endpoint) {

@@ -148,7 +148,7 @@ export default function ConnectorsModal({
   }, []);
 
   const openRemoteOAuth = async (connector: Connector) => {
-    setAuthenticating(true); setStatusMessage('Opening the provider's secure sign-in…');
+    setAuthenticating(true); setStatusMessage("Opening the provider's secure sign-in…");
     try {
       const res = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'oauth_start', connector }), signal: AbortSignal.timeout(15000) });
       const data = await res.json().catch(() => ({}));

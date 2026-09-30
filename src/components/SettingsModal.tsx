@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { Connector, ConnectorConfig, ThinkingBudget } from '@/types/chat';
 import { createDefaultConnectors } from '@/components/ConnectorsModal';
+import PluginCreatorModal from '@/components/PluginCreatorModal';
 
 export type SettingsTab =
   | 'preferences'
@@ -147,6 +148,7 @@ export default function SettingsModal({
   const [customServerUrl, setCustomServerUrl] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [pluginCreatorOpen, setPluginCreatorOpen] = useState(false);
 
   // Sync state when props change
   useEffect(() => {
@@ -1061,28 +1063,71 @@ export default function SettingsModal({
             {/* TAB: PLUGINS */}
             {/* ========================================================================= */}
             {activeTab === 'plugins' && (
-              <div className="space-y-6 max-w-2xl">
-                <div>
-                  <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Plugins & MCP Servers</h3>
-                  <p className="text-xs text-[#8a8579]">Manage Model Context Protocol extensions and external tools.</p>
+              <div className="space-y-5 max-w-3xl">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-[#f4efe6] mb-1">Plugins & MCP Servers</h3>
+                    <p className="text-xs text-[#8a8579]">Create installable plugins and connect them to the workspace MCP runtime.</p>
+                  </div>
+                  <button
+                    onClick={() => setPluginCreatorOpen(true)}
+                    className="px-3.5 py-2 rounded-xl bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all"
+                  >
+                    + Plugin Creator
+                  </button>
+                </div>
+
+                <div className="p-4 rounded-xl border border-[#3b352d] bg-[#141310] space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-[#25231e] border border-[#38352d] flex items-center justify-center">
+                        <Github className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold">GitHub Workspace</div>
+                        <div className="text-[11px] text-[#8a8579]">GitHub Remote MCP • repositories, issues, pull requests, code and Actions</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] px-2 py-1 rounded-full border border-emerald-800 text-emerald-400">Built in</span>
+                  </div>
+                  <p className="text-xs text-[#8a8579] leading-relaxed">
+                    The GitHub plugin uses GitHub's hosted Remote MCP endpoint. OAuth or a supported access token is still required before private account data or write operations can be used.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onOpenConnectors?.();
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all"
+                    >
+                      Connect GitHub
+                    </button>
+                    <button
+                      onClick={() => setPluginCreatorOpen(true)}
+                      className="px-3.5 py-1.5 rounded-lg border border-[#38352d] text-xs font-semibold hover:bg-[#211f1a]"
+                    >
+                      Create GitHub Plugin
+                    </button>
+                  </div>
                 </div>
 
                 <div className="p-4 rounded-xl bg-[#141310] border border-[#282620] space-y-3">
                   <div className="flex items-center space-x-2 text-xs font-semibold text-[#f4efe6]">
                     <Zap className="w-4 h-4 text-[#cc785c]" />
-                    <span>Model Context Protocol (MCP) Runtime</span>
+                    <span>Model Context Protocol Runtime</span>
                   </div>
                   <p className="text-xs text-[#8a8579] leading-relaxed">
-                    Connect public remote MCP servers over HTTP/HTTPS and use their live tools from chat.
+                    Add any public remote MCP server, inspect its discovered tools, and use those tools from chat.
                   </p>
                   <button
                     onClick={() => {
                       onClose();
                       onOpenConnectors?.();
                     }}
-                    className="px-3.5 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all"
+                    className="px-3.5 py-1.5 rounded-lg border border-[#38352d] text-xs font-semibold hover:bg-[#211f1a]"
                   >
-                    + Add New MCP Plugin Server
+                    Open Connectors
                   </button>
                 </div>
               </div>
@@ -1729,6 +1774,16 @@ export default function SettingsModal({
           </div>
         </div>
       </div>
+
+      <PluginCreatorModal
+        isOpen={pluginCreatorOpen}
+        onClose={() => setPluginCreatorOpen(false)}
+        onInstallGitHubConnector={() => {
+          setPluginCreatorOpen(false);
+          onClose();
+          onOpenConnectors?.();
+        }}
+      />
     </div>
   );
 }

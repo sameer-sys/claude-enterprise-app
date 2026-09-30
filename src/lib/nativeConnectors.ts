@@ -7,8 +7,8 @@ export const NATIVE_CONNECTORS: Connector[] = [
     icon: 'github', enabled: false, status: 'ready', category: 'Developer tools', provider: 'mcp',
     isVerified: true, section: 'top',
     capabilities: ['Repositories', 'Issues', 'Pull Requests', 'Code'],
-    config: { connectionType: 'mcp', providerName: 'GitHub', mcpUrl: 'https://api.githubcopilot.com/mcp/', toolAccess: 'auto', disabledTools: [] },
-    url: 'https://api.githubcopilot.com/mcp/',
+    config: { connectionType: 'mcp', providerName: 'GitHub', mcpUrl: 'https://api.githubcopilot.com/mcp', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://github.com/login/oauth/authorize', oauthTokenEndpoint: 'https://github.com/login/oauth/access_token', oauthTokenEndpointAuthMethod: 'client_secret_post' },
+    url: 'https://api.githubcopilot.com/mcp',
   },
   {
     id: 'conn-gmail', name: 'Gmail',
@@ -16,7 +16,7 @@ export const NATIVE_CONNECTORS: Connector[] = [
     icon: 'gmail', enabled: false, status: 'ready', category: 'Communication', provider: 'mcp',
     isVerified: true, section: 'top',
     capabilities: ['Search Email', 'Read Threads', 'Drafts', 'Send & Reply'],
-    config: { connectionType: 'mcp', providerName: 'Gmail', mcpUrl: 'https://gmailmcp.googleapis.com/mcp/v1', toolAccess: 'auto', disabledTools: [] },
+    config: { connectionType: 'mcp', providerName: 'Gmail', mcpUrl: 'https://gmailmcp.googleapis.com/mcp/v1', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth', oauthTokenEndpoint: 'https://oauth2.googleapis.com/token', oauthTokenEndpointAuthMethod: 'client_secret_post', oauthParams: { access_type: 'offline', prompt: 'consent' } },
     url: 'https://gmailmcp.googleapis.com/mcp/v1',
   },
   {
@@ -25,7 +25,7 @@ export const NATIVE_CONNECTORS: Connector[] = [
     icon: 'gdrive', enabled: false, status: 'ready', category: 'Data and productivity', provider: 'mcp',
     isVerified: true, section: 'top',
     capabilities: ['Search Files', 'Read Files', 'Upload', 'Update'],
-    config: { connectionType: 'mcp', providerName: 'Google Drive', mcpUrl: 'https://drivemcp.googleapis.com/mcp/v1', toolAccess: 'auto', disabledTools: [] },
+    config: { connectionType: 'mcp', providerName: 'Google Drive', mcpUrl: 'https://drivemcp.googleapis.com/mcp/v1', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth', oauthTokenEndpoint: 'https://oauth2.googleapis.com/token', oauthTokenEndpointAuthMethod: 'client_secret_post', oauthParams: { access_type: 'offline', prompt: 'consent' } },
     url: 'https://drivemcp.googleapis.com/mcp/v1',
   },
   {
@@ -34,7 +34,7 @@ export const NATIVE_CONNECTORS: Connector[] = [
     icon: 'gcalendar', enabled: false, status: 'ready', category: 'Productivity', provider: 'mcp',
     isVerified: true, section: 'top',
     capabilities: ['Events', 'Availability', 'Scheduling', 'Calendar Management'],
-    config: { connectionType: 'mcp', providerName: 'Google Calendar', mcpUrl: 'https://calendarmcp.googleapis.com/mcp/v1', toolAccess: 'auto', disabledTools: [] },
+    config: { connectionType: 'mcp', providerName: 'Google Calendar', mcpUrl: 'https://calendarmcp.googleapis.com/mcp/v1', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth', oauthTokenEndpoint: 'https://oauth2.googleapis.com/token', oauthTokenEndpointAuthMethod: 'client_secret_post', oauthParams: { access_type: 'offline', prompt: 'consent' } },
     url: 'https://calendarmcp.googleapis.com/mcp/v1',
   },
   {
@@ -43,7 +43,7 @@ export const NATIVE_CONNECTORS: Connector[] = [
     icon: 'slack', enabled: false, status: 'ready', category: 'Communication', provider: 'mcp',
     isVerified: true, section: 'top',
     capabilities: ['Search Messages', 'Channels', 'Threads', 'Send Messages'],
-    config: { connectionType: 'mcp', providerName: 'Slack', mcpUrl: 'https://mcp.slack.com/mcp', toolAccess: 'auto', disabledTools: [] },
+    config: { connectionType: 'mcp', providerName: 'Slack', mcpUrl: 'https://mcp.slack.com/mcp', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://slack.com/oauth/v2_user/authorize', oauthTokenEndpoint: 'https://slack.com/api/oauth.v2.user.access', oauthTokenEndpointAuthMethod: 'client_secret_post' },
     url: 'https://mcp.slack.com/mcp',
   },
   {
@@ -79,7 +79,7 @@ export const NATIVE_CONNECTORS: Connector[] = [
     icon: 'canva', enabled: false, status: 'ready', category: 'Design', provider: 'mcp',
     isVerified: true, section: 'trending',
     capabilities: ['Search Designs', 'Generate Designs', 'Edit', 'Export'],
-    config: { connectionType: 'mcp', providerName: 'Canva', mcpUrl: 'https://mcp.canva.com/mcp', toolAccess: 'auto', disabledTools: [] },
+    config: { connectionType: 'mcp', providerName: 'Canva', mcpUrl: 'https://mcp.canva.com/mcp', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://mcp.canva.com/authorize', oauthTokenEndpoint: 'https://mcp.canva.com/token', oauthTokenEndpointAuthMethod: 'client_secret_post' },
     url: 'https://mcp.canva.com/mcp',
   },
   {

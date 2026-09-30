@@ -138,17 +138,12 @@ export async function POST(req: NextRequest) {
 
     if (action === 'status') {
       const items = Array.isArray(body?.connectors) ? body.connectors : [];
-      const results = await Promise.all(items.map(async (item: any) => {
+      const results = items.map((item: any) => {
         const connector = connectorFromInput(item);
         if (!connector.name || !connector.url) return { id: String(item?.id || ''), connected: false };
-        try {
-          const credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
-          const tools = await listRemoteMcpTools(connector, { credentials });
-          return { id: connector.id, connected: true, toolCount: tools.length };
-        } catch {
-          return { id: connector.id, connected: false };
-        }
-      }));
+        const credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
+        return { id: connector.id, connected: Boolean(credentials?.accessToken || credentials?.apiToken) };
+      });
       return NextResponse.json({ success: true, connectors: results });
     }
 

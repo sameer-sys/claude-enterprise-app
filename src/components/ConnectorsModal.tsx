@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft, Copy, Globe, Loader2, LogIn, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
 import { cloneNativeConnectors } from '@/lib/nativeConnectors';
+import PluginCreatorModal from '@/components/PluginCreatorModal';
 
 export interface ConnectorsModalProps {
   isOpen: boolean;
@@ -74,6 +75,7 @@ export default function ConnectorsModal({
   const [savingCredentials, setSavingCredentials] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [tools, setTools] = useState<string[]>([]);
+  const [pluginCreatorOpen, setPluginCreatorOpen] = useState(false);
 
   const currentMap = useMemo(() => new Map(activeConnectors.map((c) => [c.id, c])), [activeConnectors]);
 
@@ -298,7 +300,7 @@ export default function ConnectorsModal({
         {view === 'list' && <>
           <div className="flex items-center justify-between px-6 pt-5 pb-3">
             <div className="flex items-center gap-3"><h2 className="text-xl font-bold">Connectors</h2><span className="text-[10px] px-2 py-1 rounded-lg border border-[#3a372f] bg-[#211f1a] text-[#cc785c] font-mono">For You + Remote MCP</span></div>
-            <div className="flex items-center gap-3"><div className="relative"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8f8a80]"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search connectors" className="w-52 pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#38352d] bg-[#201e1a] text-[#ece9e2] focus:outline-none"/></div><button onClick={() => { setCustomName(''); setCustomUrl(''); setOauthClientId(''); setOauthClientSecret(''); setApiToken(''); setShowAdvanced(false); setStatusMessage(''); setView('add'); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#38352d] bg-[#25231e]"><Plus className="w-3.5 h-3.5 text-[#cc785c]"/>Add custom connector</button><button onClick={onClose} className="p-1.5 rounded-lg text-[#8f8a80]"><X className="w-4 h-4"/></button></div>
+            <div className="flex items-center gap-2"><div className="relative"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8f8a80]"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search connectors" className="w-44 pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#38352d] bg-[#201e1a] text-[#ece9e2] focus:outline-none"/></div><button onClick={() => { setPluginCreatorOpen(true); setStatusMessage(''); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#cc785c] text-black"><Zap className="w-3.5 h-3.5"/>Create plugin</button><button onClick={() => { setCustomName(''); setCustomUrl(''); setOauthClientId(''); setOauthClientSecret(''); setApiToken(''); setShowAdvanced(false); setStatusMessage(''); setView('add'); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#38352d] bg-[#25231e]"><Plus className="w-3.5 h-3.5 text-[#cc785c]"/>Add custom</button><button onClick={onClose} className="p-1.5 rounded-lg text-[#8f8a80]"><X className="w-4 h-4"/></button></div>
           </div>
           <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2">
             {filtered.map((connector) => {
@@ -420,6 +422,25 @@ export default function ConnectorsModal({
             {statusMessage && <div className="p-3 rounded-lg border border-[#4a4133] bg-[#231f18] text-xs text-[#cc785c]">{statusMessage}</div>}
           </div>
         </div>}
+      <PluginCreatorModal
+        isOpen={pluginCreatorOpen}
+        onClose={() => setPluginCreatorOpen(false)}
+        onInstallGitHubConnector={() => {
+          setPluginCreatorOpen(false);
+          const github = connectors.find((item) => item.id === 'conn-github');
+          if (github) selectConnector(github);
+        }}
+        onCreatedConnector={(newConnector) => {
+          const next = [newConnector, ...connectors.filter((item) => item.id !== newConnector.id && item.name.toLowerCase() !== newConnector.name.toLowerCase())];
+          setConnectors(next);
+          persistCustom(next);
+          onAddCustomConnector?.(newConnector);
+          setSelected(newConnector);
+          setView('detail');
+          setPluginCreatorOpen(false);
+          setStatusMessage(newConnector.status === 'connected' ? 'Plugin connected and added to Connectors.' : 'Plugin added to Connectors. Connect it when authentication is required.');
+        }}
+      />
       </div>
     </div>
   );

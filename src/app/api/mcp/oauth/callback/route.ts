@@ -45,10 +45,14 @@ export async function GET(req: NextRequest) {
       client_id: String(saved.clientId || ''),
       code_verifier: saved.codeVerifier,
     });
+    if (saved.resource) form.set('resource', saved.resource);
     const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' };
-    if (saved.clientSecret) {
+    const authMethod = String(saved.tokenEndpointAuthMethod || '').toLowerCase();
+    if (saved.clientSecret && authMethod === 'client_secret_basic') {
       form.delete('client_id');
       headers.Authorization = 'Basic ' + Buffer.from(String(saved.clientId) + ':' + saved.clientSecret).toString('base64');
+    } else if (saved.clientSecret) {
+      form.set('client_secret', saved.clientSecret);
     }
     const response = await fetch(String(saved.tokenEndpoint || ''), {
       method: 'POST',
@@ -70,6 +74,7 @@ export async function GET(req: NextRequest) {
       clientSecret: saved.clientSecret,
       tokenEndpoint: saved.tokenEndpoint,
       resource: saved.resource,
+      tokenEndpointAuthMethod: saved.tokenEndpointAuthMethod,
     };
 
     return complete({ status: 'success', connectorId: saved.connectorId, connectorName: saved.name }, token);

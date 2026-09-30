@@ -886,9 +886,24 @@ export async function POST(req: NextRequest) {
     const cookieMcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || '';
     const cookieMcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || '';
 
-    const composioUserId = String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default';
-    let composioMcpToken = String(bodyMcpToken || headerMcpToken || cookieMcpToken || '').trim();
-    let composioMcpRefreshToken = String(bodyMcpRefreshToken || headerMcpRefreshToken || cookieMcpRefreshToken || '').trim();
+    const explicitComposioConnector = Array.isArray(connectors) && connectors.some((connector: any) => {
+      const cfg = connector?.config || {};
+      const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+      const url = String(cfg.mcpUrl || connector?.url || '').toLowerCase();
+      return type === 'composio' || url.includes('connect.composio.dev');
+    });
+
+    // Native connectors must never inherit the legacy Composio session.
+    // Composio is isolated to an explicitly configured Composio connector.
+    const composioUserId = explicitComposioConnector
+      ? (String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default')
+      : 'disabled';
+    let composioMcpToken = explicitComposioConnector
+      ? String(bodyMcpToken || headerMcpToken || cookieMcpToken || '').trim()
+      : '';
+    let composioMcpRefreshToken = explicitComposioConnector
+      ? String(bodyMcpRefreshToken || headerMcpRefreshToken || cookieMcpRefreshToken || '').trim()
+      : '';
 
     const isOmniRouteModel = true;
 
@@ -983,8 +998,9 @@ export async function POST(req: NextRequest) {
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');
 
     // 1. Tool execution loop: check if request needs web search, git, email, or Composio tools
-    const agentDeadline = requestStartTime + (composioMcpToken || connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || '').toLowerCase() === 'mcp') ? 200000 : 120000);
-    const maxAgentTurns = composioMcpToken || connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || '').toLowerCase() === 'mcp') ? 24 : 8;
+    const hasNativeMcp = connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || c?.provider || '').toLowerCase() === 'mcp');
+    const agentDeadline = requestStartTime + (composioMcpToken || hasNativeMcp ? 200000 : 120000);
+    const maxAgentTurns = composioMcpToken || hasNativeMcp ? 24 : 8;
     let mcpLiveTools: any[] = [];
     let mcpToolNames: string[] = [];
     if (composioMcpToken) {
@@ -1080,8 +1096,8 @@ export async function POST(req: NextRequest) {
       console.error('[REMOTE MCP DISCOVERY ERR]', remoteMcpErr?.message || remoteMcpErr);
     }
 
-    // In "For You" mode the real Composio MCP tools replace the guessed wrapper tools.
-    // For connector requests, keep the model focused on the actual connector tools.
+    // Native connector tools are direct provider tools. They do not pass through Composio.
+    // If a native connector is relevant, keep the model focused on its actual discovered tools.
     // This prevents a normal AI/web tool from satisfying a connector request with prose.
     const connectorToolsById = new Map<string, any[]>();
     for (const [toolName, route] of Object.entries(remoteMcpToolRoutes)) {
@@ -1121,9 +1137,13 @@ export async function POST(req: NextRequest) {
       'connector_search', 'connector_manage_connections', 'connector_execute',
       'Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections',
     ]);
-    const baseTools = mcpModeActive
-      ? AGENT_TOOLS.filter((t: any) => !mcpWrapperNames.has(String(t?.function?.name || '')))
-      : AGENT_TOOLS;
+
+    // These are legacy Composio wrappers. Native OAuth/MCP connectors never use them.
+    // Keep them available only when the user explicitly connected a Composio MCP session.
+    const baseTools = AGENT_TOOLS.filter((t: any) => {
+      const name = String(t?.function?.name || '');
+      return !mcpWrapperNames.has(name) || explicitComposioConnector;
+    });
     const effectiveTools = hasFocusedRemoteTools && !mcpModeActive
       ? connectorFocusedTools
       : [

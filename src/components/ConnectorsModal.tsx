@@ -137,7 +137,7 @@ export default function ConnectorsModal({
           setSelected((prev) => prev?.id === id ? { ...prev, status: 'connected', enabled: true } : prev);
           const connectedConnector = connectors.find((c) => c.id === id);
           if (connectedConnector && !connectedConnector.enabled) onToggleConnector(id);
-          setStatusMessage('Connected successfully. Loading available tools…');
+          setStatusMessage('Provider account connected. Loading its real tools…');
         } else setStatusMessage('OAuth Error: ' + String(event.data?.error || 'Authentication failed.'));
         setAuthenticating(false);
       }
@@ -147,7 +147,7 @@ export default function ConnectorsModal({
   }, []);
 
   const openRemoteOAuth = async (connector: Connector) => {
-    setAuthenticating(true); setStatusMessage('Starting secure MCP OAuth…');
+    setAuthenticating(true); setStatusMessage('Opening the provider's secure sign-in…');
     try {
       const res = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'oauth_start', connector }), signal: AbortSignal.timeout(15000) });
       const data = await res.json().catch(() => ({}));
@@ -212,9 +212,9 @@ export default function ConnectorsModal({
         setTools(Array.isArray(probeData.tools) ? probeData.tools.map((t: any) => String(t?.name || '')).filter(Boolean) : []);
         setStatusMessage('Connected — discovered ' + Number(probeData.toolCount || 0) + ' tool' + (Number(probeData.toolCount || 0) === 1 ? '' : 's') + '.');
       } else if (probeData?.requiresAuth) {
-        setStatusMessage('Credentials saved. The provider still requires OAuth authorization — click Connect.');
+        setStatusMessage('Credentials saved. Click Connect to open the provider's real sign-in page.');
       } else {
-        setStatusMessage('Credentials saved. Click Connect to start the provider login.');
+        setStatusMessage('Credentials saved. Click Connect to open the provider's real sign-in page.');
       }
     } catch (err: any) {
       setStatusMessage('Credential Error: ' + String(err?.message || err));
@@ -299,7 +299,7 @@ export default function ConnectorsModal({
       <div className="w-full max-w-3xl h-[650px] rounded-2xl border border-[#38352d] bg-[#181714] text-[#ece9e2] shadow-2xl flex flex-col overflow-hidden">
         {view === 'list' && <>
           <div className="flex items-center justify-between px-6 pt-5 pb-3">
-            <div className="flex items-center gap-3"><h2 className="text-xl font-bold">Connectors</h2><span className="text-[10px] px-2 py-1 rounded-lg border border-[#3a372f] bg-[#211f1a] text-[#cc785c] font-mono">For You + Remote MCP</span></div>
+            <div className="flex items-center gap-3"><h2 className="text-xl font-bold">Connectors</h2><span className="text-[10px] px-2 py-1 rounded-lg border border-[#3a372f] bg-[#211f1a] text-[#cc785c] font-mono">Native OAuth + Remote MCP</span></div>
             <div className="flex items-center gap-2"><div className="relative"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8f8a80]"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search connectors" className="w-44 pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#38352d] bg-[#201e1a] text-[#ece9e2] focus:outline-none"/></div><button onClick={() => { setPluginCreatorOpen(true); setStatusMessage(''); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#cc785c] text-black"><Zap className="w-3.5 h-3.5"/>Create plugin</button><button onClick={() => { setCustomName(''); setCustomUrl(''); setOauthClientId(''); setOauthClientSecret(''); setApiToken(''); setShowAdvanced(false); setStatusMessage(''); setView('add'); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#38352d] bg-[#25231e]"><Plus className="w-3.5 h-3.5 text-[#cc785c]"/>Add custom</button><button onClick={onClose} className="p-1.5 rounded-lg text-[#8f8a80]"><X className="w-4 h-4"/></button></div>
           </div>
           <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2">

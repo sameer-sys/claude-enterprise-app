@@ -237,8 +237,6 @@ async function initializeRemote(connector: Connector, options: RemoteMcpOptions 
     return state;
   } catch (err: any) {
     if (err?.status === 401 || err?.status === 403) throw err;
-    // Only explicit 'method not found / bad request / not found' style probe failures
-    // are treated as evidence of a 2025-era server. Network and 5xx failures remain errors.
     const status = Number(err?.status);
     if (![-32601, -32600, 400, 404, 405].includes(status)) throw err;
     return initializeLegacy(connector, options);

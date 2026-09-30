@@ -70,7 +70,7 @@ export async function POST(request: Request) {
       author: { name: 'Sameer AI Workspace' },
       license: 'MIT',
       keywords: ['github', 'git', 'repositories', 'issues', 'pull-requests', 'code'],
-      mcpServers: './.mcp.json',
+      mcpServers: './mcp.json',
       extensions: {
         'com.openai': {
           interface: {
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
       version: '1.0.0',
       description,
       skills: './skills/',
-      mcpServers: './mcp.json'
+      mcpServers: './.mcp.json'
     };
 
     const skill = \`---

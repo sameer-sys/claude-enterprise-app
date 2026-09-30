@@ -68,6 +68,10 @@ export default function ConnectorsModal({
   const [oauthClientId, setOauthClientId] = useState('');
   const [oauthClientSecret, setOauthClientSecret] = useState('');
   const [apiToken, setApiToken] = useState('');
+  const [authClientId, setAuthClientId] = useState('');
+  const [authClientSecret, setAuthClientSecret] = useState('');
+  const [authApiToken, setAuthApiToken] = useState('');
+  const [savingCredentials, setSavingCredentials] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [tools, setTools] = useState<string[]>([]);
 
@@ -91,24 +95,25 @@ export default function ConnectorsModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    const custom = connectors.filter((c) => c.id !== 'conn-composio' && isRemoteMcpConnector(c));
-    if (!custom.length) return;
+    const items = connectors.filter((c) => isRemoteMcpConnector(c));
+    if (!items.length) return;
     let cancelled = false;
-    Promise.all(custom.map(async (connector) => {
-      try {
-        const res = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check', connector }) });
-        const data = await res.json().catch(() => ({}));
-        return { id: connector.id, connected: Boolean(data?.success) };
-      } catch { return { id: connector.id, connected: false }; }
-    })).then((results) => {
-      if (cancelled) return;
-      setConnectors((prev) => prev.map((c) => {
-        const result = results.find((r) => r.id === c.id);
-        return result ? { ...c, status: result.connected ? 'connected' : 'ready' } : c;
-      }));
-    });
+    fetch('/api/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'status', connectors: items }),
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => {
+        if (cancelled || !Array.isArray(data?.connectors)) return;
+        setConnectors((prev) => prev.map((c) => {
+          const result = data.connectors.find((item: any) => item?.id === c.id);
+          return result ? { ...c, status: result.connected ? 'connected' : c.status === 'connected' ? 'ready' : c.status } : c;
+        }));
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [isOpen]);
+  }, [isOpen, connectors.length]);
 
   useEffect(() => {
     if (!selected || !isOpen) { setTools([]); return; }
@@ -128,7 +133,7 @@ export default function ConnectorsModal({
         if (event.data?.status === 'success') {
           setConnectors((prev) => prev.map((c) => c.id === id ? { ...c, status: 'connected' } : c));
           setSelected((prev) => prev?.id === id ? { ...prev, status: 'connected' } : prev);
-          setStatusMessage('Remote MCP connector authenticated.');
+          setStatusMessage('Connected successfully. Loading available tools…');
         } else setStatusMessage('OAuth Error: ' + String(event.data?.error || 'Authentication failed.'));
         setAuthenticating(false);
       }
@@ -140,12 +145,77 @@ export default function ConnectorsModal({
   const openRemoteOAuth = async (connector: Connector) => {
     setAuthenticating(true); setStatusMessage('Starting secure MCP OAuth…');
     try {
-      const res = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'oauth_start', connector }) });
+      const res = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'oauth_start', connector }), signal: AbortSignal.timeout(15000) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.authUrl) throw new Error(data?.error || 'This connector could not start OAuth.');
       const popup = window.open(data.authUrl, 'remote_mcp_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
       if (!popup) window.open(data.authUrl, '_blank');
-    } catch (err: any) { setAuthenticating(false); setStatusMessage('OAuth Error: ' + String(err?.message || err)); }
+    } catch (err: any) {
+      setAuthenticating(false);
+      setStatusMessage('OAuth Error: ' + String(err?.message || err));
+      setSelected(connector);
+      setAuthClientId(String(connector.config?.oauthClientId || ''));
+      setAuthClientSecret('');
+      setAuthApiToken('');
+      setView('detail');
+    }
+  };
+
+  const saveConnectorCredentials = async (connector: Connector) => {
+    setSavingCredentials(true);
+    setStatusMessage('Saving credentials securely…');
+    try {
+      const res = await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_credentials',
+          connectorId: connector.id,
+          serverUrl: connector.url,
+          clientId: authClientId.trim(),
+          clientSecret: authClientSecret,
+          apiToken: authApiToken.trim(),
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) throw new Error(data?.error || 'Could not save connector credentials.');
+
+      const next = {
+        ...connector,
+        config: {
+          ...(connector.config || {}),
+          ...(authClientId.trim() ? { oauthClientId: authClientId.trim() } : {}),
+        },
+      };
+      setSelected(next);
+      setConnectors((prev) => prev.map((c) => c.id === connector.id ? next : c));
+      setAuthClientSecret('');
+      setAuthApiToken('');
+
+      const probe = await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'check', connector: next }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const probeData = await probe.json().catch(() => ({}));
+
+      if (probeData?.success) {
+        setConnectors((prev) => prev.map((c) => c.id === connector.id ? { ...c, status: 'connected' } : c));
+        setSelected((prev) => prev?.id === connector.id ? { ...prev, status: 'connected' } : prev);
+        setTools(Array.isArray(probeData.tools) ? probeData.tools.map((t: any) => String(t?.name || '')).filter(Boolean) : []);
+        setStatusMessage('Connected — discovered ' + Number(probeData.toolCount || 0) + ' tool' + (Number(probeData.toolCount || 0) === 1 ? '' : 's') + '.');
+      } else if (probeData?.requiresAuth) {
+        setStatusMessage('Credentials saved. The provider still requires OAuth authorization — click Connect.');
+      } else {
+        setStatusMessage('Credentials saved. Click Connect to start the provider login.');
+      }
+    } catch (err: any) {
+      setStatusMessage('Credential Error: ' + String(err?.message || err));
+    } finally {
+      setSavingCredentials(false);
+    }
   };
 
   const addCustomConnector = async (event: React.FormEvent) => {
@@ -204,6 +274,17 @@ export default function ConnectorsModal({
     if (next.isCustom) persistCustom(connectors.map((c) => c.id === next.id ? next : c));
   };
 
+  const selectConnector = (connector: Connector) => {
+    const merged = { ...(currentMap.get(connector.id) || connector), ...connector };
+    setSelected(merged);
+    setAuthClientId(String(merged.config?.oauthClientId || ''));
+    setAuthClientSecret('');
+    setAuthApiToken('');
+    setTools([]);
+    setStatusMessage('');
+    setView('detail');
+  };
+
   const filtered = connectors.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || String(c.url || '').toLowerCase().includes(search.toLowerCase()));
 
   if (!isOpen) return null;
@@ -220,12 +301,12 @@ export default function ConnectorsModal({
             {filtered.map((connector) => {
               const connected = connector.status === 'connected';
               return <div key={connector.id} className="flex items-center justify-between p-3.5 rounded-xl border border-[#2d2b25] bg-[#1e1c18]">
-                <button className="flex items-center gap-3 min-w-0 text-left" onClick={() => { setSelected({ ...(currentMap.get(connector.id) || connector), ...connector }); setView('detail'); }}>
+                <button className="flex items-center gap-3 min-w-0 text-left" onClick={() => selectConnector(connector)}>
                   <div className="w-9 h-9 rounded-lg border border-[#38352d] bg-[#2a2722] flex items-center justify-center text-[#cc785c]"><Zap className="w-4 h-4"/></div>
                   <div className="min-w-0"><div className="flex items-center gap-2"><span className="font-semibold text-sm truncate">{connector.name}</span><span className={`text-[10px] px-2 py-0.5 rounded-full border ${connected ? 'border-emerald-800 text-emerald-400' : 'border-amber-800 text-amber-400'}`}>{connected ? 'Connected' : connector.isCustom ? 'Sign in needed' : 'Available'}</span></div><div className="text-xs text-[#8f8a80] truncate max-w-xl">{connector.url}</div></div>
                 </button>
                 <div className="flex items-center gap-2">
-                  {!connected && <button onClick={() => openRemoteOAuth(connector)} disabled={authenticating} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <LogIn className="w-3.5 h-3.5 inline mr-1"/>}Connect</button>}
+                  {!connected && <button onClick={() => openRemoteOAuth(connector)} disabled={authenticating} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <><Loader2 className="w-3.5 h-3.5 inline animate-spin mr-1"/>Connecting…</> : <><LogIn className="w-3.5 h-3.5 inline mr-1"/>Connect</>}</button>}
                   <button onClick={() => onToggleConnector(connector.id)} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold ${connector.enabled ? 'border-emerald-800 text-emerald-400' : 'border-[#38352d] text-[#8f8a80]'}`}>{connector.enabled ? 'Enabled' : 'Disabled'}</button>
                 </div>
               </div>;
@@ -253,6 +334,35 @@ export default function ConnectorsModal({
               <div className="flex items-center gap-2">{selected.status === 'connected' ? <button onClick={() => disconnectConnector(selected)} className="px-3.5 py-1.5 rounded-xl border border-[#38352d] text-xs">Disconnect</button> : <button onClick={() => openRemoteOAuth(selected)} disabled={authenticating} className="px-3.5 py-1.5 rounded-xl bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : 'Connect'}</button>}{selected.isCustom && <button onClick={() => removeConnector(selected)} className="px-3.5 py-1.5 rounded-xl border border-red-900/60 text-red-300 text-xs"><Trash2 className="w-3.5 h-3.5 inline mr-1"/>Remove</button>}</div>
             </div>
             <div className="pt-4 border-t border-[#2d2b25] space-y-4">
+              <div className="rounded-xl border border-[#2d2b25] bg-[#141310] p-4 space-y-3">
+                <div>
+                  <h4 className="text-xs font-semibold">Authentication</h4>
+                  <p className="text-[11px] text-[#6d685f] mt-1">
+                    Credentials are kept in secure server-side cookies. They are not saved to browser local storage.
+                  </p>
+                </div>
+                <div className="grid gap-3">
+                  <div>
+                    <label className="block mb-1.5 text-[11px] font-semibold">OAuth Client ID</label>
+                    <input value={authClientId} onChange={(e) => setAuthClientId(e.target.value)} placeholder="Use the client ID from your provider OAuth app" className="w-full px-3 py-2 rounded-lg border border-[#38352d] bg-[#1e1c18] text-xs"/>
+                  </div>
+                  <div>
+                    <label className="block mb-1.5 text-[11px] font-semibold">OAuth Client Secret</label>
+                    <input type="password" autoComplete="new-password" value={authClientSecret} onChange={(e) => setAuthClientSecret(e.target.value)} placeholder="Optional when using a bearer/API token" className="w-full px-3 py-2 rounded-lg border border-[#38352d] bg-[#1e1c18] text-xs"/>
+                  </div>
+                  <div>
+                    <label className="block mb-1.5 text-[11px] font-semibold">Bearer / API Token</label>
+                    <input type="password" autoComplete="off" value={authApiToken} onChange={(e) => setAuthApiToken(e.target.value)} placeholder="Use a provider access token instead of OAuth" className="w-full px-3 py-2 rounded-lg border border-[#38352d] bg-[#1e1c18] text-xs"/>
+                  </div>
+                </div>
+                <div className="text-[10px] text-[#6d685f]">
+                  OAuth callback for this app: <span className="text-[#8f8a80] break-all">{typeof window !== 'undefined' ? window.location.origin + '/api/mcp/oauth/callback' : '/api/mcp/oauth/callback'}</span>
+                </div>
+                <button type="button" onClick={() => saveConnectorCredentials(selected)} disabled={savingCredentials} className="px-3 py-2 rounded-lg border border-[#38352d] bg-[#211f1a] text-xs font-semibold">
+                  {savingCredentials ? 'Saving…' : 'Save credentials'}
+                </button>
+              </div>
+
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-semibold">Tool access</h4>

@@ -131,8 +131,10 @@ export default function ConnectorsModal({
       if (event.data?.type === 'sameer-remote-mcp-connected') {
         const id = String(event.data?.connectorId || '');
         if (event.data?.status === 'success') {
-          setConnectors((prev) => prev.map((c) => c.id === id ? { ...c, status: 'connected' } : c));
-          setSelected((prev) => prev?.id === id ? { ...prev, status: 'connected' } : prev);
+          setConnectors((prev) => prev.map((c) => c.id === id ? { ...c, status: 'connected', enabled: true } : c));
+          setSelected((prev) => prev?.id === id ? { ...prev, status: 'connected', enabled: true } : prev);
+          const connectedConnector = connectors.find((c) => c.id === id);
+          if (connectedConnector && !connectedConnector.enabled) onToggleConnector(id);
           setStatusMessage('Connected successfully. Loading available tools…');
         } else setStatusMessage('OAuth Error: ' + String(event.data?.error || 'Authentication failed.'));
         setAuthenticating(false);
@@ -202,8 +204,9 @@ export default function ConnectorsModal({
       const probeData = await probe.json().catch(() => ({}));
 
       if (probeData?.success) {
-        setConnectors((prev) => prev.map((c) => c.id === connector.id ? { ...c, status: 'connected' } : c));
-        setSelected((prev) => prev?.id === connector.id ? { ...prev, status: 'connected' } : prev);
+        setConnectors((prev) => prev.map((c) => c.id === connector.id ? { ...c, status: 'connected', enabled: true } : c));
+        setSelected((prev) => prev?.id === connector.id ? { ...prev, status: 'connected', enabled: true } : prev);
+        if (!connector.enabled) onToggleConnector(connector.id);
         setTools(Array.isArray(probeData.tools) ? probeData.tools.map((t: any) => String(t?.name || '')).filter(Boolean) : []);
         setStatusMessage('Connected — discovered ' + Number(probeData.toolCount || 0) + ' tool' + (Number(probeData.toolCount || 0) === 1 ? '' : 's') + '.');
       } else if (probeData?.requiresAuth) {

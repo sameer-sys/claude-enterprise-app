@@ -85,7 +85,7 @@ function originWellKnown(serverUrl: string, path: string): URL {
  */
 function pathAwareWellKnown(serverUrl: string, suffix: string): URL {
   const url = new URL(serverUrl);
-  const path = url.pathname.replace(/\\/+$/, '');
+  const path = url.pathname.replace(/\/+$/, '');
   const wellKnownPath = path && path !== '/'
     ? `/.well-known/${suffix}${path.startsWith('/') ? path : '/' + path}`
     : `/.well-known/${suffix}`;
@@ -97,7 +97,7 @@ function pathAwareWellKnown(serverUrl: string, suffix: string): URL {
 function canonicalResource(raw: string): string {
   const url = new URL(raw);
   url.hash = '';
-  if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\\/+$/, '');
+  if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, '');
   return url.toString();
 }
 

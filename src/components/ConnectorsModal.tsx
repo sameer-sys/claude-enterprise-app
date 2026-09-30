@@ -213,9 +213,9 @@ export default function ConnectorsModal({
         setTools(Array.isArray(probeData.tools) ? probeData.tools.map((t: any) => String(t?.name || '')).filter(Boolean) : []);
         setStatusMessage('Connected — discovered ' + Number(probeData.toolCount || 0) + ' tool' + (Number(probeData.toolCount || 0) === 1 ? '' : 's') + '.');
       } else if (probeData?.requiresAuth) {
-        setStatusMessage('Credentials saved. Click Connect to open the provider's real sign-in page.');
+        setStatusMessage("Credentials saved. Click Connect to open the provider's real sign-in page.");
       } else {
-        setStatusMessage('Credentials saved. Click Connect to open the provider's real sign-in page.');
+        setStatusMessage("Credentials saved. Click Connect to open the provider's real sign-in page.");
       }
     } catch (err: any) {
       setStatusMessage('Credential Error: ' + String(err?.message || err));
@@ -226,7 +226,7 @@ export default function ConnectorsModal({
 
   const startOAuthForConnector = async (connector: Connector) => {
     setAuthenticating(true);
-    setStatusMessage('Opening the provider's secure sign-in…');
+    setStatusMessage("Opening the provider's secure sign-in…");
     try {
       const res = await fetch('/api/mcp', {
         method: 'POST',

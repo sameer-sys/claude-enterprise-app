@@ -6,6 +6,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const base = `${url.origin}/api/mcp/oauth/callback`;
   return NextResponse.json({
+    client_id: url.origin + '/api/mcp/oauth/client-metadata',
     client_name: 'Sameer AI Workspace',
     client_uri: url.origin,
     grant_types: ['authorization_code'],

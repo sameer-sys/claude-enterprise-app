@@ -112,7 +112,7 @@ function resourceMetadataMatches(candidate: any, expectedResource: string): bool
 }
 
 function extractResourceMetadataUrl(header: string): string | undefined {
-  const match = String(header || '').match(/resource_metadata\\s*=\\s*(?:"([^"]+)"|([^,\\s]+))/i);
+  const match = String(header || '').match(/resource_metadata\s*=\s*(?:"([^"]+)"|([^,\s]+))/i);
   const value = String(match?.[1] || match?.[2] || '').trim();
   if (!value) return undefined;
   try {

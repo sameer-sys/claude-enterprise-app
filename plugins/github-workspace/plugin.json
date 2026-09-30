@@ -1,0 +1,43 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "github-workspace",
+  "version": "1.0.0",
+  "description": "GitHub repository, issue, pull request, code, and workflow assistance for Sameer AI Workspace.",
+  "author": {
+    "name": "Sameer AI Workspace"
+  },
+  "license": "MIT",
+  "keywords": [
+    "github",
+    "git",
+    "repositories",
+    "issues",
+    "pull-requests",
+    "code",
+    "actions"
+  ],
+  "mcpServers": "./mcp.json",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "GitHub Workspace",
+        "shortDescription": "Work with GitHub repositories, issues, pull requests, code and Actions.",
+        "longDescription": "Connect Sameer AI Workspace to GitHub's hosted Remote MCP server for repository research and GitHub workflows.",
+        "developerName": "Sameer AI Workspace",
+        "category": "Developer tools",
+        "capabilities": [
+          "Repositories",
+          "Issues",
+          "Pull Requests",
+          "Code",
+          "Actions"
+        ],
+        "defaultPrompt": [
+          "Inspect my GitHub repository and summarize what needs attention.",
+          "Review recent pull requests and explain the important changes.",
+          "Find the relevant code and propose a focused fix."
+        ]
+      }
+    }
+  }
+}

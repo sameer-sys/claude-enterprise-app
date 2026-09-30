@@ -186,10 +186,13 @@ export async function discoverRemoteOAuth(serverUrl: string, resourceUrl?: strin
   let oauth: RemoteOAuthMetadata | undefined;
   if (authorizationServer) {
     try {
-      oauth = await fetchJson(pathAwareWellKnown(authorizationServer, 'oauth-authorization-server'), discoverySignal);
-      if (!oauth) oauth = await fetchJson(originWellKnown(authorizationServer, '/.well-known/oauth-authorization-server'), discoverySignal);
-      if (!oauth) oauth = await fetchJson(pathAwareWellKnown(authorizationServer, 'openid-configuration'), discoverySignal);
+      // The authorization server metadata lives at the authorization server's
+      // own well-known endpoint. Do not append the MCP resource path here.
+      oauth = await fetchJson(originWellKnown(authorizationServer, '/.well-known/oauth-authorization-server'), discoverySignal);
       if (!oauth) oauth = await fetchJson(originWellKnown(authorizationServer, '/.well-known/openid-configuration'), discoverySignal);
+      // Some providers expose a path-aware metadata endpoint; keep it only as a fallback.
+      if (!oauth) oauth = await fetchJson(pathAwareWellKnown(authorizationServer, 'oauth-authorization-server'), discoverySignal);
+      if (!oauth) oauth = await fetchJson(pathAwareWellKnown(authorizationServer, 'openid-configuration'), discoverySignal);
     } catch {}
   }
 

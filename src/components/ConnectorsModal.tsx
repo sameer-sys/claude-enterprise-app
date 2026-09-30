@@ -291,8 +291,12 @@ export default function ConnectorsModal({
         } else if (authMode !== 'oauth') {
           setStatusMessage(data?.requiresAuth ? 'Added. Authentication is required.' : 'Added. The server will be checked when used.');
         }
-      } else {
+      } else if (customAuthMode === 'oauth') {
         await startOAuthForConnector(connector);
+      } else {
+        setStatusMessage(customAuthMode === 'none'
+          ? 'Connector added. Verifying the unauthenticated MCP server…'
+          : 'Connector added. Enter a bearer/API token in the connector page and save it to verify.');
       }
     } catch (err: any) { setStatusMessage(String(err?.message || err)); } finally { setLoading(false); }
   };
@@ -374,6 +378,14 @@ export default function ConnectorsModal({
             <div className="p-4 rounded-xl bg-[#141310] border border-[#282620]"><div className="flex items-center gap-2 font-semibold"><Globe className="w-4 h-4 text-[#cc785c]"/>Remote MCP server</div><p className="mt-1 text-[#8f8a80]">Add the connector name and public MCP URL. OAuth client settings are optional.</p></div>
             <div><label className="block font-semibold mb-1.5">Connector Name</label><input required value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="e.g. My MCP server" className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/></div>
             <div><label className="block font-semibold mb-1.5">Server URL</label><input required type="url" value={customUrl} onChange={(e) => setCustomUrl(e.target.value)} placeholder="https://example.com/mcp" className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/><p className="mt-1 text-[11px] text-[#6d685f]">The remote MCP endpoint must be reachable over the public internet.</p></div>
+            <div>
+              <label className="block font-semibold mb-1.5">Authentication</label>
+              <select value={customAuthMode} onChange={(e) => setCustomAuthMode(e.target.value as 'oauth' | 'api_token' | 'none')} className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]">
+                <option value="oauth">OAuth — open provider sign-in</option>
+                <option value="api_token">Bearer / API token</option>
+                <option value="none">No authentication</option>
+              </select>
+            </div>
             <div className="pt-2 border-t border-[#2d2b25]"><button type="button" onClick={() => setShowAdvanced((v) => !v)} className="flex items-center gap-2 font-semibold"><ChevronDown className={`w-3.5 h-3.5 ${showAdvanced ? 'rotate-180' : ''}`}/>Advanced settings</button>
               {showAdvanced && <div className="mt-3 space-y-3"><div><label className="block mb-1.5 font-semibold">OAuth Client ID</label><input value={oauthClientId} onChange={(e) => setOauthClientId(e.target.value)} className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/></div><div><label className="block mb-1.5 font-semibold">OAuth Client Secret</label><input type="password" autoComplete="new-password" value={oauthClientSecret} onChange={(e) => setOauthClientSecret(e.target.value)} className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/></div><div><label className="block mb-1.5 font-semibold">Bearer / API Token</label><input type="password" autoComplete="off" value={apiToken} onChange={(e) => setApiToken(e.target.value)} className="w-full px-3.5 py-2 rounded-xl border border-[#38352d] bg-[#1e1c18]"/></div></div>}</div>
             {statusMessage && <div className="p-3 rounded-lg border border-[#4a4133] bg-[#231f18] text-[#cc785c]">{statusMessage}</div>}

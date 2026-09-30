@@ -69,6 +69,7 @@ export default function ConnectorsModal({
   const [oauthClientId, setOauthClientId] = useState('');
   const [oauthClientSecret, setOauthClientSecret] = useState('');
   const [apiToken, setApiToken] = useState('');
+  const [customAuthMode, setCustomAuthMode] = useState<'oauth' | 'api_token' | 'none'>('oauth');
   const [authClientId, setAuthClientId] = useState('');
   const [authClientSecret, setAuthClientSecret] = useState('');
   const [authApiToken, setAuthApiToken] = useState('');
@@ -223,6 +224,31 @@ export default function ConnectorsModal({
     }
   };
 
+  const startOAuthForConnector = async (connector: Connector) => {
+    setAuthenticating(true);
+    setStatusMessage('Opening the provider's secure sign-in…');
+    try {
+      const res = await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'oauth_start', connector }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.authUrl) throw new Error(data?.error || 'This connector could not start OAuth.');
+      const popup = window.open(data.authUrl, 'provider_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
+      if (!popup) window.open(data.authUrl, '_blank');
+    } catch (err: any) {
+      setAuthenticating(false);
+      setStatusMessage('OAuth Error: ' + String(err?.message || err));
+      setSelected(connector);
+      setAuthClientId(String(connector.config?.oauthClientId || ''));
+      setAuthClientSecret('');
+      setAuthApiToken('');
+      setView('detail');
+    }
+  };
+
   const addCustomConnector = async (event: React.FormEvent) => {
     event.preventDefault();
     const name = customName.trim(); const url = customUrl.trim();
@@ -232,19 +258,42 @@ export default function ConnectorsModal({
     const connector: Connector = {
       id: 'mcp-' + Date.now(), name, description: 'Remote MCP server at ' + url, icon: 'mcp', enabled: true, status: 'ready', category: 'Integrations', section: 'custom', isCustom: true, isVerified: true, provider: 'mcp',
       capabilities: ['Remote MCP', 'Tool Discovery', 'Tool Execution', 'OAuth'],
-      config: { connectionType: 'mcp', providerName: name, mcpUrl: url, toolAccess: 'auto', disabledTools: [], ...(oauthClientId.trim() ? { oauthClientId: oauthClientId.trim() } : {}) }, url,
+      config: { connectionType: 'mcp', providerName: name, mcpUrl: url, toolAccess: 'auto', disabledTools: [], authMode: customAuthMode, ...(oauthClientId.trim() ? { oauthClientId: oauthClientId.trim() } : {}) }, url,
     };
     try {
       const save = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save_credentials', connectorId: connector.id, serverUrl: url, clientId: oauthClientId.trim(), clientSecret: oauthClientSecret, apiToken: apiToken.trim() }) });
       if (!save.ok) throw new Error('Could not securely save connector credentials.');
-      const probe = await fetch('/api/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check', connector }) });
-      const data = await probe.json().catch(() => ({}));
-      connector.status = data?.success ? 'connected' : 'ready';
-      setStatusMessage(data?.success ? `Connected — discovered ${Number(data.toolCount || 0)} tool${Number(data.toolCount || 0) === 1 ? '' : 's'}.` : data?.requiresAuth ? 'Added. Click Connect to authenticate.' : 'Added. The server will be checked when used.');
+      // Register the connector locally, but never call it "connected" before
+      // provider authorization succeeds and the real MCP server accepts the token.
+      connector.status = 'ready';
+      connector.enabled = false;
       setConnectors((prev) => [connector, ...prev.filter((c) => c.id !== connector.id && c.name.toLowerCase() !== name.toLowerCase())]);
       persistCustom([connector, ...connectors]);
       onAddCustomConnector?.(connector);
-      setSelected(connector); setView('detail');
+      setSelected(connector);
+      setView('detail');
+
+      if (oauthClientId.trim() || apiToken.trim()) {
+        const probe = await fetch('/api/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check', connector }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const data = await probe.json().catch(() => ({}));
+        if (data?.success) {
+          connector.status = 'connected';
+          connector.enabled = true;
+          setConnectors((prev) => prev.map((c) => c.id === connector.id ? connector : c));
+          setSelected(connector);
+          setStatusMessage('Connected — verified against the real MCP server.');
+          if (!connector.enabled) onToggleConnector(connector.id);
+        } else if (authMode !== 'oauth') {
+          setStatusMessage(data?.requiresAuth ? 'Added. Authentication is required.' : 'Added. The server will be checked when used.');
+        }
+      } else {
+        await startOAuthForConnector(connector);
+      }
     } catch (err: any) { setStatusMessage(String(err?.message || err)); } finally { setLoading(false); }
   };
 

@@ -7,8 +7,8 @@ export const NATIVE_CONNECTORS: Connector[] = [
     icon: 'github', enabled: false, status: 'ready', category: 'Developer tools', provider: 'mcp',
     isVerified: true, section: 'top',
     capabilities: ['Repositories', 'Issues', 'Pull Requests', 'Code'],
-    config: { connectionType: 'mcp', providerName: 'GitHub', mcpUrl: 'https://api.githubcopilot.com/mcp/x/all', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://github.com/login/oauth/authorize', oauthTokenEndpoint: 'https://github.com/login/oauth/access_token', oauthTokenEndpointAuthMethod: 'client_secret_post', resource: 'https://api.githubcopilot.com/mcp/x/all' },
-    url: 'https://api.githubcopilot.com/mcp/x/all',
+    config: { connectionType: 'mcp', providerName: 'GitHub', mcpUrl: 'https://api.githubcopilot.com/mcp/', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://github.com/login/oauth/authorize', oauthTokenEndpoint: 'https://github.com/login/oauth/access_token', oauthTokenEndpointAuthMethod: 'client_secret_post', resource: 'https://api.githubcopilot.com/mcp/' },
+    url: 'https://api.githubcopilot.com/mcp/',
   },
   {
     id: 'conn-gmail', name: 'Gmail',

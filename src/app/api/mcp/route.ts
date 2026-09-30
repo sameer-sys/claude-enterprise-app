@@ -45,6 +45,14 @@ function connectorFromInput(input: any): Connector {
 function cookie(value: string, maxAge = MAX_COOKIE_AGE): string {
   return `${value}; ${buildCookie(maxAge)}`;
 }
+\nfunction publicOrigin(req: NextRequest): string {
+  const forwardedHost = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+  const forwardedProto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim();
+  const host = forwardedHost || req.headers.get('host') || new URL(req.url).host;
+  const proto = forwardedProto || (host.endsWith('.app.github.dev') ? 'https' : new URL(req.url).protocol.replace(':', ''));
+  return proto + '://' + host;
+}
+
 
 export async function POST(req: NextRequest) {
   try {
@@ -82,7 +90,7 @@ export async function POST(req: NextRequest) {
       let clientId = suppliedId;
       let clientSecret = suppliedSecret || undefined;
       if (!clientId && oauth.client_id_metadata_document_supported) {
-        clientId = new URL('/api/mcp/oauth/client-metadata', req.url).toString();
+        clientId = new URL('/api/mcp/oauth/client-metadata', publicOrigin(req)).toString();
       }
       if (!clientId && oauth.registration_endpoint) {
         const register = await fetch(oauth.registration_endpoint, {
@@ -90,7 +98,7 @@ export async function POST(req: NextRequest) {
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({
             client_name: 'Sameer AI Workspace',
-            redirect_uris: [new URL('/api/mcp/oauth/callback', req.url).toString()],
+            redirect_uris: [new URL('/api/mcp/oauth/callback', publicOrigin(req)).toString()],
             response_types: ['code'],
             grant_types: ['authorization_code'],
             token_endpoint_auth_method: 'none',
@@ -107,7 +115,7 @@ export async function POST(req: NextRequest) {
 
       const verifier = codeVerifier();
       const state = crypto.randomUUID();
-      const redirectUri = new URL('/api/mcp/oauth/callback', req.url).toString();
+      const redirectUri = new URL('/api/mcp/oauth/callback', publicOrigin(req)).toString();
       const resource = String(body?.resource || connector.config?.resource || discovered.protectedResource?.resource || connector.url || '').trim();
       const scopeList = Array.isArray(oauth.scopes_supported) ? oauth.scopes_supported.map(String).filter(Boolean) : [];
       const auth = new URL(oauth.authorization_endpoint);

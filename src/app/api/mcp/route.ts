@@ -53,7 +53,8 @@ export async function POST(req: NextRequest) {
 
     if (action === 'save_credentials') {
       const connectorId = String(body?.connectorId || '').trim();
-      const serverUrl = String(body?.serverUrl || '').trim();
+      const connectorInput = body?.connector && typeof body.connector === 'object' ? body.connector : undefined;
+      const serverUrl = String(body?.serverUrl || connectorInput?.config?.mcpUrl || connectorInput?.url || '').trim();
       if (!connectorId || !serverUrl) return NextResponse.json({ success: false, error: 'Connector id and server URL are required.' }, { status: 400 });
       const clientId = String(body?.clientId || '').trim();
       const clientSecret = String(body?.clientSecret || '').trim();

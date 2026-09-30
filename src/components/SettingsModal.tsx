@@ -228,9 +228,9 @@ export default function SettingsModal({
       } else if (editingConnector?.id === 'conn-gmail') {
         const mail = customEmail;
         if (mail) {
-          setTestResult(`Connected to Gmail (${mail}) via Composio! Ready for inbox search, thread summaries, and zero-click dispatch.`);
+          setTestResult(`Connected to Gmail (${mail}) via Google OAuth. Ready for inbox search, thread summaries, and zero-click dispatch.`);
         } else {
-          setTestResult(`No mailbox configured. Please connect your Google account via Composio OAuth.`);
+          setTestResult(`No mailbox configured. Connect your Google account using the Gmail connector's OAuth sign-in.`);
         }
       } else if (editingConnector?.id === 'conn-omniroute') {
         setTestResult(`OmniRoute local router reachable with 2,269 models.`);

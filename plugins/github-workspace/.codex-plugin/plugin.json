@@ -1,0 +1,7 @@
+{
+  "name": "github-workspace",
+  "version": "1.0.0",
+  "description": "GitHub repository, issue, pull request, code, and workflow assistance for Sameer AI Workspace.",
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json"
+}

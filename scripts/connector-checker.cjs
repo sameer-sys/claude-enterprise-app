@@ -30,7 +30,8 @@ const checks = [
   [
     'Chat route contains the built-in dispatcher definition when referenced',
     route.includes('const builtInToMcpAction: Record<string, string>') &&
-    route.includes('Boolean(builtInToMcpAction[name])'),
+    route.includes('if (builtInToMcpAction[name])') &&
+    !route.includes('Boolean(builtInToMcpAction[name])'),
   ],
   [
     'Native connector OAuth callback uses the forwarded public origin',

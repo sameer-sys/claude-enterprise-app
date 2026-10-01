@@ -213,18 +213,6 @@ async function runAgentTool(
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
-        // Built-in actions mapped to Composio "For You" MCP
-        if (builtInToMcpAction[name]) {
-          const mcpAction = builtInToMcpAction[name];
-          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
-            tools: [{ name: mcpAction, arguments: args || {} }]
-          }, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-
         // Direct action slug dispatcher (e.g. YOUTUBE_CREATE_PLAYLIST) routed via MULTI_EXECUTE
         if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');

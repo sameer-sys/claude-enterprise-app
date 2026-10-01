@@ -14,33 +14,6 @@ export const PRO_CLAUDE_MODELS: ModelOption[] = [
     badge: 'Boss ⚡',
     contextWindow: '1M tokens',
   },
-  {
-    id: 'big-pickle',
-    name: 'Big Pickle',
-    tag: 'OpenCode Zen Engine',
-    description: 'High-speed coding and orchestration stealth model with 200k context.',
-    speed: 'High Throughput',
-    badge: 'OpenCode 🥒',
-    contextWindow: '200K tokens',
-  },
-  {
-    id: 'ling-flash',
-    name: 'Ling 3.0 Flash',
-    tag: 'Low-Latency Reasoning',
-    description: 'Sub-second fast reasoning model optimized for instant response and tool calling.',
-    speed: '1.0s Lightning',
-    badge: 'Ling ⚡',
-    contextWindow: '262K tokens',
-  },
-  {
-    id: 'nemotron-lightning',
-    name: 'Nemotron 3.5',
-    tag: 'NVIDIA 1M Context Engine',
-    description: 'Agent-optimized reasoning and coding model with massive 1M token context.',
-    speed: 'Ultra Fast',
-    badge: 'NVIDIA 🧠',
-    contextWindow: '1M tokens',
-  },
 ];
 
 interface ModelSelectorProps {

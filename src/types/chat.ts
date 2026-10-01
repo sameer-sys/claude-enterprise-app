@@ -1,4 +1,4 @@
-export type ModelId = 'boss' | 'big-pickle' | 'ling-flash' | 'nemotron-lightning';
+export type ModelId = 'boss';
 
 export type ResponseStyle = 'normal' | 'concise' | 'explanatory' | 'technical';
 

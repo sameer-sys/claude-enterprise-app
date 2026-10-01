@@ -1496,16 +1496,6 @@ export async function POST(req: NextRequest) {
       tag: string;
     }> = [];
 
-    const activeOpenRouterKey = openRouterKey || process.env.OPENROUTER_API_KEY || (typeof process !== 'undefined' ? (process.env.OPENROUTER_KEY || '') : '');
-    const targetOpenRouterModel =
-      modelId === 'big-pickle'
-        ? 'z-ai/glm-5.2:free'
-        : modelId === 'ling-flash'
-        ? 'inclusionai/ling-3.0-flash-fin:free'
-        : modelId === 'nemotron-lightning'
-        ? 'nvidia/nemotron-3.5-lightning:free'
-        : 'nvidia/nemotron-3.5-lightning:free';
-
     // Local / custom OmniRoute if provided
     if (!isCloudEnv || !isLocalhost) {
       candidateEndpoints.push({
@@ -1514,23 +1504,8 @@ export async function POST(req: NextRequest) {
           Authorization: `Bearer ${omniMasterKey}`,
           'Content-Type': 'application/json',
         },
-        models: [modelId === 'boss' ? 'boss' : modelId],
+        models: ['boss'],
         tag: 'boss-local',
-      });
-    }
-
-    // OpenRouter Cloud (supports Big Pickle, Ling 3.0 Flash, Nemotron 3.5, etc.)
-    if (activeOpenRouterKey) {
-      candidateEndpoints.push({
-        url: 'https://openrouter.ai/api/v1/chat/completions',
-        headers: {
-          Authorization: `Bearer ${activeOpenRouterKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://claude-enterprise-app.vercel.app',
-          'X-Title': 'Boss AI Workspace',
-        },
-        models: [targetOpenRouterModel],
-        tag: `openrouter-${modelId}`,
       });
     }
 

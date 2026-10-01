@@ -83,8 +83,16 @@ export async function POST(req: NextRequest) {
       const suppliedId = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_ID : '') || body?.clientId || connector.config?.oauthClientId || saved.clientId || '').trim();
       const suppliedSecret = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_SECRET : '') || body?.clientSecret || saved.clientSecret || '').trim();
       const discovered = await discoverRemoteOAuth(connector.url, String(body?.resource || connector.config?.resource || '').trim() || undefined);
-      const oauth = discovered.oauth;
-      if (!oauth?.authorization_endpoint || !oauth?.token_endpoint) {
+      const configuredAuthorizationEndpoint = String(connector.config?.oauthAuthorizationEndpoint || '').trim();
+      const configuredTokenEndpoint = String(connector.config?.oauthTokenEndpoint || '').trim();
+      const configuredAuthMethod = String(connector.config?.oauthTokenEndpointAuthMethod || '').trim();
+      const oauth: any = {
+        ...(discovered.oauth || {}),
+        ...(configuredAuthorizationEndpoint ? { authorization_endpoint: configuredAuthorizationEndpoint } : {}),
+        ...(configuredTokenEndpoint ? { token_endpoint: configuredTokenEndpoint } : {}),
+        ...(configuredAuthMethod ? { token_endpoint_auth_methods_supported: [configuredAuthMethod] } : {}),
+      };
+      if (!oauth.authorization_endpoint || !oauth.token_endpoint) {
         return NextResponse.json({ success: false, error: 'This MCP server did not publish OAuth authorization metadata. Add an API token or an OAuth Client ID in Advanced settings.' }, { status: 400 });
       }
 

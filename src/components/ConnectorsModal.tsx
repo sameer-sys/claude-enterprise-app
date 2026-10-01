@@ -288,7 +288,7 @@ export default function ConnectorsModal({
           setSelected(connector);
           setStatusMessage('Connected — verified against the real MCP server.');
           if (!connector.enabled) onToggleConnector(connector.id);
-        } else if (authMode !== 'oauth') {
+        } else if (customAuthMode !== 'oauth') {
           setStatusMessage(data?.requiresAuth ? 'Added. Authentication is required.' : 'Added. The server will be checked when used.');
         }
       } else if (customAuthMode === 'oauth') {

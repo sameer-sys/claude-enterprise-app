@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Sameer AI Workspace — Vercel Test',
+  title: 'Sameer AI Workspace — Vercel Test 2',
   description: 'Autonomous AI Workspace with PM Manager Hierarchy, Real PC Cowork, and Multi-Engine Intelligence.',
   manifest: '/manifest.json',
   icons: {

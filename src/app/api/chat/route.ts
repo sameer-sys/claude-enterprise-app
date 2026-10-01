@@ -1570,10 +1570,9 @@ export async function POST(req: NextRequest) {
                     '';
 
                   if (reasoning) {
+                    // Keep provider reasoning internal; never expose hidden
+                    // planning/reasoning traces in the user-facing chat.
                     accumulatedReasoning += reasoning;
-                    controller.enqueue(
-                      encoder.encode(`data: ${JSON.stringify({ thinking: reasoning })}\n\n`)
-                    );
                   }
                   if (delta) {
                     accumulatedContent += delta;
@@ -1588,8 +1587,8 @@ export async function POST(req: NextRequest) {
               if (accumulatedContent.trim().length === 0) {
                 const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
                 const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
-                  ? lastToolMsg.content.trim()
-                  : (accumulatedReasoning.trim() || 'Action completed.');
+                  ? formatConnectorResult(lastText, lastToolMsg.content.trim())
+                  : 'I could not get a final response from the AI provider. Please try the request again.';
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                 );

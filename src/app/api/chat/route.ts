@@ -149,6 +149,18 @@ async function runAgentTool(
 ): Promise<string> {
   try {
     // Handle Composio "For You" MCP execution
+    const builtInToMcpAction: Record<string, string> = {
+      'youtube_list_playlists': 'YOUTUBE_LIST_USER_PLAYLISTS',
+      'youtube_create_playlist': 'YOUTUBE_CREATE_PLAYLIST',
+      'youtube_add_video_to_playlist': 'YOUTUBE_INSERT_PLAYLIST_ITEM',
+      'github_list_repos': 'GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER',
+      'github_create_issue': 'GITHUB_CREATE_AN_ISSUE',
+      'gmail_list_messages': 'GMAIL_LIST_THREADS',
+      'gmail_send_email': 'GMAIL_SEND_EMAIL',
+      'google_calendar_list_events': 'GOOGLECALENDAR_LIST_EVENTS',
+      'google_calendar_create_event': 'GOOGLECALENDAR_CREATE_EVENT',
+    };
+
     const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
     if (remoteRoute) {
       const { callRemoteMcpTool } = await import('@/lib/remoteMcp');
@@ -213,6 +225,18 @@ async function runAgentTool(
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
+        // Built-in actions mapped to Composio "For You" MCP
+        if (builtInToMcpAction[name]) {
+          const mcpAction = builtInToMcpAction[name];
+          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
+            tools: [{ name: mcpAction, arguments: args || {} }]
+          }, connectorContext.mcpRefreshToken);
+          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
+          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
+          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
+        }
+
         // Direct action slug dispatcher (e.g. YOUTUBE_CREATE_PLAYLIST) routed via MULTI_EXECUTE
         if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
@@ -231,7 +255,6 @@ async function runAgentTool(
       const isComposioTool =
         name.startsWith('COMPOSIO_') ||
         name.startsWith('connector_') ||
-        Boolean(builtInToMcpAction[name]) ||
         ['Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections', 'composio_execute_action', 'composio_search_tools'].includes(name) ||
         /^[A-Z0-9]+_[A-Z0-9_]+$/.test(name);
 
@@ -643,40 +666,6 @@ function streamTextDirectly(
       },
     }
   ), mcpContext);
-}
-
-function parseComposioSearchResult(raw: string): { tools: Array<{ name: string; description?: string; inputSchema?: Record<string, any> }>; primaryToolSlugs: string[] } {
-  try {
-    const parsed = JSON.parse(raw);
-    const data = parsed?.data ?? parsed;
-    const schemas = data?.tool_schemas && typeof data.tool_schemas === 'object' ? data.tool_schemas : {};
-    const tools = Object.entries(schemas).map(([name, schema]: [string, any]) => ({
-      name,
-      description: String(schema?.description || name),
-      inputSchema: schema?.input_schema && typeof schema.input_schema === 'object'
-        ? schema.input_schema
-        : { type: 'object', properties: {} },
-    })).filter((tool) => /^[a-zA-Z0-9_-]{1,64}$/.test(tool.name));
-    const primaryToolSlugs = Array.isArray(data?.primary_tool_slugs)
-      ? data.primary_tool_slugs.map(String).filter(Boolean)
-      : [];
-    return { tools, primaryToolSlugs };
-  } catch {
-    return { tools: [], primaryToolSlugs: [] };
-  }
-}
-
-function composioSchemasToOpenAITools(tools: Array<{ name: string; description?: string; inputSchema?: Record<string, any> }>): any[] {
-  return tools.map((tool) => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: String(tool.description || tool.name).slice(0, 700),
-      parameters: tool.inputSchema && typeof tool.inputSchema === 'object'
-        ? tool.inputSchema
-        : { type: 'object', properties: {} },
-    },
-  }));
 }
 
 function formatConnectorResult(requestText: string, result: any): string {
@@ -1154,7 +1143,7 @@ export async function POST(req: NextRequest) {
       const name = String(t?.function?.name || '');
       return !mcpWrapperNames.has(name) || explicitComposioConnector;
     });
-    let effectiveTools = hasFocusedRemoteTools && !mcpModeActive
+    const effectiveTools = hasFocusedRemoteTools && !mcpModeActive
       ? connectorFocusedTools
       : [
           ...baseTools,
@@ -1250,39 +1239,6 @@ export async function POST(req: NextRequest) {
     const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
       /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
       /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
-
-    // Dynamically discover the exact Composio tools for the user's request.
-    // No app-specific action names are hardcoded here.
-    let preferredComposioToolName = '';
-    if (connectorRequest && !isAccountQuery && mcpModeActive) {
-      try {
-        const searchTool = pickMcpToolName(mcpToolNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
-        const searchResult = await runAgentTool(
-          searchTool,
-          { queries: [{ use_case: lastText }], session: { generate_id: true } },
-          toolContext
-        );
-        const discovered = parseComposioSearchResult(searchResult);
-        if (discovered.tools.length > 0) {
-          const primary = discovered.primaryToolSlugs.find((name) =>
-            discovered.tools.some((tool) => tool.name === name)
-          );
-          preferredComposioToolName = primary || discovered.tools[0].name;
-          const discoveredNames = new Set(discovered.tools.map((tool) => tool.name));
-          mcpToolNames = discovered.tools.map((tool) => tool.name);
-          mcpLiveTools = discovered.tools as any[];
-          const targetedTools = composioSchemasToOpenAITools(discovered.tools);
-          effectiveTools = hasFocusedRemoteTools
-            ? [...connectorFocusedTools, ...targetedTools]
-            : targetedTools;
-          // The targeted tools are already discovered, so do not force the
-          // model to call the search meta-tool again.
-          forceConnectorTool = false;
-        }
-      } catch (preflightErr: any) {
-        console.error('[COMPOSIO PREFLIGHT ERR]', preflightErr?.message || preflightErr);
-      }
-    }
 
     // Connected-app queries are deterministic: always ask Composio directly
     // so the answer cannot degrade into the UI fallback message.
@@ -1511,6 +1467,18 @@ export async function POST(req: NextRequest) {
             tool_call_id: call.id,
             content: result,
           });
+
+          // Connected-app/account queries are deterministic. Once the real
+          // Composio MANAGE_CONNECTIONS tool has returned, format that result
+          // ourselves and stop the LLM from echoing raw JSON/auth links.
+          if (isAccountQuery && /MANAGE_CONNECTIONS/i.test(String(toolName || ''))) {
+            return streamTextDirectly(
+              formatConnectorResult(lastText, result),
+              detectedSkill,
+              toolContext
+            );
+          }
+
           if (mcpToolNames.includes(String(toolName))) mcpToolCallsMade++;
         }
         // Once a real MCP tool has run, let the model decide: keep calling tools or finish.

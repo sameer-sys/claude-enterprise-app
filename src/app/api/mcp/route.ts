@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
         const connector = connectorFromInput(item);
         if (!connector.name || !connector.url) return { id: String(item?.id || ''), connected: false };
         const credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
-        return { id: connector.id, connected: Boolean(credentials?.accessToken || credentials?.apiToken) };
+        return { id: connector.id, connected: Boolean(credentials?.accessToken) };
       });
       return NextResponse.json({ success: true, connectors: results });
     }

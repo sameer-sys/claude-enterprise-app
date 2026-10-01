@@ -274,15 +274,26 @@ export async function executeMcpTool(
 ): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string; newRefreshToken?: string }> {
   let callArgs = args || {};
   if (/MANAGE_CONNECTIONS/i.test(toolName)) {
-    // The Composio meta-tool defaults to "add". That is dangerous for any
-    // status/account inspection because every refresh would create another
-    // account. Inspection must be explicitly read-only.
-    if (!callArgs.action) {
-      callArgs = { ...callArgs, action: 'list' };
-    }
-    if (!callArgs.toolkits || !Array.isArray(callArgs.toolkits) || callArgs.toolkits.length === 0) {
-      callArgs = { ...callArgs, toolkits: DEFAULT_COMPOSIO_TOOLKITS };
-    }
+    // Composio expects the action on each toolkit item, not as a top-level
+    // field. Normalize account-inspection calls to an explicitly read-only
+    // shape so we never accidentally initiate new auth links.
+    const rawToolkits = Array.isArray(callArgs.toolkits) && callArgs.toolkits.length > 0
+      ? callArgs.toolkits
+      : DEFAULT_COMPOSIO_TOOLKITS;
+
+    const requestedAction = String(callArgs.action || 'list').toLowerCase();
+    const normalizedToolkits = rawToolkits.map((item: any) => {
+      if (typeof item === 'string') {
+        return { name: item, action: requestedAction === 'add' ? 'add' : 'list' };
+      }
+      const name = String(item?.name || item?.toolkit || '').trim();
+      if (!name) return null;
+      const action = String(item?.action || requestedAction || 'list').toLowerCase();
+      return { ...item, name, action: action === 'add' || action === 'rename' || action === 'remove' ? action : 'list' };
+    }).filter(Boolean);
+
+    callArgs = { ...callArgs, toolkits: normalizedToolkits };
+    delete callArgs.action;
   }
 
   const response = await callComposioMcp(accessToken, 'tools/call', {

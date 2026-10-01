@@ -15,7 +15,9 @@ const oauthCallback = read('src/app/api/mcp/oauth/callback/route.ts');
 const checks = [
   [
     'Composio MANAGE_CONNECTIONS normalizes toolkit actions',
-    /if \/MANAGE_CONNECTIONS\/i\.test\(toolName\)[\s\S]*normalizedToolkits[\s\S]*delete callArgs\.action;/.test(composio),
+    composio.includes("if (/MANAGE_CONNECTIONS/i.test(toolName))") &&
+    composio.includes('const normalizedToolkits = rawToolkits.map') &&
+    composio.includes('delete callArgs.action;'),
   ],
   [
     'Chat route deterministically formats connected-account results',
@@ -27,7 +29,8 @@ const checks = [
   ],
   [
     'Chat route contains the built-in dispatcher definition when referenced',
-    /const builtInToMcpAction:\s*Record<string, string>/.test(route) && /Boolean\(builtInToMcpAction\[name\]\)/.test(route),
+    route.includes('const builtInToMcpAction: Record<string, string>') &&
+    route.includes('Boolean(builtInToMcpAction[name])'),
   ],
   [
     'Native connector OAuth callback uses the forwarded public origin',

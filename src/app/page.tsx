@@ -643,10 +643,8 @@ export default function Home() {
           try {
             const data = JSON.parse(dataStr);
             let hasUpdate = false;
-            if (data.thinking) {
-              accumulatedThinking += data.thinking;
-              hasUpdate = true;
-            }
+            // Provider reasoning is intentionally ignored here. Only the
+            // assistant's final user-facing content belongs in the transcript.
             if (data.content) {
               accumulatedContent += data.content;
               hasUpdate = true;
@@ -683,9 +681,7 @@ export default function Home() {
 
       // Safeguard: Ensure assistant response is never left blank
       if (!accumulatedContent.trim()) {
-        const fallbackText = accumulatedThinking.trim()
-          ? accumulatedThinking.trim()
-          : 'No response was returned. Please try again.';
+        const fallbackText = 'No response was returned. Please try again.';
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== activeSession.id) return s;

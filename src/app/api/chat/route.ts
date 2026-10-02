@@ -729,7 +729,8 @@ function attachMcpSession(
 function streamTextDirectly(
   text: string,
   detectedSkill: string,
-  mcpContext?: { mcpToken?: string; mcpRefreshToken?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
+  mcpContext?: { mcpToken?: string; mcpRefreshToken?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] },
+  needsReconnect?: boolean
 ): Response {
   const encoder = new TextEncoder();
   return attachMcpSession(new Response(
@@ -749,6 +750,7 @@ function streamTextDirectly(
         Connection: 'keep-alive',
         'X-Claude-Skill': detectedSkill,
         'X-Claude-Router': 'boss-agent-direct',
+        ...(needsReconnect ? { 'X-Composio-Needs-Reconnect': 'true' } : {}),
         ...(agentLoopDebugInfo ? { 'X-Debug-AgentLoop': agentLoopDebugInfo } : {}),
         ...(preHandlerDebugInfo ? { 'X-Debug-PreHandler': preHandlerDebugInfo } : {}),
         ...(mcpListDebugInfo ? { 'X-Debug-McpList': mcpListDebugInfo } : {}),
@@ -1220,7 +1222,7 @@ export async function POST(req: NextRequest) {
       const expiredMessage = composioMcpRefreshToken
         ? `Your Composio session expired and could not be refreshed. ${reconnectLink} to keep using your connected apps.`
         : `Your Composio session has expired. ${reconnectLink} to keep using your connected apps.`;
-      return streamTextDirectly(expiredMessage, detectedSkill);
+      return streamTextDirectly(expiredMessage, detectedSkill, undefined, true);
     }
 
     const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};

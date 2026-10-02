@@ -118,6 +118,7 @@ export default function Home() {
   const [customButtons, setCustomButtons] = useState<CustomButton[]>(DEFAULT_CUSTOM_BUTTONS);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const composioReconnectOpenedRef = useRef(false);
 
   // Service Worker Registration & Cache Invalidation for instant live updates
   useEffect(() => {
@@ -617,6 +618,28 @@ export default function Home() {
       }
 
       const activeSkill = response.headers.get('X-Claude-Skill') || undefined;
+
+      // Composio session expired: auto-open the one-click reconnect popup so
+      // the user only has to click "Authorize" on the Composio page. Opened at
+      // most once per page load to avoid popup spam.
+      if (response.headers.get('X-Composio-Needs-Reconnect') === 'true' && !composioReconnectOpenedRef.current) {
+        composioReconnectOpenedRef.current = true;
+        try {
+          const authRes = await fetch('/api/composio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'get_mcp_oauth_url' }),
+            signal: AbortSignal.timeout(20000),
+          });
+          const authData = await authRes.json().catch(() => ({}));
+          if (authRes.ok && authData?.authUrl) {
+            const popup = window.open(authData.authUrl, 'composio_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
+            if (!popup) window.open(authData.authUrl, '_blank');
+          }
+        } catch (e) {
+          // Reconnect popup is best-effort; the inline link still works.
+        }
+      }
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No readable stream');

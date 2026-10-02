@@ -1278,6 +1278,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Deterministic connector action dispatcher: detect the user's intent
+    // (playlists, mail, repos, events) and execute the real Composio MCP
+    // action directly. This is one round-trip instead of the slow model agent
+    // loop, which caused timeouts/500s on Vercel for connector requests.
+    if (connectorRequest && mcpModeActive && !isAccountQuery) {
+      const { detectComposioAction, formatComposioActionResult } = await import('@/lib/composioActions');
+      const detectedAction = detectComposioAction(lastText);
+      if (detectedAction) {
+        const liveResult = await runAgentTool(detectedAction.slug, detectedAction.args, toolContext);
+        return streamTextDirectly(
+          formatComposioActionResult(detectedAction, liveResult),
+          detectedSkill,
+          toolContext
+        );
+      }
+    }
+
     let mcpToolCallsMade = 0;
     let mcpNudges = 0;
 

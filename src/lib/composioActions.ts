@@ -117,6 +117,10 @@ export function unwrapComposioPayload(raw: any): any {
 
 /**
  * Extract the first array of result items from a Composio action payload.
+ *
+ * MULTI_EXECUTE wraps each action result as
+ *   { results: [ { response: { data: { items: [...] } } } ] }
+ * so nested items must be flattened before formatting.
  */
 export function extractResultItems(payload: any): any[] {
   if (payload == null) return [];
@@ -137,7 +141,27 @@ export function extractResultItems(payload: any): any[] {
   ];
 
   for (const candidate of candidates) {
-    if (Array.isArray(candidate)) return candidate;
+    if (Array.isArray(candidate)) {
+      // Flatten MULTI_EXECUTE wrapper entries: { response: { data: { items } } }
+      const nested = candidate
+        .map((entry: any) => {
+          if (entry && typeof entry === 'object') {
+            const inner = entry.response || entry.data || entry.result || entry.output;
+            if (inner && typeof inner === 'object') {
+              const innerData = inner.data || inner;
+              if (Array.isArray(innerData.items)) return innerData.items;
+              if (Array.isArray(innerData.results)) return innerData.results;
+              if (Array.isArray(innerData)) return innerData;
+            }
+            if (Array.isArray(entry.items)) return entry.items;
+          }
+          return null;
+        })
+        .filter(Boolean)
+        .flat();
+      if (nested.length > 0) return nested;
+      return candidate;
+    }
     if (candidate && typeof candidate === 'object') {
       // results may be keyed by toolkit: { youtube: { ... } } or { data: [...] }
       if (Array.isArray(candidate.data)) return candidate.data;
@@ -210,7 +234,7 @@ export function formatComposioActionResult(detected: DetectedComposioAction, raw
   }
 
   const header =
-    detected.app === 'youtube' ? `Here are ${detected.label}:\n\n` :
+    detected.app === 'youtube' ? `You have **${items.length} playlist${items.length === 1 ? '' : 's'}** on YouTube:\n\n` :
     detected.app === 'gmail' ? `Here are ${detected.label}:\n\n` :
     detected.app === 'github' ? `Here are ${detected.label}:\n\n` :
     detected.app === 'googlecalendar' ? `Here are ${detected.label}:\n\n` :

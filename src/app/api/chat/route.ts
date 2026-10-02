@@ -164,6 +164,37 @@ async function fetchComposioAccounts(
   }
 }
 
+/**
+ * Safety net: when the agent calls MULTI_EXECUTE for an app that has multiple
+ * connected accounts but did not pass connected_account_id, inject the first
+ * account id so Composio does not reject the call with "multiple ... accounts
+ * connected". Uses the live account list — nothing hardcoded.
+ */
+async function injectMissingAccountIds(payload: any, ctx: { mcpToken?: string; mcpRefreshToken?: string; mcpToolNames?: string[] }): Promise<any> {
+  const tools = Array.isArray(payload?.tools) ? payload.tools : [];
+  if (tools.length === 0 || !ctx.mcpToken) return payload;
+  const accounts = await fetchComposioAccounts(ctx.mcpToken, ctx.mcpRefreshToken, ctx);
+  const byApp: Record<string, string[]> = {};
+  for (const a of accounts) {
+    const app = String(a?.app_name || a?.appName || a?.app || a?.name || '').toLowerCase();
+    const id = String(a?.id || a?.connected_account_id || '');
+    if (app && id) (byApp[app] = byApp[app] || []).push(id);
+  }
+  const updated = tools.map((t: any) => {
+    const slug = String(t?.tool_slug || '');
+    // Composio slugs are <APP>_<ACTION>, e.g. YOUTUBE_CREATE_PLAYLIST.
+    // The app part matches the connected-account app name directly.
+    const app = slug.split('_')[0].toLowerCase();
+    const ids = byApp[app] || [];
+    const args = t?.arguments && typeof t.arguments === 'object' ? t.arguments : {};
+    if (ids.length > 1 && !args.connected_account_id) {
+      return { ...t, arguments: { ...args, connected_account_id: ids[0] } };
+    }
+    return t;
+  });
+  return { ...payload, tools: updated };
+}
+
 async function runAgentTool(
   name: string,
   args: any,
@@ -243,7 +274,8 @@ async function runAgentTool(
           // Composio's MULTI_EXECUTE schema requires tools[].tool_slug (verified
           // against the live API: sending `name` returns 'Required at
           // "tools[0].tool_slug"').
-          const payload = args?.action ? { tools: [{ tool_slug: args.action, arguments: args.params || args.arguments || {} }] } : args;
+          let payload = args?.action ? { tools: [{ tool_slug: args.action, arguments: args.params || args.arguments || {} }] } : args;
+          payload = await injectMissingAccountIds(payload, connectorContext);
           const res = await executeMcpTool(connectorContext.mcpToken, execTool, payload, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
@@ -774,7 +806,16 @@ function formatConnectorResult(requestText: string, result: any): string {
         const status = c.status || 'Active';
         return `${idx + 1}. **${app}**${account ? ` (${account})` : ''} — \`${status}\``;
       });
-      let response = `Here are your live connected apps from Composio "For You":\n\n` + lines.join('\n');
+      const uniqueApps = [...new Set(
+        connections.map((c: any) => String(c.app_name || c.appName || c.app || c.name || 'App').toLowerCase())
+      )];
+      const wantsCount = /\b(how many|total|count|number of)\b/i.test(lower);
+      let response: string;
+      if (wantsCount) {
+        response = `You're connected to **${uniqueApps.length} apps** (${connections.length} accounts) in your Composio "For You" session:\n\n` + lines.join('\n');
+      } else {
+        response = `Here are your live connected apps from Composio "For You":\n\n` + lines.join('\n');
+      }
       if (manageUrl) {
         response += `\n\nManage or link more apps here: [Composio Connection Manager](${manageUrl})`;
       }
@@ -976,6 +1017,13 @@ export async function POST(req: NextRequest) {
     // Composio is only active when the user explicitly adds/uses its
     // remote MCP server and supplies its MCP authorization.
     // ========================================================
+    // Fetch the live connected accounts once per request so the agent knows
+    // which accounts exist (and their ids) for multi-account apps.
+    let composioAccounts: any[] = [];
+    if (composioMcpToken) {
+      composioAccounts = await fetchComposioAccounts(composioMcpToken, composioMcpRefreshToken, {});
+    }
+
     let connectorContext = '';
 
     const enabledRemoteConnectors = (Array.isArray(connectors) ? connectors : [])
@@ -1001,6 +1049,29 @@ export async function POST(req: NextRequest) {
         'Composio is active only as an explicitly authorized remote MCP server.',
         'Use its live MCP tools for that remote connector and do not treat Composio as the native connector directory.',
         'Never claim a connected app or action without a real MCP result.',
+      ].join('\n') + '\n';
+
+      // Real agent protocol: the model is the user's agent over their
+      // Composio-connected apps. It must ask for missing required fields
+      // instead of calling actions with empty arguments, and it must select
+      // a connected account when an app has multiple accounts.
+      const accountLines = (Array.isArray(composioAccounts) ? composioAccounts : [])
+        .map((a: any) => `- ${String(a?.app_name || a?.appName || a?.app || a?.name || 'app')} → ${String(a?.id || a?.connected_account_id || '?')}${a?.email ? ` (${a?.email})` : ''}`)
+        .join('\n');
+      connectorContext += '\n\n[COMPOSIO AGENT PROTOCOL]\n' + [
+        'You are the user\'s agent for their connected apps through Composio.',
+        'Connected accounts:',
+        accountLines || '- (none connected)',
+        '',
+        'To run an action:',
+        '1. Find the exact tool slug with COMPOSIO_SEARCH_TOOLS if you are unsure which tool exists.',
+        '2. Execute it with COMPOSIO_MULTI_EXECUTE_TOOL using tools: [{ "tool_slug": "<SLUG>", "arguments": { ... } }].',
+        '3. When an app has multiple connected accounts, include connected_account_id in arguments (use the id listed above).',
+        '',
+        'CRITICAL RULES:',
+        '- NEVER call an action with empty required fields. If a required field is missing (e.g. playlist title, email recipient, event title), ASK the user for it in plain text and wait for their reply.',
+        '- NEVER invent or fake results. Only report what the real tool returns.',
+        '- After a successful action, confirm what was done using the real result.',
       ].join('\n') + '\n';
     }
 

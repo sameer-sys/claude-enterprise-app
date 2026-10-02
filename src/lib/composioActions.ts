@@ -14,6 +14,8 @@ export interface DetectedComposioAction {
   app: string;
   /** Connected account ids to execute against (one MULTI_EXECUTE entry each). */
   accountIds?: string[];
+  /** Fields that must be present in args before the action can execute. */
+  requiredFields?: string[];
 }
 
 const ACTION_SLUGS = {
@@ -38,38 +40,30 @@ export function detectComposioAction(text: string): DetectedComposioAction | nul
 
   const has = (...words: string[]) => words.some((w) => lower.includes(w));
 
+  // Create/write intents are handled by the real agent loop, which asks the
+  // user for required fields (e.g. playlist title) and then executes. The
+  // deterministic dispatcher only handles fast read actions.
+  if (/\b(create|make|add|send|compose|reply|schedule|insert|update|edit|delete|remove|post|upload)\b/i.test(lower)) {
+    return null;
+  }
+
   // ── YouTube ────────────────────────────────────────────────────────────
   if (has('youtube', 'yt', 'playlist', 'video') && has('playlist', 'playlists')) {
-    if (has('create', 'make', 'new')) {
-      return { slug: ACTION_SLUGS.youtubeCreatePlaylist, args: {}, label: 'create a YouTube playlist', app: 'youtube' };
-    }
-    if (has('add', 'insert', 'put') && has('video', 'song', 'music')) {
-      return { slug: ACTION_SLUGS.youtubeInsertPlaylistItem, args: {}, label: 'add a video to a YouTube playlist', app: 'youtube' };
-    }
     return { slug: ACTION_SLUGS.youtubeListPlaylists, args: { max_results: 50 }, label: 'your YouTube playlists', app: 'youtube' };
   }
 
   // ── Gmail ──────────────────────────────────────────────────────────────
   if (has('gmail', 'email', 'mail', 'inbox', 'message', 'thread')) {
-    if (has('send', 'compose', 'reply')) {
-      return { slug: ACTION_SLUGS.gmailSendEmail, args: {}, label: 'send an email', app: 'gmail' };
-    }
     return { slug: ACTION_SLUGS.gmailListThreads, args: { max_results: 10 }, label: 'your latest Gmail messages', app: 'gmail' };
   }
 
   // ── GitHub ─────────────────────────────────────────────────────────────
   if (has('github', 'repo', 'repository', 'repos')) {
-    if (has('create', 'open', 'new') && has('issue')) {
-      return { slug: ACTION_SLUGS.githubCreateIssue, args: {}, label: 'create a GitHub issue', app: 'github' };
-    }
     return { slug: ACTION_SLUGS.githubListRepos, args: { per_page: 50 }, label: 'your GitHub repositories', app: 'github' };
   }
 
   // ── Google Calendar ────────────────────────────────────────────────────
   if (has('calendar', 'event', 'meeting', 'schedule', 'appointment')) {
-    if (has('create', 'add', 'schedule')) {
-      return { slug: ACTION_SLUGS.calendarCreateEvent, args: {}, label: 'create a calendar event', app: 'googlecalendar' };
-    }
     return { slug: ACTION_SLUGS.calendarListEvents, args: { max_results: 20 }, label: 'your calendar events', app: 'googlecalendar' };
   }
 
@@ -105,6 +99,48 @@ export function resolveComposioAccounts(text: string, accounts: any[], app: stri
     return mentioned.map((a: any) => String(a?.id || a?.connected_account_id || '')).filter(Boolean);
   }
   return matching.map((a: any) => String(a?.id || a?.connected_account_id || '')).filter(Boolean);
+}
+
+/** Human-friendly names for required fields when asking the user. */
+export const COMPOSIO_FIELD_NAMES: Record<string, string> = {
+  title: 'a title',
+  summary: 'a title',
+  subject: 'a subject',
+  to: 'the recipient email',
+  body: 'the message body',
+};
+
+/** Return the required fields that are still missing from the action args. */
+export function missingRequiredFields(detected: DetectedComposioAction): string[] {
+  return (detected.requiredFields || []).filter((f) => !detected.args[f] || !String(detected.args[f]).trim());
+}
+
+/**
+ * Extract a field value from natural language. Handles "call it X",
+ * "called X", "title is X", "send to a@b.com", "body: ...", etc.
+ */
+export function extractFieldFromText(text: string, field: string): string | null {
+  const source = String(text || '').trim();
+  if (!source) return null;
+  const grab = (re: RegExp): string | null => {
+    const m = source.match(re);
+    return m && m[1] ? m[1].trim() : null;
+  };
+  switch (field) {
+    case 'title':
+    case 'summary':
+    case 'subject':
+      return (
+        grab(/(?:call|name|title|named|called|titled|subject)\s+(?:it|the playlist|the repo|the issue|the event|the email|the video)?\s*(?:as\s+)?["'`]?([^"'`\n]{2,120})["'`]?/i) ||
+        grab(/(?:title|name|subject|summary)\s*(?:is|:)\s*["'`]?([^"'`\n]{2,120})["'`]?/i)
+      );
+    case 'to':
+      return grab(/(?:to|send to|email)\s*[: ]\s*([^\s,;]+@[^\s,;]+)/i) || grab(/\b([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})\b/i);
+    case 'body':
+      return grab(/(?:body|message|content)\s*(?:is|:)?\s*["'`]?([^"'`\n]{2,500})["'`]?/i);
+    default:
+      return null;
+  }
 }
 
 /**

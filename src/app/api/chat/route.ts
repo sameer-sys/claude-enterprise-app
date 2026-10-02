@@ -885,15 +885,24 @@ export async function POST(req: NextRequest) {
     const cookieMcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || '';
     const cookieMcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || '';
 
-    const explicitComposioConnector = Array.isArray(connectors) && connectors.some((connector: any) => {
+    // A live Composio session is identified by its own authorization token, not
+    // only by a Composio entry in the connector list. The connector list is
+    // rebuilt per session and the Connectors UI additionally merges custom
+    // entries from localStorage, so a connected Composio user can legitimately
+    // have a valid composio_mcp_token cookie while no Composio connector is
+    // present in the payload. Keying only off the connector list silently
+    // discarded that token and reported "no active connector".
+    const hasComposioSessionToken = Boolean(String(bodyMcpToken || headerMcpToken || cookieMcpToken || '').trim());
+    const explicitComposioConnector = hasComposioSessionToken || (Array.isArray(connectors) && connectors.some((connector: any) => {
       const cfg = connector?.config || {};
       const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
       const url = String(cfg.mcpUrl || connector?.url || '').toLowerCase();
       return type === 'composio' || url.includes('connect.composio.dev');
-    });
+    }));
 
     // Native connectors must never inherit the legacy Composio session.
-    // Composio is isolated to an explicitly configured Composio connector.
+    // Composio is isolated to an explicitly configured Composio connector or
+    // to a real Composio authorization held by this browser.
     const composioUserId = explicitComposioConnector
       ? (String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default')
       : 'disabled';

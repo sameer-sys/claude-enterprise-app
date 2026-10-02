@@ -748,6 +748,25 @@ function streamTextDirectly(
   ), mcpContext);
 }
 
+/**
+ * Detects when a model response is actually a serialized tool-call message
+ * ({"role":"assistant","reasoning":"...","tool_calls":[...]}) that must never
+ * be shown to the user as plain text.
+ */
+function isRawToolCallJson(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!trimmed.startsWith('{')) return false;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.tool_calls) && parsed.tool_calls.length > 0) return true;
+      if (parsed.role === 'assistant' && (parsed.tool_calls || parsed.reasoning || parsed.reasoning_content)) return true;
+      if (parsed.tool || parsed.name || parsed.action) return true;
+    }
+  } catch {}
+  return false;
+}
+
 function formatConnectorResult(requestText: string, result: any): string {
   let data = result?.data ?? result;
   const lower = String(requestText || '').toLowerCase();
@@ -1748,7 +1767,7 @@ export async function POST(req: NextRequest) {
                 const dataStr = trimmed.replace('data: ', '');
                 if (dataStr === '[DONE]') {
                   let finalOutput = accumulatedContent.trim();
-                  if (/(?:User keeps asking|we need to call|must call|produce tool call|only tool call|no prose|\{"tool":|"tool":|according to instruction)/i.test(finalOutput)) {
+                  if (isRawToolCallJson(finalOutput) || /(?:User keeps asking|we need to call|must call|produce tool call|only tool call|no prose|\{"tool":|"tool":|according to instruction)/i.test(finalOutput)) {
                     finalOutput = '';
                   }
 
@@ -1788,7 +1807,7 @@ export async function POST(req: NextRequest) {
               }
             },
             flush(controller) {
-              if (accumulatedContent.trim().length === 0) {
+              if (accumulatedContent.trim().length === 0 || isRawToolCallJson(accumulatedContent.trim())) {
                 const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
                 const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
                   ? formatConnectorResult(lastText, lastToolMsg.content.trim())

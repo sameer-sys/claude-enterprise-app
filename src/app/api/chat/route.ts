@@ -15,6 +15,10 @@ const DEFAULT_MAX_TOKENS = 32768;
 // action instead of falling into the flaky model agent loop.
 const lastComposioActionByUser = new Map<string, { slug: string; args: Record<string, any>; label: string; app: string }>();
 
+// Diagnostic: captures why the agent loop's primary LLM call failed so the
+// response headers can expose it (used to debug Groq outages/rate limits).
+let agentLoopDebugInfo: string | null = null;
+
 // Real agent tools - each one wraps an existing, genuinely working function.
 // No fabricated results: every tool returns real data or a real error string.
 const AGENT_TOOLS = [
@@ -743,6 +747,7 @@ function streamTextDirectly(
         Connection: 'keep-alive',
         'X-Claude-Skill': detectedSkill,
         'X-Claude-Router': 'boss-agent-direct',
+        ...(agentLoopDebugInfo ? { 'X-Debug-AgentLoop': agentLoopDebugInfo } : {}),
       },
     }
   ), mcpContext);
@@ -1512,6 +1517,7 @@ export async function POST(req: NextRequest) {
         } else {
           const errBody = await agentResp.text().catch(() => '');
           console.error('[AGENT GROQ ERR]', agentResp.status, errBody);
+          agentLoopDebugInfo = `groq:${agentResp.status}:${String(errBody).slice(0, 200)}`;
           // Groq is down/rate-limited: drive the agent loop with the zero-auth
           // pollinations model instead of stalling. It echoes serialized
           // tool-call JSON as text; the parser below extracts and executes it.

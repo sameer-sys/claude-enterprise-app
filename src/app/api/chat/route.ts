@@ -783,6 +783,25 @@ function looksLikeRawToolCallJson(text: string): boolean {
   return /^\{\s*"(?:role|tool|name|action)"/.test(trimmed);
 }
 
+/**
+ * Decodes a JWT payload (without verifying the signature) and returns true when
+ * the token's `exp` claim is in the past. Used to give a clear "session
+ * expired" message instead of letting a dead Composio token degrade into a
+ * hallucinated fallback answer.
+ */
+function isJwtExpired(token: string): boolean {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length < 2) return false;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    const exp = Number(payload?.exp);
+    if (!Number.isFinite(exp) || exp <= 0) return false;
+    return Date.now() / 1000 > exp;
+  } catch {
+    return false;
+  }
+}
+
 function formatConnectorResult(requestText: string, result: any): string {
   let data = result?.data ?? result;
   const lower = String(requestText || '').toLowerCase();
@@ -1185,6 +1204,17 @@ export async function POST(req: NextRequest) {
       }
     }
     const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
+
+    // A Composio session token that is present but expired, with no working
+    // refresh path, must never degrade into a hallucinated fallback answer.
+    // Surface the real state so the user reconnects instead of being told
+    // "no connected account" when the account is actually still connected.
+    if (composioMcpToken && mcpToolNames.length === 0 && isJwtExpired(composioMcpToken)) {
+      const expiredMessage = composioMcpRefreshToken
+        ? 'Your Composio session expired and could not be refreshed. Please reconnect in Connectors to keep using your connected apps.'
+        : 'Your Composio session has expired. Please reconnect in Connectors to keep using your connected apps.';
+      return streamTextDirectly(expiredMessage, detectedSkill);
+    }
 
     const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};
     const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};

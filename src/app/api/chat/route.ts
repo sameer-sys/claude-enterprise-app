@@ -1713,13 +1713,21 @@ export async function POST(req: NextRequest) {
     // text answer (the model keeps echoing serialized tool-call JSON), format
     // the last real tool result directly instead of letting the fallback LLM
     // echo raw JSON to the user.
-    if (mcpModeActive && mcpToolCallsMade > 0) {
-      const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
-      if (lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()) {
-        const formatted = formatConnectorResult(lastText, lastToolMsg.content.trim());
-        if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
-          return streamTextDirectly(formatted, detectedSkill, toolContext);
-        }
+    const lastLoopMsg = fullMessages[fullMessages.length - 1];
+    if (lastLoopMsg && lastLoopMsg.role === 'tool' && typeof lastLoopMsg.content === 'string' && lastLoopMsg.content.trim()) {
+      const formatted = formatConnectorResult(lastText, lastLoopMsg.content.trim());
+      if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
+        return streamTextDirectly(formatted, detectedSkill, toolContext);
+      }
+    }
+
+    // Sanitize the conversation before any fallback LLM call: replace echoed
+    // serialized tool-call JSON with a clean placeholder so no fallback
+    // (Groq final response, Gemini, pollinations) can stream raw JSON to the UI.
+    for (let i = 0; i < fullMessages.length; i++) {
+      const m = fullMessages[i];
+      if (m && m.role === 'assistant' && typeof m.content === 'string' && looksLikeRawToolCallJson(m.content)) {
+        fullMessages[i] = { ...m, content: 'I executed the requested connector action. Here is the result.' };
       }
     }
 
@@ -1978,6 +1986,8 @@ export async function POST(req: NextRequest) {
               const encoder = new TextEncoder();
               const decoder = new TextDecoder();
               let geminiBuffer = '';
+              let geminiAccumulated = '';
+              let geminiRawStopped = false;
 
               const transformStream = new TransformStream({
                 transform(chunk, controller) {
@@ -1994,22 +2004,45 @@ export async function POST(req: NextRequest) {
                       const parsed = JSON.parse(dataStr);
                       const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                       if (textChunk) {
-                        controller.enqueue(
-                          encoder.encode(`data: ${JSON.stringify({ content: textChunk })}\n\n`)
-                        );
+                        geminiAccumulated += textChunk;
+                        // Never stream a serialized tool-call JSON echo to the UI.
+                        if (!geminiRawStopped && looksLikeRawToolCallJson(geminiAccumulated)) {
+                          geminiRawStopped = true;
+                          const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+                          const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
+                            ? formatConnectorResult(lastText, lastToolMsg.content.trim())
+                            : 'I could not get a final response from the AI provider. Please try the request again.';
+                          controller.enqueue(
+                            encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
+                          );
+                          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                          continue;
+                        }
+                        if (!geminiRawStopped) {
+                          controller.enqueue(
+                            encoder.encode(`data: ${JSON.stringify({ content: textChunk })}\n\n`)
+                          );
+                        }
                       }
                     } catch (e) {}
                   }
                 },
                 flush(controller) {
+                  if (geminiRawStopped) {
+                    controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                    return;
+                  }
                   if (geminiBuffer.trim().startsWith('data: ')) {
                     try {
                       const parsed = JSON.parse(geminiBuffer.trim().replace('data: ', ''));
                       const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                       if (textChunk) {
-                        controller.enqueue(
-                          encoder.encode(`data: ${JSON.stringify({ content: textChunk })}\n\n`)
-                        );
+                        geminiAccumulated += textChunk;
+                        if (!geminiRawStopped && !looksLikeRawToolCallJson(geminiAccumulated)) {
+                          controller.enqueue(
+                            encoder.encode(`data: ${JSON.stringify({ content: textChunk })}\n\n`)
+                          );
+                        }
                       }
                     } catch (e) {}
                   }
@@ -2068,6 +2101,19 @@ export async function POST(req: NextRequest) {
           !fullText.includes('Deprecation')
         ) {
           fullText = fullText.trim();
+          // The zero-auth fallback model has no tools, so when the system
+          // prompt instructs Composio tool use it sometimes echoes a serialized
+          // tool-call JSON as plain text. Never stream that to the UI: replace
+          // it with the formatted last real tool result from the agent loop.
+          if (looksLikeRawToolCallJson(fullText)) {
+            const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+            if (lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()) {
+              const formatted = formatConnectorResult(lastText, lastToolMsg.content.trim());
+              if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
+                fullText = formatted;
+              }
+            }
+          }
           const encoder = new TextEncoder();
           const chunkSize = 28;
           const stream = new ReadableStream({

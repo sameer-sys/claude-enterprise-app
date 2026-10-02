@@ -75,6 +75,20 @@ export function detectComposioAction(text: string): DetectedComposioAction | nul
 }
 
 /**
+ * Detect follow-up verification requests like "check closely", "check again",
+ * "verify", "look carefully". These should re-run the last executed action
+ * deterministically instead of falling into the flaky model agent loop.
+ */
+export function isFollowUpCheck(text: string): boolean {
+  const lower = String(text || '').toLowerCase();
+  return (
+    /\b(check|verify|confirm|recheck|double[- ]check|look|see|review|inspect)\b.*\b(closely|again|carefully|properly|once more|now)\b/i.test(lower) ||
+    /\b(check|verify|confirm)\b.*\b(again|now|please|that|it|this|them)\b/i.test(lower) ||
+    /\b(are you sure|is that right|is this right|really|seriously|double check)\b/i.test(lower)
+  );
+}
+
+/**
  * Unwrap the Composio MCP response envelope and return the inner data object.
  * Handles: MCP content blocks, { data: {...} } envelopes, and raw JSON.
  */

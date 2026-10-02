@@ -10,6 +10,11 @@ export const maxDuration = 300;
 const BOSS_TARGET_MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'];
 const DEFAULT_MAX_TOKENS = 32768;
 
+// Tracks the last deterministic Composio action per user so follow-up
+// verification requests ("check closely", "check again") re-run the real
+// action instead of falling into the flaky model agent loop.
+const lastComposioActionByUser = new Map<string, { slug: string; args: Record<string, any>; label: string; app: string }>();
+
 // Real agent tools - each one wraps an existing, genuinely working function.
 // No fabricated results: every tool returns real data or a real error string.
 const AGENT_TOOLS = [
@@ -1289,12 +1294,30 @@ export async function POST(req: NextRequest) {
       const { detectComposioAction, formatComposioActionResult } = await import('@/lib/composioActions');
       const detectedAction = detectComposioAction(lastText);
       if (detectedAction) {
+        lastComposioActionByUser.set(composioUserId, detectedAction);
         const liveResult = await runAgentTool(detectedAction.slug, detectedAction.args, toolContext);
         return streamTextDirectly(
           formatComposioActionResult(detectedAction, liveResult),
           detectedSkill,
           toolContext
         );
+      }
+    }
+
+    // Follow-up verification ("check closely", "check again", "verify") re-runs
+    // the last deterministic action so the user gets a fresh real result.
+    if (mcpModeActive && !isAccountQuery) {
+      const { isFollowUpCheck, formatComposioActionResult } = await import('@/lib/composioActions');
+      if (isFollowUpCheck(lastText)) {
+        const lastAction = lastComposioActionByUser.get(composioUserId);
+        if (lastAction) {
+          const liveResult = await runAgentTool(lastAction.slug, lastAction.args, toolContext);
+          return streamTextDirectly(
+            formatComposioActionResult(lastAction, liveResult),
+            detectedSkill,
+            toolContext
+          );
+        }
       }
     }
 

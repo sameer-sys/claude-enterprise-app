@@ -318,9 +318,14 @@ export async function executeMcpTool(
     // Composio expects the action on each toolkit item, not as a top-level
     // field. Normalize account-inspection calls to an explicitly read-only
     // shape so we never accidentally initiate new auth links.
+    //
+    // When the caller does not restrict the query we must ask Composio for
+    // *every* connected app ('*'). Substituting a fixed allowlist here made the
+    // answer depend on which apps happened to be hardcoded, silently hiding
+    // everything else the user had actually connected.
     const rawToolkits = Array.isArray(callArgs.toolkits) && callArgs.toolkits.length > 0
       ? callArgs.toolkits
-      : DEFAULT_COMPOSIO_TOOLKITS;
+      : ['*'];
 
     const requestedAction = String(callArgs.action || 'list').toLowerCase();
     const normalizedToolkits = rawToolkits.map((item: any) => {

@@ -215,12 +215,17 @@ async function runAgentTool(
         }
 
         if (name === 'Manage_connections' || name === 'connector_manage_connections' || name === 'COMPOSIO_MANAGE_CONNECTIONS') {
-          const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
           const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-          const toolkits = (Array.isArray(args?.toolkits) && args.toolkits.length > 0)
-            ? args.toolkits
-            : DEFAULT_COMPOSIO_TOOLKITS;
-          const res = await executeMcpTool(connectorContext.mcpToken, manageTool, { ...args, toolkits }, connectorContext.mcpRefreshToken);
+          // Do not inject a toolkit allowlist here. When the caller does not
+          // restrict the query, Composio must be asked for all connections so
+          // the answer reflects what is actually linked.
+          const hasToolkits = Array.isArray(args?.toolkits) && args.toolkits.length > 0;
+          const res = await executeMcpTool(
+            connectorContext.mcpToken,
+            manageTool,
+            hasToolkits ? { ...args, toolkits: args.toolkits } : { ...args, toolkits: undefined },
+            connectorContext.mcpRefreshToken
+          );
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
@@ -1256,7 +1261,6 @@ export async function POST(req: NextRequest) {
     // Connected-app queries are deterministic: always ask Composio directly
     // so the answer cannot degrade into the UI fallback message.
     if (connectorRequest && isAccountQuery && mcpModeActive) {
-      const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
       const targetTool = pickMcpToolName(
         mcpToolNames,
         [/MANAGE_CONNECTIONS/i],
@@ -1264,7 +1268,7 @@ export async function POST(req: NextRequest) {
       );
       const liveResult = await runAgentTool(
         targetTool,
-        { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS },
+        { action: 'list' },
         toolContext
       );
       return streamTextDirectly(
@@ -1413,7 +1417,6 @@ export async function POST(req: NextRequest) {
             // Perform the required first Composio meta-tool directly if the model
             // failed to emit a tool call.
             if (mcpModeActive && mcpToolCallsMade === 0) {
-              const { DEFAULT_COMPOSIO_TOOLKITS } = await import('@/lib/composioMcp');
               const targetTool = pickMcpToolName(
                 mcpToolNames,
                 [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
@@ -1421,7 +1424,7 @@ export async function POST(req: NextRequest) {
               );
 
               const autoArgs = isAccountQuery
-                ? { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS }
+                ? { action: 'list' }
                 : {
                     queries: [{ use_case: lastText }],
                     session: { generate_id: true },

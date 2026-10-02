@@ -3,7 +3,6 @@ import {
   getMcpOAuthUrl,
   callComposioMcp,
   executeMcpTool,
-  DEFAULT_COMPOSIO_TOOLKITS,
   normalizeConnectedAccounts,
 } from '@/lib/composioMcp';
 
@@ -54,7 +53,7 @@ export async function GET(req: NextRequest) {
           tools = toolListRes.result.tools;
         }
 
-        const connRes = await executeMcpTool(activeMcpToken, 'COMPOSIO_MANAGE_CONNECTIONS', { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS }, activeRefreshToken);
+        const connRes = await executeMcpTool(activeMcpToken, 'COMPOSIO_MANAGE_CONNECTIONS', { action: 'list' }, activeRefreshToken);
         if (connRes.newAccessToken) activeMcpToken = connRes.newAccessToken;
         if ((connRes as any).newRefreshToken) activeRefreshToken = (connRes as any).newRefreshToken;
         if (connRes.success && connRes.data) {

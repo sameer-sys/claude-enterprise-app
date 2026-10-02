@@ -35,9 +35,16 @@ const checks = [
   ],
   [
     'Composio MULTI_EXECUTE payloads use tool_slug (not name)',
-    route.includes('tools: [{ tool_slug: mcpAction, arguments: args || {} }]') &&
-    route.includes('tools: [{ tool_slug: name, arguments: args || {} }]') &&
+    route.includes('tool_slug: mcpAction') &&
+    route.includes('tool_slug: name') &&
     !/tools:\s*\[\s*\{\s*name:\s*(?:mcpAction|name|args\.action)/.test(route),
+  ],
+  [
+    'Composio dispatcher resolves connected_account_id for multi-account apps',
+    route.includes('resolveComposioAccounts') &&
+    route.includes('connected_account_id: accountIds') &&
+    route.includes('accountIds.map((id: string) => ({ tool_slug:') &&
+    route.includes('fetchComposioAccounts'),
   ],
   [
     'Native connector OAuth callback uses the forwarded public origin',

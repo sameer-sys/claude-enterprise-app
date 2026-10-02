@@ -12,6 +12,8 @@ export interface DetectedComposioAction {
   args: Record<string, any>;
   label: string;
   app: string;
+  /** Connected account ids to execute against (one MULTI_EXECUTE entry each). */
+  accountIds?: string[];
 }
 
 const ACTION_SLUGS = {
@@ -72,6 +74,37 @@ export function detectComposioAction(text: string): DetectedComposioAction | nul
   }
 
   return null;
+}
+
+/**
+ * Resolve which connected account(s) to use for an app.
+ *
+ * Composio refuses to execute a tool when an app has multiple connected
+ * accounts and no `connected_account_id` is supplied ("multiple ... accounts
+ * connected"). When the user names a specific account (email or id substring)
+ * only that account is used; otherwise ALL matching accounts are returned so
+ * "total repos we have" covers every account in one MULTI_EXECUTE call.
+ */
+export function resolveComposioAccounts(text: string, accounts: any[], app: string): string[] {
+  const lower = String(text || '').toLowerCase();
+  const matching = (Array.isArray(accounts) ? accounts : []).filter(
+    (a: any) => String(a?.app_name || a?.appName || a?.app || a?.name || '').toLowerCase() === String(app).toLowerCase()
+  );
+  if (matching.length === 0) return [];
+
+  const mentioned = matching.filter((a: any) => {
+    const id = String(a?.id || a?.connected_account_id || '');
+    const email = String(a?.email || a?.user_id || a?.account_identifier || '');
+    if ((id && lower.includes(id.toLowerCase())) || (email && lower.includes(email.toLowerCase()))) return true;
+    // Match on meaningful tokens of the account id/email (e.g. "breva" in
+    // "github_breva-inwith" or "rangey" in "rangey@example.com").
+    const tokens = `${id} ${email}`.toLowerCase().split(/[^a-z0-9]+/).filter((t: string) => t.length >= 4);
+    return tokens.some((t: string) => lower.includes(t));
+  });
+  if (mentioned.length > 0) {
+    return mentioned.map((a: any) => String(a?.id || a?.connected_account_id || '')).filter(Boolean);
+  }
+  return matching.map((a: any) => String(a?.id || a?.connected_account_id || '')).filter(Boolean);
 }
 
 /**
@@ -206,6 +239,24 @@ export function formatComposioActionResult(detected: DetectedComposioAction, raw
     return `I tried to fetch ${detected.label} but Composio returned an error: ${errorText}\n\nReconnect the app in **Connectors** and try again.`;
   }
 
+  // Multi-account execution: MULTI_EXECUTE returns one result entry per tool,
+  // in the same order as the requested accounts.
+  if (detected.accountIds && detected.accountIds.length > 1) {
+    const perAccount = extractPerResultItems(payload, detected.accountIds);
+    const sections: string[] = [];
+    let total = 0;
+    for (const { accountId, items } of perAccount) {
+      total += items.length;
+      const lines = formatItemsForApp(detected.app, items);
+      const label = accountId || 'account';
+      sections.push(lines.length === 0 ? `**${label}** — no results` : `**${label}** (${items.length}):\n${lines.join('\n')}`);
+    }
+    if (sections.length === 0) {
+      return `I checked ${detected.label} but found nothing to show.`;
+    }
+    return `Here are ${detected.label} across your connected accounts (${total} total):\n\n` + sections.join('\n\n');
+  }
+
   const items = extractResultItems(payload);
 
   if (items.length === 0) {
@@ -215,33 +266,7 @@ export function formatComposioActionResult(detected: DetectedComposioAction, raw
       : `I checked ${detected.label} but found nothing to show.`;
   }
 
-  const lines: string[] = [];
-
-  for (const item of items.slice(0, 12)) {
-    if (detected.app === 'youtube') {
-      const title = cleanText(item.title || item.name || item.snippet?.title || item.snippet?.channelTitle);
-      const id = cleanText(item.id || item.playlistId || item.videoId);
-      const count = item.itemCount != null ? ` (${item.itemCount} videos)` : '';
-      if (title) lines.push(`- **${title}**${count}${id ? ` — \`${id}\`` : ''}`);
-    } else if (detected.app === 'gmail') {
-      const subject = cleanText(item.subject || item.snippet || item.title || item.message?.subject);
-      const from = cleanText(item.from || item.sender || item.fromEmail || item.message?.from);
-      const date = cleanText(item.date || item.internalDate || item.message?.date);
-      if (subject) lines.push(`- **${subject}**${from ? ` — from ${from}` : ''}${date ? ` (${date})` : ''}`);
-    } else if (detected.app === 'github') {
-      const name = cleanText(item.name || item.full_name || item.title);
-      const url = cleanText(item.html_url || item.url);
-      if (name) lines.push(`- **${name}**${url ? ` — ${url}` : ''}`);
-    } else if (detected.app === 'googlecalendar') {
-      const summary = cleanText(item.summary || item.title || item.name);
-      const start = cleanText(item.start?.dateTime || item.start?.date || item.start);
-      const end = cleanText(item.end?.dateTime || item.end?.date || item.end);
-      if (summary) lines.push(`- **${summary}**${start ? ` — ${start}` : ''}${end ? ` to ${end}` : ''}`);
-    } else {
-      const name = cleanText(item.name || item.title || item.id || item.summary);
-      if (name) lines.push(`- ${name}`);
-    }
-  }
+  const lines = formatItemsForApp(detected.app, items);
 
   if (lines.length === 0) {
     return `I checked ${detected.label} and got a response, but couldn't parse the items. Raw result:\n\n\`\`\`json\n${String(rawResult).slice(0, 2000)}\n\`\`\``;
@@ -255,4 +280,67 @@ export function formatComposioActionResult(detected: DetectedComposioAction, raw
     `Here is ${detected.label}:\n\n`;
 
   return header + lines.join('\n');
+}
+
+/**
+ * Extract per-account result items from a MULTI_EXECUTE payload.
+ * Returns entries in the same order as the requested account ids.
+ */
+export function extractPerResultItems(payload: any, accountIds: string[]): { accountId: string; items: any[] }[] {
+  if (payload == null) return [];
+  const results = Array.isArray(payload.results)
+    ? payload.results
+    : Array.isArray(payload?.data?.results)
+      ? payload.data.results
+      : [];
+  if (results.length === 0) return [];
+  return results.map((entry: any, idx: number) => ({
+    accountId: accountIds[idx] || '',
+    items: extractItemsFromResultEntry(entry),
+  }));
+}
+
+function extractItemsFromResultEntry(entry: any): any[] {
+  if (entry == null) return [];
+  if (Array.isArray(entry)) return entry;
+  const inner = entry.response || entry.data || entry.result || entry.output || entry;
+  if (inner && typeof inner === 'object') {
+    const innerData = inner.data || inner;
+    if (Array.isArray(innerData.items)) return innerData.items;
+    if (Array.isArray(innerData.results)) return innerData.results;
+    if (Array.isArray(innerData)) return innerData;
+    if (Array.isArray(inner.items)) return inner.items;
+    if (Array.isArray(inner.results)) return inner.results;
+  }
+  return [];
+}
+
+function formatItemsForApp(app: string, items: any[]): string[] {
+  const lines: string[] = [];
+  for (const item of items.slice(0, 12)) {
+    if (app === 'youtube') {
+      const title = cleanText(item.title || item.name || item.snippet?.title || item.snippet?.channelTitle);
+      const id = cleanText(item.id || item.playlistId || item.videoId);
+      const count = item.itemCount != null ? ` (${item.itemCount} videos)` : '';
+      if (title) lines.push(`- **${title}**${count}${id ? ` — \`${id}\`` : ''}`);
+    } else if (app === 'gmail') {
+      const subject = cleanText(item.subject || item.snippet || item.title || item.message?.subject);
+      const from = cleanText(item.from || item.sender || item.fromEmail || item.message?.from);
+      const date = cleanText(item.date || item.internalDate || item.message?.date);
+      if (subject) lines.push(`- **${subject}**${from ? ` — from ${from}` : ''}${date ? ` (${date})` : ''}`);
+    } else if (app === 'github') {
+      const name = cleanText(item.name || item.full_name || item.title);
+      const url = cleanText(item.html_url || item.url);
+      if (name) lines.push(`- **${name}**${url ? ` — ${url}` : ''}`);
+    } else if (app === 'googlecalendar') {
+      const summary = cleanText(item.summary || item.title || item.name);
+      const start = cleanText(item.start?.dateTime || item.start?.date || item.start);
+      const end = cleanText(item.end?.dateTime || item.end?.date || item.end);
+      if (summary) lines.push(`- **${summary}**${start ? ` — ${start}` : ''}${end ? ` to ${end}` : ''}`);
+    } else {
+      const name = cleanText(item.name || item.title || item.id || item.summary);
+      if (name) lines.push(`- ${name}`);
+    }
+  }
+  return lines;
 }

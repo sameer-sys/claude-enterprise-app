@@ -136,6 +136,34 @@ function getSafeHttpUrl(raw: string): URL | null {
   }
 }
 
+/**
+ * Fetch the live connected accounts from Composio "For You" and normalize them
+ * so the dispatcher can resolve which account(s) to execute against. Returns
+ * [] on any failure so callers can still attempt the action without an id.
+ */
+async function fetchComposioAccounts(
+  mcpToken: string,
+  mcpRefreshToken: string | undefined,
+  toolContext: { mcpToolNames?: string[] }
+): Promise<any[]> {
+  try {
+    const { pickMcpToolName, executeMcpTool, mcpContentToText, normalizeConnectedAccounts } = await import('@/lib/composioMcp');
+    const manageTool = pickMcpToolName(toolContext.mcpToolNames || [], [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
+    const res = await executeMcpTool(mcpToken, manageTool, { action: 'list' }, mcpRefreshToken);
+    const text = mcpContentToText(res.data);
+    let parsed: any = text;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // keep raw text
+    }
+    return normalizeConnectedAccounts(parsed);
+  } catch (err: any) {
+    console.error('[COMPOSIO ACCOUNTS ERR]', err?.message || err);
+    return [];
+  }
+}
+
 async function runAgentTool(
   name: string,
   args: any,
@@ -243,9 +271,12 @@ async function runAgentTool(
         if (builtInToMcpAction[name]) {
           const mcpAction = builtInToMcpAction[name];
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
-            tools: [{ tool_slug: mcpAction, arguments: args || {} }]
-          }, connectorContext.mcpRefreshToken);
+          const { connected_account_id, ...toolArgs } = args || {};
+          const accountIds = Array.isArray(connected_account_id) ? connected_account_id : connected_account_id ? [connected_account_id] : [];
+          const tools = accountIds.length > 0
+            ? accountIds.map((id: string) => ({ tool_slug: mcpAction, arguments: { ...toolArgs, connected_account_id: id } }))
+            : [{ tool_slug: mcpAction, arguments: toolArgs }];
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, { tools }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
@@ -254,9 +285,12 @@ async function runAgentTool(
         // Direct action slug dispatcher (e.g. YOUTUBE_CREATE_PLAYLIST) routed via MULTI_EXECUTE
         if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
-            tools: [{ tool_slug: name, arguments: args || {} }]
-          }, connectorContext.mcpRefreshToken);
+          const { connected_account_id, ...toolArgs } = args || {};
+          const accountIds = Array.isArray(connected_account_id) ? connected_account_id : connected_account_id ? [connected_account_id] : [];
+          const tools = accountIds.length > 0
+            ? accountIds.map((id: string) => ({ tool_slug: name, arguments: { ...toolArgs, connected_account_id: id } }))
+            : [{ tool_slug: name, arguments: toolArgs }];
+          const res = await executeMcpTool(connectorContext.mcpToken, execTool, { tools }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
@@ -1291,9 +1325,18 @@ export async function POST(req: NextRequest) {
     // action directly. This is one round-trip instead of the slow model agent
     // loop, which caused timeouts/500s on Vercel for connector requests.
     if (connectorRequest && mcpModeActive && !isAccountQuery) {
-      const { detectComposioAction, formatComposioActionResult } = await import('@/lib/composioActions');
+      const { detectComposioAction, formatComposioActionResult, resolveComposioAccounts } = await import('@/lib/composioActions');
       const detectedAction = detectComposioAction(lastText);
       if (detectedAction) {
+        // When an app has multiple connected accounts Composio requires
+        // connected_account_id. Resolve the account(s) to use so "total repos
+        // we have" covers every account instead of erroring out.
+        const accounts = await fetchComposioAccounts(composioMcpToken, composioMcpRefreshToken, toolContext);
+        const accountIds = resolveComposioAccounts(lastText, accounts, detectedAction.app);
+        if (accountIds.length > 0) {
+          detectedAction.accountIds = accountIds;
+          detectedAction.args = { ...detectedAction.args, connected_account_id: accountIds };
+        }
         lastComposioActionByUser.set(composioUserId, detectedAction);
         const liveResult = await runAgentTool(detectedAction.slug, detectedAction.args, toolContext);
         return streamTextDirectly(

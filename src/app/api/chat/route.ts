@@ -1473,6 +1473,7 @@ export async function POST(req: NextRequest) {
     // execute the real Composio action directly. This keeps the action working
     // even when the primary LLM key is invalid (Groq 401) and the fallback
     // model would otherwise hallucinate or echo raw JSON.
+    agentLoopDebugInfo = `pre-handler mcp=${mcpModeActive} acctQuery=${isAccountQuery} connectorReq=${connectorRequest} token=${Boolean(composioMcpToken)} tools=${mcpToolNames.length}`;
     if (mcpModeActive && !isAccountQuery) {
       agentLoopDebugInfo = `deterministic-playlist-handler:block-reached mcp=${mcpModeActive} acctQuery=${isAccountQuery} last="${lastText.slice(0, 60)}"`;
       const historyText = messages.map((m: any) => String(m.content || '')).join(' ').toLowerCase();

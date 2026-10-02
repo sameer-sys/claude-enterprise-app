@@ -1474,10 +1474,12 @@ export async function POST(req: NextRequest) {
     // even when the primary LLM key is invalid (Groq 401) and the fallback
     // model would otherwise hallucinate or echo raw JSON.
     if (mcpModeActive && !isAccountQuery) {
+      agentLoopDebugInfo = `deterministic-playlist-handler:block-reached mcp=${mcpModeActive} acctQuery=${isAccountQuery} last="${lastText.slice(0, 60)}"`;
       const historyText = messages.map((m: any) => String(m.content || '')).join(' ').toLowerCase();
       const wantsPlaylist =
         /\b(create|make|add|new)\b[^.]*\bplaylist\b/i.test(historyText) ||
         /\bplaylist\b[^.]*\b(create|make|add|new)\b/i.test(historyText);
+      agentLoopDebugInfo = `deterministic-playlist-handler:block-reached wants=${wantsPlaylist} lastHasPlaylist=${/playlist/i.test(lastText)}`;
       if (wantsPlaylist && /playlist/i.test(lastText)) {
         agentLoopDebugInfo = 'deterministic-playlist-handler:matched';
         const titleMatch = lastText.match(/(?:name|call|title)\s+(?:it|the playlist|this)?\s*[:]?\s*([A-Za-z0-9][A-Za-z0-9 _-]*)/i);

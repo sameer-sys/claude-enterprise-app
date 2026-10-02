@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft, Copy, Globe, Loader2, LogIn, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
-import { cloneNativeConnectors, isComposioAppLinked } from '@/lib/nativeConnectors';
+import { cloneNativeConnectors } from '@/lib/nativeConnectors';
 import PluginCreatorModal from '@/components/PluginCreatorModal';
 
 export interface ConnectorsModalProps {
@@ -104,15 +104,7 @@ export default function ConnectorsModal({
       const accounts = Array.isArray(data?.connectedAccounts) ? data.connectedAccounts : [];
       const mcpConnected = Boolean(data?.mcpConnected);
       setComposio({ configured: Boolean(data?.configured), mcpConnected, connectedAccounts: accounts, tools: Array.isArray(data?.tools) ? data.tools : [] });
-
-      const linked: Record<string, boolean> = {};
-      for (const connector of createDefaultConnectors()) {
-        if (connector.composioApp) linked[connector.id] = mcpConnected && isComposioAppLinked(connector.composioApp, accounts);
-      }
-      setAppLinked(linked);
-      setConnectors((prev) => prev.map((c) => (c.composioApp
-        ? { ...c, status: linked[c.id] ? 'connected' : 'ready' }
-        : c)));
+      setAppLinked({});
     } catch (err: any) {
       setComposio({ configured: false, mcpConnected: false, connectedAccounts: [], tools: [], error: String(err?.message || err) });
     }

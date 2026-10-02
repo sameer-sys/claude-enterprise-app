@@ -207,7 +207,10 @@ async function runAgentTool(
 
         if (name === 'Multi_Execute_Composio_Tools' || name === 'connector_execute' || name === 'composio_execute_action') {
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          const payload = args?.action ? { tools: [{ name: args.action, arguments: args.params || args.arguments || {} }] } : args;
+          // Composio's MULTI_EXECUTE schema requires tools[].tool_slug (verified
+          // against the live API: sending `name` returns 'Required at
+          // "tools[0].tool_slug"').
+          const payload = args?.action ? { tools: [{ tool_slug: args.action, arguments: args.params || args.arguments || {} }] } : args;
           const res = await executeMcpTool(connectorContext.mcpToken, execTool, payload, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
@@ -236,7 +239,7 @@ async function runAgentTool(
           const mcpAction = builtInToMcpAction[name];
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
           const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
-            tools: [{ name: mcpAction, arguments: args || {} }]
+            tools: [{ tool_slug: mcpAction, arguments: args || {} }]
           }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
@@ -247,7 +250,7 @@ async function runAgentTool(
         if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {
           const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
           const res = await executeMcpTool(connectorContext.mcpToken, execTool, {
-            tools: [{ name, arguments: args || {} }]
+            tools: [{ tool_slug: name, arguments: args || {} }]
           }, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;

@@ -1216,9 +1216,10 @@ export async function POST(req: NextRequest) {
     // Surface the real state so the user reconnects instead of being told
     // "no connected account" when the account is actually still connected.
     if (composioMcpToken && mcpToolNames.length === 0 && isJwtExpired(composioMcpToken)) {
+      const reconnectLink = `[Reconnect Composio](/api/composio/connect)`;
       const expiredMessage = composioMcpRefreshToken
-        ? 'Your Composio session expired and could not be refreshed. Please reconnect in Connectors to keep using your connected apps.'
-        : 'Your Composio session has expired. Please reconnect in Connectors to keep using your connected apps.';
+        ? `Your Composio session expired and could not be refreshed. ${reconnectLink} to keep using your connected apps.`
+        : `Your Composio session has expired. ${reconnectLink} to keep using your connected apps.`;
       return streamTextDirectly(expiredMessage, detectedSkill);
     }
 
@@ -1413,7 +1414,7 @@ export async function POST(req: NextRequest) {
     if (connectorRequest) {
       if (!mcpModeActive && !hasFocusedRemoteTools) {
         const message = composioMcpToken
-          ? 'Composio "For You" is connected, but its live MCP tools are unavailable right now. Please reconnect in Connectors and try again.'
+          ? 'Composio "For You" is connected, but its live MCP tools are unavailable right now. [Reconnect Composio](/api/composio/connect) and try again.'
           : 'No active Composio For You or remote MCP connector is available for this request. Open Connectors to connect one.';
         return streamTextDirectly(message, detectedSkill);
       }

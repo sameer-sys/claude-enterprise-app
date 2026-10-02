@@ -2137,6 +2137,10 @@ export async function POST(req: NextRequest) {
               'X-Claude-Router': 'cloud-instant-stream',
               'X-Debug-RawJson': String(debugRawJson),
               'X-Debug-LastTool': debugLastTool ? 'yes' : 'no',
+              'X-Debug-McpTools': String(mcpToolNames.length),
+              'X-Debug-McpActive': String(mcpModeActive),
+              'X-Debug-LastRole': String((fullMessages[fullMessages.length - 1] as any)?.role || 'none'),
+              'X-Debug-MsgCount': String(fullMessages.length),
             },
           }), toolContext);
         }

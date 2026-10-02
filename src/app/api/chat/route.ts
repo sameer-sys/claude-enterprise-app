@@ -18,6 +18,7 @@ const lastComposioActionByUser = new Map<string, { slug: string; args: Record<st
 // Diagnostic: captures why the agent loop's primary LLM call failed so the
 // response headers can expose it (used to debug Groq outages/rate limits).
 let agentLoopDebugInfo: string | null = null;
+let preHandlerDebugInfo: string | null = null;
 
 // Real agent tools - each one wraps an existing, genuinely working function.
 // No fabricated results: every tool returns real data or a real error string.
@@ -748,6 +749,7 @@ function streamTextDirectly(
         'X-Claude-Skill': detectedSkill,
         'X-Claude-Router': 'boss-agent-direct',
         ...(agentLoopDebugInfo ? { 'X-Debug-AgentLoop': agentLoopDebugInfo } : {}),
+        ...(preHandlerDebugInfo ? { 'X-Debug-PreHandler': preHandlerDebugInfo } : {}),
       },
     }
   ), mcpContext);
@@ -1474,6 +1476,7 @@ export async function POST(req: NextRequest) {
     // even when the primary LLM key is invalid (Groq 401) and the fallback
     // model would otherwise hallucinate or echo raw JSON.
     agentLoopDebugInfo = `pre-handler mcp=${mcpModeActive} acctQuery=${isAccountQuery} connectorReq=${connectorRequest} token=${Boolean(composioMcpToken)} tools=${mcpToolNames.length}`;
+    preHandlerDebugInfo = agentLoopDebugInfo;
     if (mcpModeActive && !isAccountQuery) {
       agentLoopDebugInfo = `deterministic-playlist-handler:block-reached mcp=${mcpModeActive} acctQuery=${isAccountQuery} last="${lastText.slice(0, 60)}"`;
       const historyText = messages.map((m: any) => String(m.content || '')).join(' ').toLowerCase();

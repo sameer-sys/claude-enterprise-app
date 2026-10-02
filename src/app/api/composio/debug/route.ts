@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { executeMcpTool } from '@/lib/composioMcp';
+import { executeMcpTool, DEFAULT_COMPOSIO_TOOLKITS } from '@/lib/composioMcp';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -10,6 +10,10 @@ export const runtime = 'nodejs';
  * instead of guessing from the formatted UI text.
  *
  * Tokens are never echoed back. Only the response body and status are shown.
+ *
+ * NOTE: only read-only 'list' forms are tested. The '*' wildcard is NOT
+ * included because Composio treats it as an initiate-all call, which has
+ * side effects.
  */
 export async function GET(req: NextRequest) {
   const mcpToken =
@@ -26,9 +30,8 @@ export async function GET(req: NextRequest) {
 
   const results: Record<string, any> = {};
   const attempts = [
+    { label: 'default-toolkit-list', args: { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS } },
     { label: 'no-toolkits', args: { action: 'list' } },
-    { label: 'wildcard', args: { action: 'list', toolkits: ['*'] } },
-    { label: 'connector-id-star', args: { action: 'list', connector_id: '*' } },
   ];
 
   for (const attempt of attempts) {

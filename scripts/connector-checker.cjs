@@ -16,9 +16,8 @@ const checks = [
   [
     'Composio MANAGE_CONNECTIONS normalizes toolkit actions',
     composio.includes("if (/MANAGE_CONNECTIONS/i.test(toolName))") &&
-    composio.includes('const normalizedToolkits = callArgs.toolkits.map') &&
-    composio.includes('delete callArgs.action;') &&
-    composio.includes('delete callArgs.toolkits;'),
+    composio.includes('const normalizedToolkits = rawToolkits.map') &&
+    composio.includes('delete callArgs.action;'),
   ],
   [
     'Chat route deterministically formats connected-account results',

@@ -319,27 +319,28 @@ export async function executeMcpTool(
     // field. Normalize account-inspection calls to an explicitly read-only
     // shape so we never accidentally initiate new auth links.
     //
-    // When the caller does not restrict the query, omit toolkits entirely so
-    // Composio returns every connected app. Injecting a fixed allowlist (or a
-    // guessed '*' wildcard) made the answer depend on what we assumed instead
-    // of what the user actually connected.
-    const hasToolkits = Array.isArray(callArgs.toolkits) && callArgs.toolkits.length > 0;
-    const requestedAction = String(callArgs.action || 'list').toLowerCase();
+    // Composio's MANAGE_CONNECTIONS REQUIRES the toolkits field (verified
+    // against the live API: omitting it returns 'Validation error: Required
+    // at "toolkits"'). A '*' wildcard is accepted but is treated as an
+    // initiate-all call ('All connections have been initiated and are pending
+    // completion'), not a listing. So when the caller does not restrict the
+    // query we must fall back to the supported toolkit list.
+    const rawToolkits = Array.isArray(callArgs.toolkits) && callArgs.toolkits.length > 0
+      ? callArgs.toolkits
+      : DEFAULT_COMPOSIO_TOOLKITS;
 
-    if (hasToolkits) {
-      const normalizedToolkits = callArgs.toolkits.map((item: any) => {
-        if (typeof item === 'string') {
-          return { name: item, action: requestedAction === 'add' ? 'add' : 'list' };
-        }
-        const name = String(item?.name || item?.toolkit || '').trim();
-        if (!name) return null;
-        const action = String(item?.action || requestedAction || 'list').toLowerCase();
-        return { ...item, name, action: action === 'add' || action === 'rename' || action === 'remove' ? action : 'list' };
-      }).filter(Boolean);
-      callArgs = { ...callArgs, toolkits: normalizedToolkits };
-    } else {
-      delete callArgs.toolkits;
-    }
+    const requestedAction = String(callArgs.action || 'list').toLowerCase();
+    const normalizedToolkits = rawToolkits.map((item: any) => {
+      if (typeof item === 'string') {
+        return { name: item, action: requestedAction === 'add' ? 'add' : 'list' };
+      }
+      const name = String(item?.name || item?.toolkit || '').trim();
+      if (!name) return null;
+      const action = String(item?.action || requestedAction || 'list').toLowerCase();
+      return { ...item, name, action: action === 'add' || action === 'rename' || action === 'remove' ? action : 'list' };
+    }).filter(Boolean);
+
+    callArgs = { ...callArgs, toolkits: normalizedToolkits };
     delete callArgs.action;
   }
 

@@ -1505,53 +1505,36 @@ export async function POST(req: NextRequest) {
           signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
         });
 
-        if (!agentResp.ok) {
+        let agentMsg: any = null;
+        if (agentResp.ok) {
+          const agentData = await agentResp.json();
+          agentMsg = agentData?.choices?.[0]?.message;
+        } else {
           const errBody = await agentResp.text().catch(() => '');
           console.error('[AGENT GROQ ERR]', agentResp.status, errBody);
+          // Groq is down/rate-limited: drive the agent loop with the zero-auth
+          // pollinations model instead of stalling. It echoes serialized
+          // tool-call JSON as text; the parser below extracts and executes it.
           try {
-            const fallbackResp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            const pollAgentResp = await fetch('https://text.pollinations.ai/', {
               method: 'POST',
-              headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                model: 'openai/gpt-oss-120b',
                 messages: fullMessages,
-                max_tokens: 8192,
+                model: 'openai',
               }),
               signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
             });
-            if (fallbackResp.ok) {
-              const fbData = await fallbackResp.json();
-              const fbMsg = fbData?.choices?.[0]?.message;
-              const fbText = String(fbMsg?.content || fbMsg?.reasoning || '').trim();
-              if (fbText) {
-                return new Response(
-                  new ReadableStream({
-                    start(controller) {
-                      const encoder = new TextEncoder();
-                      for (let i = 0; i < fbText.length; i += 32) {
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fbText.slice(i, i + 32) })}\n\n`));
-                      }
-                      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-                      controller.close();
-                    }
-                  }),
-                  {
-                    headers: {
-                      'Content-Type': 'text/event-stream',
-                      'Cache-Control': 'no-cache',
-                      Connection: 'keep-alive',
-                      'X-Claude-Skill': detectedSkill,
-                    },
-                  }
-                );
+            if (pollAgentResp.ok) {
+              const pollText = (await pollAgentResp.text()).trim();
+              if (pollText && pollText.length > 2) {
+                agentMsg = { role: 'assistant', content: pollText };
               }
             }
           } catch {}
-          break;
+          if (!agentMsg) break;
         }
 
-        const agentData = await agentResp.json();
-        const agentMsg = agentData?.choices?.[0]?.message;
         let toolCalls = agentMsg?.tool_calls;
 
         // Catch text-formatted JSON tool calls if model didn't emit native tool_calls

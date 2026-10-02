@@ -1479,18 +1479,22 @@ export async function POST(req: NextRequest) {
         /\b(create|make|add|new)\b[^.]*\bplaylist\b/i.test(historyText) ||
         /\bplaylist\b[^.]*\b(create|make|add|new)\b/i.test(historyText);
       if (wantsPlaylist && /playlist/i.test(lastText)) {
+        agentLoopDebugInfo = 'deterministic-playlist-handler:matched';
         const titleMatch = lastText.match(/(?:name|call|title)\s+(?:it|the playlist|this)?\s*[:]?\s*([A-Za-z0-9][A-Za-z0-9 _-]*)/i);
         const title = titleMatch ? titleMatch[1].trim().replace(/[.,;:!?]+$/, '') : '';
         const privacyMatch = lastText.match(/\b(private|unlisted|public)\b/i);
         const privacy = privacyMatch ? privacyMatch[1].toLowerCase() : '';
         if (title) {
+          agentLoopDebugInfo = `deterministic-playlist-handler:title=${title}`;
           const args: Record<string, any> = { title };
           if (privacy) args.privacyStatus = privacy;
           const accounts = await fetchComposioAccounts(composioMcpToken, composioMcpRefreshToken, toolContext);
           const youtubeAccount = accounts.find((a: any) => /youtube/i.test(String(a?.app_name || a?.appName || a?.app || a?.name || '')));
           const accountId = String(youtubeAccount?.id || youtubeAccount?.connected_account_id || '');
           if (accountId) args.connected_account_id = accountId;
+          agentLoopDebugInfo = `deterministic-playlist-handler:executing account=${accountId}`;
           const liveResult = await runAgentTool('YOUTUBE_CREATE_PLAYLIST', args, toolContext);
+          agentLoopDebugInfo = `deterministic-playlist-handler:done result=${String(liveResult).slice(0, 120)}`;
           return streamTextDirectly(
             formatConnectorResult(lastText, liveResult),
             detectedSkill,

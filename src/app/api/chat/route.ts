@@ -1516,16 +1516,39 @@ export async function POST(req: NextRequest) {
     // model would otherwise hallucinate or echo raw JSON.
     agentLoopDebugInfo = `pre-handler mcp=${mcpModeActive} acctQuery=${isAccountQuery} connectorReq=${connectorRequest} token=${Boolean(composioMcpToken)} tools=${mcpToolNames.length}`;
     preHandlerDebugInfo = agentLoopDebugInfo;
+
+    const historyText = messages.map((m: any) => String(m.content || '')).join(' ').toLowerCase();
+    const lastLower = lastText.toLowerCase();
+    // A naming follow-up ("name it X", "call it X") after a creation request.
+    const lastIsNaming = /(?:name|call|title)\s+(?:it|the playlist|this)?\s*(?:as\s+)?[:]?\s*[A-Za-z0-9]/i.test(lastText);
+    // Coding/UI requests must never be routed to the Composio connect prompt.
+    const isCodingTask = /\b(react|component|html|css|javascript|typescript|python|code|function|api|app|website|page|ui|svg|tailwind|script|debug|algorithm|database|server|client)\b/i.test(historyText);
+    const wantsPlaylist =
+      /\b(create|make|add|new)\b[^.]*\bplaylist\b/i.test(historyText) ||
+      /\bplaylist\b[^.]*\b(create|make|add|new)\b/i.test(historyText) ||
+      (/\b(create|make|add|new)\b[^.]*\bone\b/i.test(historyText) && !isCodingTask) ||
+      (/\b(create|make|add|new)\b/i.test(historyText) && lastIsNaming && !isCodingTask);
+
+    // Playlist intent detected but Composio is not connected → prompt to
+    // connect (with the auto-open reconnect popup) instead of letting the
+    // fallback model ask for a name it can never act on.
+    if (!mcpModeActive && wantsPlaylist) {
+      agentLoopDebugInfo = `deterministic-playlist-handler:not-connected wants=${wantsPlaylist} coding=${isCodingTask}`;
+      return streamTextDirectly(
+        'Composio is not connected. [Connect Composio](/api/composio/connect) to create playlists on your YouTube account.',
+        detectedSkill,
+        undefined,
+        true
+      );
+    }
+
     if (mcpModeActive && !isAccountQuery) {
       agentLoopDebugInfo = `deterministic-playlist-handler:block-reached mcp=${mcpModeActive} acctQuery=${isAccountQuery} last="${lastText.slice(0, 60)}"`;
-      const historyText = messages.map((m: any) => String(m.content || '')).join(' ').toLowerCase();
-      const wantsPlaylist =
-        /\b(create|make|add|new)\b[^.]*\bplaylist\b/i.test(historyText) ||
-        /\bplaylist\b[^.]*\b(create|make|add|new)\b/i.test(historyText);
-      agentLoopDebugInfo = `deterministic-playlist-handler:block-reached wants=${wantsPlaylist} lastHasPlaylist=${/playlist/i.test(lastText)}`;
-      if (wantsPlaylist && /playlist/i.test(lastText)) {
+      const lastHasPlaylist = /playlist/i.test(lastText);
+      agentLoopDebugInfo = `deterministic-playlist-handler:block-reached wants=${wantsPlaylist} lastHasPlaylist=${lastHasPlaylist} lastIsNaming=${lastIsNaming}`;
+      if (wantsPlaylist && (lastHasPlaylist || lastIsNaming)) {
         agentLoopDebugInfo = 'deterministic-playlist-handler:matched';
-        const titleMatch = lastText.match(/(?:name|call|title)\s+(?:it|the playlist|this)?\s*[:]?\s*([A-Za-z0-9][A-Za-z0-9 _-]*)/i);
+        const titleMatch = lastText.match(/(?:name|call|title)\s+(?:it|the playlist|this)?\s*(?:as\s+)?[:]?\s*([A-Za-z0-9][A-Za-z0-9 _-]*)/i);
         const title = titleMatch ? titleMatch[1].trim().replace(/[.,;:!?]+$/, '') : '';
         const privacyMatch = lastText.match(/\b(private|unlisted|public)\b/i);
         const privacy = privacyMatch ? privacyMatch[1].toLowerCase() : '';

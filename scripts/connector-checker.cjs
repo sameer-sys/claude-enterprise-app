@@ -67,7 +67,7 @@ const checks = [
   ],
   [
     'Deterministic playlist handler extracts title and privacy from follow-up',
-    route.includes("const titleMatch = lastText.match(/(?:name|call|title)\\s+(?:it|the playlist|this)?\\s*[:]?\\s*([A-Za-z0-9][A-Za-z0-9 _-]*)/i)") &&
+    route.includes("const titleMatch = lastText.match(/(?:name|call|title)\\s+(?:it|the playlist|this)?\\s*(?:as\\s+)?[:]?\\s*([A-Za-z0-9][A-Za-z0-9 _-]*)/i)") &&
     route.includes("const privacyMatch = lastText.match(/\\b(private|unlisted|public)\\b/i)") &&
     route.includes('if (privacy) args.privacyStatus = privacy;'),
   ],

@@ -767,6 +767,15 @@ function isRawToolCallJson(text: string): boolean {
   return false;
 }
 
+/**
+ * Detects the START of a serialized tool-call message while it is still
+ * streaming, so we can stop streaming it before the user sees raw JSON.
+ */
+function looksLikeRawToolCallJson(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  return /^\{\s*"(?:role|tool|name|action)"/.test(trimmed);
+}
+
 function formatConnectorResult(requestText: string, result: any): string {
   let data = result?.data ?? result;
   const lower = String(requestText || '').toLowerCase();
@@ -1754,6 +1763,7 @@ export async function POST(req: NextRequest) {
           let sseBuffer = '';
           let accumulatedContent = '';
           let accumulatedReasoning = '';
+          let rawJsonStopped = false;
 
           const transformStream = new TransformStream({
             transform(chunk, controller) {
@@ -1799,14 +1809,36 @@ export async function POST(req: NextRequest) {
                   }
                   if (delta) {
                     accumulatedContent += delta;
-                    controller.enqueue(
-                      encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`)
-                    );
+                    // If the model is echoing a serialized tool-call message
+                    // ({"role":"assistant","reasoning":"...","tool_calls":[...]}),
+                    // stop streaming it immediately and fall back to the last
+                    // real tool result instead of showing raw JSON.
+                    if (!rawJsonStopped && looksLikeRawToolCallJson(accumulatedContent)) {
+                      rawJsonStopped = true;
+                      const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+                      const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
+                        ? formatConnectorResult(lastText, lastToolMsg.content.trim())
+                        : 'I could not get a final response from the AI provider. Please try the request again.';
+                      controller.enqueue(
+                        encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
+                      );
+                      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                      continue;
+                    }
+                    if (!rawJsonStopped) {
+                      controller.enqueue(
+                        encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`)
+                      );
+                    }
                   }
                 } catch (e) {}
               }
             },
             flush(controller) {
+              if (rawJsonStopped) {
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                return;
+              }
               if (accumulatedContent.trim().length === 0 || isRawToolCallJson(accumulatedContent.trim())) {
                 const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
                 const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()

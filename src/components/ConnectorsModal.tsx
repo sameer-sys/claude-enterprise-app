@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft, Copy, Globe, Loader2, LogIn, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import { Connector, ConnectorConfig } from '@/types/chat';
-import { cloneNativeConnectors } from '@/lib/nativeConnectors';
+import { cloneNativeConnectors, isComposioAppLinked } from '@/lib/nativeConnectors';
 import PluginCreatorModal from '@/components/PluginCreatorModal';
 
 export interface ConnectorsModalProps {
@@ -29,6 +29,12 @@ function isRemoteMcpConnector(connector: Connector): boolean {
   const type = String(connector?.config?.connectionType || connector?.provider || '').toLowerCase();
   const url = String(connector?.config?.mcpUrl || connector?.url || '');
   return type === 'mcp' && /^https?:\/\//i.test(url);
+}
+
+/** Presets served by Composio "For You" (Gmail, Drive, Calendar...). */
+function isComposioConnector(connector: Connector): boolean {
+  const type = String(connector?.config?.connectionType || '').toLowerCase();
+  return type === 'composio' || Boolean(connector?.composioApp);
 }
 
 function sanitizeConnector(connector: Connector): Connector {
@@ -77,6 +83,75 @@ export default function ConnectorsModal({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [tools, setTools] = useState<string[]>([]);
   const [pluginCreatorOpen, setPluginCreatorOpen] = useState(false);
+  const [composio, setComposio] = useState<{ configured: boolean; mcpConnected: boolean; connectedAccounts: any[]; tools: any[]; error?: string } | null>(null);
+  const [composioBusy, setComposioBusy] = useState(false);
+  const [appLinked, setAppLinked] = useState<Record<string, boolean>>({});
+
+  /**
+   * Read live Composio state and project it onto the presets that it serves.
+   * A preset is only shown as Connected when Composio reports that app as
+   * actually linked on the user's account — never optimistically.
+   */
+  const refreshComposio = async () => {
+    try {
+      const res = await fetch('/api/composio', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setComposio({ configured: false, mcpConnected: false, connectedAccounts: [], tools: [], error: data?.error || 'Composio status check failed.' });
+        setAppLinked({});
+        return;
+      }
+      const accounts = Array.isArray(data?.connectedAccounts) ? data.connectedAccounts : [];
+      const mcpConnected = Boolean(data?.mcpConnected);
+      setComposio({ configured: Boolean(data?.configured), mcpConnected, connectedAccounts: accounts, tools: Array.isArray(data?.tools) ? data.tools : [] });
+
+      const linked: Record<string, boolean> = {};
+      for (const connector of createDefaultConnectors()) {
+        if (connector.composioApp) linked[connector.id] = mcpConnected && isComposioAppLinked(connector.composioApp, accounts);
+      }
+      setAppLinked(linked);
+      setConnectors((prev) => prev.map((c) => (c.composioApp
+        ? { ...c, status: linked[c.id] ? 'connected' : 'ready' }
+        : c)));
+    } catch (err: any) {
+      setComposio({ configured: false, mcpConnected: false, connectedAccounts: [], tools: [], error: String(err?.message || err) });
+    }
+  };
+
+  /** Start the Composio "For You" OAuth in a popup. */
+  const openComposioOAuth = async () => {
+    setComposioBusy(true);
+    setStatusMessage('Opening Composio sign-in…');
+    try {
+      const res = await fetch('/api/composio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_mcp_oauth_url' }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.authUrl) throw new Error(data?.error || 'Could not start Composio sign-in.');
+      const popup = window.open(data.authUrl, 'composio_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
+      if (!popup) window.open(data.authUrl, '_blank');
+      setStatusMessage('Finish signing in on the Composio window. This window will update automatically.');
+    } catch (err: any) {
+      setComposioBusy(false);
+      setStatusMessage('Composio Error: ' + String(err?.message || err));
+    }
+  };
+
+  const disconnectComposio = async () => {
+    setComposioBusy(true);
+    try {
+      await fetch('/api/composio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disconnect_mcp' }) });
+      await refreshComposio();
+      setStatusMessage('Composio disconnected. Reconnect to use Gmail, Drive and Calendar again.');
+    } catch (err: any) {
+      setStatusMessage('Composio Error: ' + String(err?.message || err));
+    } finally {
+      setComposioBusy(false);
+    }
+  };
 
   const currentMap = useMemo(() => new Map(activeConnectors.map((c) => [c.id, c])), [activeConnectors]);
 
@@ -95,6 +170,11 @@ export default function ConnectorsModal({
       setConnectors(mergeConnectorState(activeConnectors || [], []));
     }
   }, [activeConnectors]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    refreshComposio();
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -141,6 +221,15 @@ export default function ConnectorsModal({
           setStatusMessage('Provider account connected. Loading its real tools…');
         } else setStatusMessage('OAuth Error: ' + String(event.data?.error || 'Authentication failed.'));
         setAuthenticating(false);
+      }
+      if (event.data?.type === 'sameer-composio-mcp-connected') {
+        setComposioBusy(false);
+        if (event.data?.status === 'success') {
+          refreshComposio();
+          setStatusMessage('Composio connected. Your linked apps are now available to the model.');
+        } else {
+          setStatusMessage('Composio Error: ' + String(event.data?.error || 'Authentication failed.'));
+        }
       }
     };
     window.addEventListener('message', onMessage);
@@ -355,16 +444,54 @@ export default function ConnectorsModal({
             <div className="flex items-center gap-3"><h2 className="text-xl font-bold">Connectors</h2><span className="text-[10px] px-2 py-1 rounded-lg border border-[#3a372f] bg-[#211f1a] text-[#cc785c] font-mono">Native OAuth + Remote MCP</span></div>
             <div className="flex items-center gap-2"><div className="relative"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8f8a80]"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search connectors" className="w-44 pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#38352d] bg-[#201e1a] text-[#ece9e2] focus:outline-none"/></div><button onClick={() => { setPluginCreatorOpen(true); setStatusMessage(''); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#cc785c] text-black"><Zap className="w-3.5 h-3.5"/>Create plugin</button><button onClick={() => { setCustomName(''); setCustomUrl(''); setOauthClientId(''); setOauthClientSecret(''); setApiToken(''); setShowAdvanced(false); setStatusMessage(''); setView('add'); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#38352d] bg-[#25231e]"><Plus className="w-3.5 h-3.5 text-[#cc785c]"/>Add custom</button><button onClick={onClose} className="p-1.5 rounded-lg text-[#8f8a80]"><X className="w-4 h-4"/></button></div>
           </div>
+          <div className="px-6 pb-3">
+            <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-[#38352d] bg-[#1e1c18]">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-sm">Composio</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${composio?.mcpConnected ? 'border-emerald-800 text-emerald-400' : 'border-[#38352d] text-[#8f8a80]'}`}>
+                    {composio?.mcpConnected ? 'Connected' : 'Not connected'}
+                  </span>
+                </div>
+                <div className="text-xs text-[#8f8a80] truncate mt-0.5">
+                  {composio?.mcpConnected
+                    ? `${composio.connectedAccounts.length} app${composio.connectedAccounts.length === 1 ? '' : 's'} linked — Gmail, Drive and Calendar run through this one connection.`
+                    : 'One sign-in unlocks Gmail, Google Drive, Google Calendar and more.'}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {composio?.mcpConnected
+                  ? <button onClick={disconnectComposio} disabled={composioBusy} className="px-3 py-1.5 rounded-lg border border-[#38352d] text-xs">Disconnect</button>
+                  : <button onClick={openComposioOAuth} disabled={composioBusy} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold flex items-center gap-1">
+                      {composioBusy ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/>Connecting…</> : <><LogIn className="w-3.5 h-3.5"/>Connect Composio</>}
+                    </button>}
+              </div>
+            </div>
+            {composio?.error && <div className="mt-2 p-2.5 rounded-lg border border-red-900/60 bg-[#231919] text-[11px] text-red-300">{composio.error}</div>}
+          </div>
           <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2">
             {filtered.map((connector) => {
-              const connected = connector.status === 'connected';
+              const viaComposio = isComposioConnector(connector);
+              const linked = viaComposio && appLinked[connector.id] === true;
+              const connected = connector.status === 'connected' || linked;
+              const badge = connected
+                ? { label: 'Connected', cls: 'border-emerald-800 text-emerald-400' }
+                : viaComposio
+                  ? { label: composio?.mcpConnected ? 'App not linked' : 'Needs Composio', cls: 'border-[#38352d] text-[#8f8a80]' }
+                  : connector.isCustom
+                    ? { label: 'Sign in needed', cls: 'border-amber-800 text-amber-400' }
+                    : { label: 'Available', cls: 'border-amber-800 text-amber-400' };
               return <div key={connector.id} className="flex items-center justify-between p-3.5 rounded-xl border border-[#2d2b25] bg-[#1e1c18]">
                 <button className="flex items-center gap-3 min-w-0 text-left" onClick={() => selectConnector(connector)}>
                   <div className="w-9 h-9 rounded-lg border border-[#38352d] bg-[#2a2722] flex items-center justify-center text-[#cc785c]"><Zap className="w-4 h-4"/></div>
-                  <div className="min-w-0"><div className="flex items-center gap-2"><span className="font-semibold text-sm truncate">{connector.name}</span><span className={`text-[10px] px-2 py-0.5 rounded-full border ${connected ? 'border-emerald-800 text-emerald-400' : 'border-amber-800 text-amber-400'}`}>{connected ? 'Connected' : connector.isCustom ? 'Sign in needed' : 'Available'}</span></div><div className="text-xs text-[#8f8a80] truncate max-w-xl">{connector.url}</div></div>
+                  <div className="min-w-0"><div className="flex items-center gap-2"><span className="font-semibold text-sm truncate">{connector.name}</span><span className={`text-[10px] px-2 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span></div><div className="text-xs text-[#8f8a80] truncate max-w-xl">{viaComposio ? 'Served by Composio' : connector.url}</div></div>
                 </button>
                 <div className="flex items-center gap-2">
-                  {!connected && <button onClick={() => openRemoteOAuth(connector)} disabled={authenticating} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <><Loader2 className="w-3.5 h-3.5 inline animate-spin mr-1"/>Connecting…</> : <><LogIn className="w-3.5 h-3.5 inline mr-1"/>Connect</>}</button>}
+                  {!connected && (viaComposio
+                    ? <button onClick={composio?.mcpConnected ? undefined : openComposioOAuth} disabled={composioBusy || composio?.mcpConnected} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${composio?.mcpConnected ? 'border border-[#38352d] text-[#8f8a80]' : 'bg-[#cc785c] text-white'}`}>
+                        {composio?.mcpConnected ? 'Link in Composio' : <><LogIn className="w-3.5 h-3.5 inline mr-1"/>Connect</>}
+                      </button>
+                    : <button onClick={() => openRemoteOAuth(connector)} disabled={authenticating} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold">{authenticating ? <><Loader2 className="w-3.5 h-3.5 inline animate-spin mr-1"/>Connecting…</> : <><LogIn className="w-3.5 h-3.5 inline mr-1"/>Connect</>}</button>)}
                   <button onClick={() => onToggleConnector(connector.id)} className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold ${connector.enabled ? 'border-emerald-800 text-emerald-400' : 'border-[#38352d] text-[#8f8a80]'}`}>{connector.enabled ? 'Enabled' : 'Disabled'}</button>
                 </div>
               </div>;

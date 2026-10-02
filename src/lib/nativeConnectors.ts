@@ -1,5 +1,55 @@
 import type { Connector } from '@/types/chat';
 
+/**
+ * Composio "For You" MCP endpoint.
+ *
+ * Google does not publish standalone MCP endpoints at gmailmcp.googleapis.com,
+ * drivemcp.googleapis.com or calendarmcp.googleapis.com — those hosts answer 400
+ * before any OAuth dialog opens. The one integration that provably reaches
+ * Gmail / Drive / Calendar is Composio's hosted MCP server, which proxies to
+ * whatever apps the signed-in user has linked in their Composio account.
+ *
+ * So every preset is served by Composio, and the UI runs a single OAuth for
+ * the whole set. `composioApp` is the toolkit slug used to match a preset
+ * against the accounts returned by /api/composio.
+ */
+export const COMPOSIO_MCP_URL = 'https://connect.composio.dev/mcp';
+
+/** Toolkit slugs Composio reports in `connectedAccounts[].toolkit` / app name. */
+export const COMPOSIO_APP_ALIASES: Record<string, string[]> = {
+  github: ['github'],
+  gmail: ['gmail', 'google_gmail', 'mail'],
+  gdrive: ['google_drive', 'googledrive', 'drive'],
+  gcalendar: ['google_calendar', 'googlecalendar', 'calendar'],
+  slack: ['slack'],
+  notion: ['notion'],
+  linear: ['linear'],
+  m365: ['microsoft365', 'microsoft_365', 'outlook'],
+  canva: ['canva'],
+  dropbox: ['dropbox'],
+  atlassian: ['atlassian', 'jira', 'confluence'],
+  youtube: ['youtube'],
+};
+
+/** True when the signed-in Composio account has this preset's app linked. */
+export function isComposioAppLinked(composioApp: string, accounts: any[]): boolean {
+  const aliases = (COMPOSIO_APP_ALIASES[composioApp] || [composioApp]).map((s) => s.toLowerCase());
+  return (accounts || []).some((account: any) => {
+    const candidates = [
+      account?.toolkit,
+      account?.app_name,
+      account?.appName,
+      account?.app,
+      account?.name,
+      account?.slug,
+    ]
+      .filter((v) => typeof v === 'string')
+      .map((v) => String(v).toLowerCase());
+    return candidates.some((c) => aliases.includes(c) || aliases.some((a) => c.includes(a)));
+  });
+}
+
+
 export const NATIVE_CONNECTORS: Connector[] = [
   {
     id: 'conn-github', name: 'GitHub',
@@ -13,29 +63,32 @@ export const NATIVE_CONNECTORS: Connector[] = [
   {
     id: 'conn-gmail', name: 'Gmail',
     description: 'Search, read, draft, reply to, and send messages in Gmail.',
-    icon: 'gmail', enabled: false, status: 'ready', category: 'Communication', provider: 'mcp',
+    icon: 'gmail', enabled: false, status: 'ready', category: 'Communication', provider: 'composio',
     isVerified: true, section: 'top',
     capabilities: ['Search Email', 'Read Threads', 'Drafts', 'Send & Reply'],
-    config: { connectionType: 'mcp', providerName: 'Gmail', mcpUrl: 'https://gmailmcp.googleapis.com/mcp/v1', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth', oauthTokenEndpoint: 'https://oauth2.googleapis.com/token', oauthTokenEndpointAuthMethod: 'client_secret_post', oauthParams: { access_type: 'offline', prompt: 'consent' } },
-    url: 'https://gmailmcp.googleapis.com/mcp/v1',
+    config: { connectionType: 'composio', providerName: 'Gmail', mcpUrl: COMPOSIO_MCP_URL, composioApp: 'gmail', toolAccess: 'auto', disabledTools: [] },
+    composioApp: 'gmail',
+    url: COMPOSIO_MCP_URL,
   },
   {
     id: 'conn-gdrive', name: 'Google Drive',
     description: 'Search, read, upload, update, share, and organize files in Google Drive.',
-    icon: 'gdrive', enabled: false, status: 'ready', category: 'Data and productivity', provider: 'mcp',
+    icon: 'gdrive', enabled: false, status: 'ready', category: 'Data and productivity', provider: 'composio',
     isVerified: true, section: 'top',
     capabilities: ['Search Files', 'Read Files', 'Upload', 'Update'],
-    config: { connectionType: 'mcp', providerName: 'Google Drive', mcpUrl: 'https://drivemcp.googleapis.com/mcp/v1', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth', oauthTokenEndpoint: 'https://oauth2.googleapis.com/token', oauthTokenEndpointAuthMethod: 'client_secret_post', oauthParams: { access_type: 'offline', prompt: 'consent' } },
-    url: 'https://drivemcp.googleapis.com/mcp/v1',
+    config: { connectionType: 'composio', providerName: 'Google Drive', mcpUrl: COMPOSIO_MCP_URL, composioApp: 'gdrive', toolAccess: 'auto', disabledTools: [] },
+    composioApp: 'gdrive',
+    url: COMPOSIO_MCP_URL,
   },
   {
     id: 'conn-gcalendar', name: 'Google Calendar',
     description: 'View schedules, search events, find availability, and manage calendar events.',
-    icon: 'gcalendar', enabled: false, status: 'ready', category: 'Productivity', provider: 'mcp',
+    icon: 'gcalendar', enabled: false, status: 'ready', category: 'Productivity', provider: 'composio',
     isVerified: true, section: 'top',
     capabilities: ['Events', 'Availability', 'Scheduling', 'Calendar Management'],
-    config: { connectionType: 'mcp', providerName: 'Google Calendar', mcpUrl: 'https://calendarmcp.googleapis.com/mcp/v1', toolAccess: 'auto', disabledTools: [], oauthAuthorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth', oauthTokenEndpoint: 'https://oauth2.googleapis.com/token', oauthTokenEndpointAuthMethod: 'client_secret_post', oauthParams: { access_type: 'offline', prompt: 'consent' } },
-    url: 'https://calendarmcp.googleapis.com/mcp/v1',
+    config: { connectionType: 'composio', providerName: 'Google Calendar', mcpUrl: COMPOSIO_MCP_URL, composioApp: 'gcalendar', toolAccess: 'auto', disabledTools: [] },
+    composioApp: 'gcalendar',
+    url: COMPOSIO_MCP_URL,
   },
   {
     id: 'conn-slack', name: 'Slack',

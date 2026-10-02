@@ -55,6 +55,8 @@ export interface ConnectorConfig {
   toolAccess?: 'auto' | 'always' | 'on_demand';
   /** Remote MCP tool names disabled for this conversation. */
   disabledTools?: string[];
+  /** Toolkit slug for a Composio-served connector. */
+  composioApp?: string;
   connectedAccountId?: string;
   [key: string]: any;
 }
@@ -76,6 +78,8 @@ export interface Connector {
   isCustom?: boolean;
   url?: string;
   section?: 'custom' | 'top' | 'trending';
+  /** Toolkit slug this preset maps to when served through Composio "For You". */
+  composioApp?: string;
 }
 
 export interface CustomButton {

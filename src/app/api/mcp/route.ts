@@ -47,6 +47,17 @@ function cookie(value: string, maxAge = MAX_COOKIE_AGE): string {
 }
 
 function publicOrigin(req: NextRequest): string {
+  // The OAuth callback must be byte-identical across client registration,
+  // authorization, and token exchange. Deriving it from x-forwarded-host makes
+  // Vercel preview deployments advertise a different redirect_uri than the one
+  // registered on the GitHub OAuth App, which GitHub rejects with
+  // "The redirect_uri is not associated with this application."
+  // So pin production to APP_URL and only fall back to request headers in dev.
+  const configured = (process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  if (configured) return configured;
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('[mcp] APP_URL is not set; falling back to request host. Set APP_URL to the exact public origin of this deployment.');
+  }
   const forwardedHost = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
   const forwardedProto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim();
   const host = forwardedHost || req.headers.get('host') || new URL(req.url).host;

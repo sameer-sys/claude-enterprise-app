@@ -44,7 +44,7 @@ export function detectComposioAction(text: string): DetectedComposioAction | nul
     if (has('add', 'insert', 'put') && has('video', 'song', 'music')) {
       return { slug: ACTION_SLUGS.youtubeInsertPlaylistItem, args: {}, label: 'add a video to a YouTube playlist', app: 'youtube' };
     }
-    return { slug: ACTION_SLUGS.youtubeListPlaylists, args: {}, label: 'your YouTube playlists', app: 'youtube' };
+    return { slug: ACTION_SLUGS.youtubeListPlaylists, args: { max_results: 50 }, label: 'your YouTube playlists', app: 'youtube' };
   }
 
   // ── Gmail ──────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ export function detectComposioAction(text: string): DetectedComposioAction | nul
     if (has('send', 'compose', 'reply')) {
       return { slug: ACTION_SLUGS.gmailSendEmail, args: {}, label: 'send an email', app: 'gmail' };
     }
-    return { slug: ACTION_SLUGS.gmailListThreads, args: { max_results: 5 }, label: 'your latest Gmail messages', app: 'gmail' };
+    return { slug: ACTION_SLUGS.gmailListThreads, args: { max_results: 10 }, label: 'your latest Gmail messages', app: 'gmail' };
   }
 
   // ── GitHub ─────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ export function detectComposioAction(text: string): DetectedComposioAction | nul
     if (has('create', 'open', 'new') && has('issue')) {
       return { slug: ACTION_SLUGS.githubCreateIssue, args: {}, label: 'create a GitHub issue', app: 'github' };
     }
-    return { slug: ACTION_SLUGS.githubListRepos, args: {}, label: 'your GitHub repositories', app: 'github' };
+    return { slug: ACTION_SLUGS.githubListRepos, args: { per_page: 50 }, label: 'your GitHub repositories', app: 'github' };
   }
 
   // ── Google Calendar ────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ export function detectComposioAction(text: string): DetectedComposioAction | nul
     if (has('create', 'add', 'schedule')) {
       return { slug: ACTION_SLUGS.calendarCreateEvent, args: {}, label: 'create a calendar event', app: 'googlecalendar' };
     }
-    return { slug: ACTION_SLUGS.calendarListEvents, args: {}, label: 'your calendar events', app: 'googlecalendar' };
+    return { slug: ACTION_SLUGS.calendarListEvents, args: { max_results: 20 }, label: 'your calendar events', app: 'googlecalendar' };
   }
 
   return null;

@@ -1529,6 +1529,7 @@ export async function POST(req: NextRequest) {
         // Catch text-formatted JSON tool calls if model didn't emit native tool_calls
         if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
           const rawText = String(agentMsg?.content || agentMsg?.reasoning || agentMsg?.reasoning_content || '');
+          // 1) Compact form: {"tool":"NAME","arguments":{...}} / {"name":"NAME","arguments":{...}}
           const jsonToolMatch = rawText.match(/\{\s*"(?:tool|name|action)"\s*:\s*"([A-Za-z0-9_]+)"\s*,\s*"(?:arguments|params|parameters)"\s*:\s*(\{[\s\S]*?\})\s*\}/);
           if (jsonToolMatch) {
             const parsedName = jsonToolMatch[1];
@@ -1542,6 +1543,25 @@ export async function POST(req: NextRequest) {
                 arguments: JSON.stringify(parsedArgs)
               }
             }];
+          } else {
+            // 2) Full serialized agent message the model sometimes echoes back:
+            //    {"role":"assistant","reasoning":"...","tool_calls":[{"function":{"name":"...","arguments":"{...}"}}]}
+            try {
+              const parsedWhole = JSON.parse(rawText);
+              const calls = Array.isArray(parsedWhole?.tool_calls) ? parsedWhole.tool_calls : [];
+              if (calls.length > 0) {
+                toolCalls = calls.map((c: any) => ({
+                  id: c?.id || 'call_parsed_' + Date.now(),
+                  type: 'function',
+                  function: {
+                    name: String(c?.function?.name || ''),
+                    arguments: typeof c?.function?.arguments === 'string'
+                      ? c.function.arguments
+                      : JSON.stringify(c?.function?.arguments || {}),
+                  },
+                }));
+              }
+            } catch {}
           }
         }
 

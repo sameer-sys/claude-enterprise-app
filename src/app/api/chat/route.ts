@@ -1468,6 +1468,38 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Deterministic write-intent completion: when the conversation contains a
+    // create-playlist intent and the latest message supplies the details,
+    // execute the real Composio action directly. This keeps the action working
+    // even when the primary LLM key is invalid (Groq 401) and the fallback
+    // model would otherwise hallucinate or echo raw JSON.
+    if (mcpModeActive && !isAccountQuery) {
+      const historyText = messages.map((m: any) => String(m.content || '')).join(' ').toLowerCase();
+      const wantsPlaylist =
+        /\b(create|make|add|new)\b[^.]*\bplaylist\b/i.test(historyText) ||
+        /\bplaylist\b[^.]*\b(create|make|add|new)\b/i.test(historyText);
+      if (wantsPlaylist && /playlist/i.test(lastText)) {
+        const titleMatch = lastText.match(/(?:name|call|title)\s+(?:it|the playlist|this)?\s*[:]?\s*([A-Za-z0-9][A-Za-z0-9 _-]*)/i);
+        const title = titleMatch ? titleMatch[1].trim().replace(/[.,;:!?]+$/, '') : '';
+        const privacyMatch = lastText.match(/\b(private|unlisted|public)\b/i);
+        const privacy = privacyMatch ? privacyMatch[1].toLowerCase() : '';
+        if (title) {
+          const args: Record<string, any> = { title };
+          if (privacy) args.privacyStatus = privacy;
+          const accounts = await fetchComposioAccounts(composioMcpToken, composioMcpRefreshToken, toolContext);
+          const youtubeAccount = accounts.find((a: any) => /youtube/i.test(String(a?.app_name || a?.appName || a?.app || a?.name || '')));
+          const accountId = String(youtubeAccount?.id || youtubeAccount?.connected_account_id || '');
+          if (accountId) args.connected_account_id = accountId;
+          const liveResult = await runAgentTool('YOUTUBE_CREATE_PLAYLIST', args, toolContext);
+          return streamTextDirectly(
+            formatConnectorResult(lastText, liveResult),
+            detectedSkill,
+            toolContext
+          );
+        }
+      }
+    }
+
     let mcpToolCallsMade = 0;
     let mcpNudges = 0;
 

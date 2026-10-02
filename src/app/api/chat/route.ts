@@ -2105,13 +2105,12 @@ export async function POST(req: NextRequest) {
           // prompt instructs Composio tool use it sometimes echoes a serialized
           // tool-call JSON as plain text. Never stream that to the UI: replace
           // it with the formatted last real tool result from the agent loop.
-          if (looksLikeRawToolCallJson(fullText)) {
-            const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
-            if (lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()) {
-              const formatted = formatConnectorResult(lastText, lastToolMsg.content.trim());
-              if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
-                fullText = formatted;
-              }
+          const debugRawJson = looksLikeRawToolCallJson(fullText);
+          const debugLastTool = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+          if (debugRawJson && debugLastTool && typeof debugLastTool.content === 'string' && debugLastTool.content.trim()) {
+            const formatted = formatConnectorResult(lastText, debugLastTool.content.trim());
+            if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
+              fullText = formatted;
             }
           }
           const encoder = new TextEncoder();
@@ -2136,6 +2135,8 @@ export async function POST(req: NextRequest) {
               Connection: 'keep-alive',
               'X-Claude-Skill': detectedSkill,
               'X-Claude-Router': 'cloud-instant-stream',
+              'X-Debug-RawJson': String(debugRawJson),
+              'X-Debug-LastTool': debugLastTool ? 'yes' : 'no',
             },
           }), toolContext);
         }

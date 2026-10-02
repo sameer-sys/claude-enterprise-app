@@ -1709,6 +1709,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // If the agent loop executed real tools but never produced a clean final
+    // text answer (the model keeps echoing serialized tool-call JSON), format
+    // the last real tool result directly instead of letting the fallback LLM
+    // echo raw JSON to the user.
+    if (mcpModeActive && mcpToolCallsMade > 0) {
+      const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+      if (lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()) {
+        const formatted = formatConnectorResult(lastText, lastToolMsg.content.trim());
+        if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
+          return streamTextDirectly(formatted, detectedSkill, toolContext);
+        }
+      }
+    }
+
     // 2. Stream final response
     const candidateEndpoints: Array<{
       url: string;

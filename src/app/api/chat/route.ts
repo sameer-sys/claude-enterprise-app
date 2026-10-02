@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sendRealEmail } from '@/lib/mailer';
 import { fetchLatestEmails } from '@/lib/imapReader';
 import { getCredentialFromRequest, getStoredTokenFromRequest, type RemoteStoredToken, setStoredTokenCookie } from '@/lib/remoteMcpAuth';
+import { normalizeConnectedAccounts } from '@/lib/composioMcp';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -697,37 +698,19 @@ function formatConnectorResult(requestText: string, result: any): string {
   if (isAccountQuery) {
     // COMPOSIO_MANAGE_CONNECTIONS currently returns:
     // { results: { toolkit: { status, accounts: [...] } }, summary: {...} }
-    // Normalize that keyed result into one flat list of active accounts.
-    let connections: any[] = [];
-    if (Array.isArray(data)) {
-      connections = data;
-    } else if (Array.isArray(data.connections)) {
-      connections = data.connections;
-    } else if (Array.isArray(data.connected_accounts)) {
-      connections = data.connected_accounts;
-    } else if (Array.isArray(data.accounts)) {
-      connections = data.accounts;
-    } else if (Array.isArray(data.items)) {
-      connections = data.items;
-    } else if (data.results && typeof data.results === 'object' && !Array.isArray(data.results)) {
-      for (const [toolkit, entry] of Object.entries(data.results as Record<string, any>)) {
-        const accounts = Array.isArray((entry as any)?.accounts) ? (entry as any).accounts : [];
-        for (const account of accounts) {
-          connections.push({
-            ...(account || {}),
-            app_name: toolkit,
-          });
-        }
-      }
-    }
-
-    // Do not show INITIATING/INITIALIZING rows as connected apps.
-    connections = connections.filter((c: any) => {
-      const status = String(c?.status || 'ACTIVE').toUpperCase();
-      return status === 'ACTIVE' || status === 'CONNECTED';
-    });
+    // Normalize via the shared parser so this route and the Connectors status
+    // endpoint can never report different counts for the same response.
+    const connections = normalizeConnectedAccounts(data);
 
     const manageUrl = data.redirect_url || data.manage_url || data.url;
+
+    // Surface upstream failures instead of reporting them as "0 apps". A failed
+    // or unparseable response previously looked identical to a real empty list.
+    const upstreamError = String((data as any)?.error || (data as any)?.message || '').trim();
+    if (upstreamError && connections.length === 0) {
+      return `Composio did not return a connection list: ${upstreamError}\n\nOpen **Connectors**, disconnect and reconnect Composio, then ask again.`;
+    }
+
     if (Array.isArray(connections)) {
       if (connections.length === 0) {
         let msg = 'You currently have **0 external apps** connected in your personal Composio "For You" session.';

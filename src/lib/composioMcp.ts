@@ -266,6 +266,47 @@ export const DEFAULT_COMPOSIO_TOOLKITS = [
   'microsoft365',
 ];
 
+/**
+ * Flatten a COMPOSIO_MANAGE_CONNECTIONS payload into one list of accounts.
+ *
+ * Composio returns several shapes for this tool depending on version:
+ * a bare array, { connections }, { connected_accounts }, { accounts },
+ * { items }, or the keyed { results: { toolkit: { accounts: [...] } } } form.
+ * The Connectors status endpoint and the chat route both display this data, so
+ * they must agree. They previously carried separate copies of this logic and
+ * could report different counts for the same response; this is the only
+ * implementation now.
+ */
+export function normalizeConnectedAccounts(raw: any): any[] {
+  if (raw == null) return [];
+  let list: any[] = [];
+
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (Array.isArray(raw.connections)) {
+    list = raw.connections;
+  } else if (Array.isArray(raw.connected_accounts)) {
+    list = raw.connected_accounts;
+  } else if (Array.isArray(raw.accounts)) {
+    list = raw.accounts;
+  } else if (Array.isArray(raw.items)) {
+    list = raw.items;
+  } else if (raw.results && typeof raw.results === 'object' && !Array.isArray(raw.results)) {
+    for (const [toolkit, entry] of Object.entries(raw.results as Record<string, any>)) {
+      const accounts = Array.isArray((entry as any)?.accounts) ? (entry as any).accounts : [];
+      for (const account of accounts) {
+        list.push({ ...(account || {}), app_name: toolkit });
+      }
+    }
+  }
+
+  // INITIATING/INITIALIZING rows are in-flight auth attempts, not linked apps.
+  return list.filter((account: any) => {
+    const status = String(account?.status || 'ACTIVE').toUpperCase();
+    return status === 'ACTIVE' || status === 'CONNECTED';
+  });
+}
+
 export async function executeMcpTool(
   accessToken: string,
   toolName: string,

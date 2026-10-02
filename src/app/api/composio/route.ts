@@ -4,6 +4,7 @@ import {
   callComposioMcp,
   executeMcpTool,
   DEFAULT_COMPOSIO_TOOLKITS,
+  normalizeConnectedAccounts,
 } from '@/lib/composioMcp';
 
 export const dynamic = 'force-dynamic';
@@ -57,29 +58,7 @@ export async function GET(req: NextRequest) {
         if (connRes.newAccessToken) activeMcpToken = connRes.newAccessToken;
         if ((connRes as any).newRefreshToken) activeRefreshToken = (connRes as any).newRefreshToken;
         if (connRes.success && connRes.data) {
-          const raw = connRes.data;
-          let list: any[] = [];
-          if (Array.isArray(raw)) {
-            list = raw;
-          } else if (Array.isArray(raw?.connections)) {
-            list = raw.connections;
-          } else if (Array.isArray(raw?.connected_accounts)) {
-            list = raw.connected_accounts;
-          } else if (Array.isArray(raw?.accounts)) {
-            list = raw.accounts;
-          } else if (raw?.results && typeof raw.results === 'object' && !Array.isArray(raw.results)) {
-            for (const [toolkit, entry] of Object.entries(raw.results as Record<string, any>)) {
-              const accounts = Array.isArray((entry as any)?.accounts) ? (entry as any).accounts : [];
-              for (const account of accounts) {
-                const status = String((account as any)?.status || '').toUpperCase();
-                if (status === 'ACTIVE' || status === 'CONNECTED') list.push({ ...(account as any), app_name: toolkit });
-              }
-            }
-          }
-          connectedAccounts = list.filter((account: any) => {
-            const status = String(account?.status || 'ACTIVE').toUpperCase();
-            return status === 'ACTIVE' || status === 'CONNECTED';
-          });
+          connectedAccounts = normalizeConnectedAccounts(connRes.data);
         }
       } catch (err: any) {
         console.error('[COMPOSIO STATUS ERR]', err?.message || err);

@@ -86,6 +86,8 @@ export default function ConnectorsModal({
   const [composio, setComposio] = useState<{ configured: boolean; mcpConnected: boolean; connectedAccounts: any[]; tools: any[]; error?: string } | null>(null);
   const [composioBusy, setComposioBusy] = useState(false);
   const [appLinked, setAppLinked] = useState<Record<string, boolean>>({});
+  const [composioDiag, setComposioDiag] = useState<string | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
 
   /**
    * Read live Composio state and project it onto the presets that it serves.
@@ -142,6 +144,21 @@ export default function ConnectorsModal({
       setStatusMessage('Composio Error: ' + String(err?.message || err));
     } finally {
       setComposioBusy(false);
+    }
+  };
+
+  /** Run the raw Composio diagnosis and show it inline. */
+  const runComposioDiag = async () => {
+    setDiagBusy(true);
+    setComposioDiag(null);
+    try {
+      const res = await fetch('/api/composio/debug', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      setComposioDiag(JSON.stringify(data, null, 2));
+    } catch (err: any) {
+      setComposioDiag('Error: ' + String(err?.message || err));
+    } finally {
+      setDiagBusy(false);
     }
   };
 
@@ -457,8 +474,12 @@ export default function ConnectorsModal({
                   : <button onClick={openComposioOAuth} disabled={composioBusy} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold flex items-center gap-1">
                       {composioBusy ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/>Connecting…</> : <><LogIn className="w-3.5 h-3.5"/>Connect Composio</>}
                     </button>}
+                <button onClick={runComposioDiag} disabled={diagBusy} className="px-3 py-1.5 rounded-lg border border-[#38352d] text-xs flex items-center gap-1">
+                  {diagBusy ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/>Checking…</> : 'Check connection'}
+                </button>
               </div>
             </div>
+            {composioDiag && <div className="mt-2 p-2.5 rounded-lg border border-[#38352d] bg-[#12110e] text-[10px] text-[#c9c4b8] font-mono whitespace-pre-wrap break-all max-h-64 overflow-auto">{composioDiag}</div>}
             {composio?.error && <div className="mt-2 p-2.5 rounded-lg border border-red-900/60 bg-[#231919] text-[11px] text-red-300">{composio.error}</div>}
           </div>
           <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2">

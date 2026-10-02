@@ -904,6 +904,27 @@ export async function POST(req: NextRequest) {
       ? String(bodyMcpRefreshToken || headerMcpRefreshToken || cookieMcpRefreshToken || '').trim()
       : '';
 
+    // A Composio MCP server added via "Add custom" completes OAuth through the
+    // generic remote-MCP flow, which stores the token in that connector's own
+    // cookie rather than in composio_mcp_token. Without lifting it here the
+    // connector reports Connected in the UI but chat sees no Composio tools.
+    if (explicitComposioConnector && !composioMcpToken) {
+      for (const connector of Array.isArray(connectors) ? connectors : []) {
+        const cfg = connector?.config || {};
+        const url = String(cfg.mcpUrl || connector?.url || '').trim();
+        const isComposioUrl = String(cfg.connectionType || connector?.provider || '').toLowerCase() === 'composio' || url.includes('connect.composio.dev');
+        if (!isComposioUrl || !url || !connector?.id) continue;
+        const stored = getStoredTokenFromRequest({ cookies: req.cookies }, String(connector.id), url);
+        const credential = getCredentialFromRequest({ cookies: req.cookies }, String(connector.id), url);
+        const merged = { ...(credential || {}), ...(stored || {}) };
+        if (merged.accessToken) {
+          composioMcpToken = String(merged.accessToken).trim();
+          if (merged.refreshToken) composioMcpRefreshToken = String(merged.refreshToken).trim();
+          break;
+        }
+      }
+    }
+
     const isOmniRouteModel = true;
 
     const userLastMsg = messages[messages.length - 1];

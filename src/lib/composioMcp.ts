@@ -279,6 +279,29 @@ export const DEFAULT_COMPOSIO_TOOLKITS = [
  */
 export function normalizeConnectedAccounts(raw: any): any[] {
   if (raw == null) return [];
+
+  // MCP content blocks: [{ type: 'text', text: '...' }]. The real payload is
+  // JSON inside the text field, so parse it before normalizing.
+  if (Array.isArray(raw) && raw.length > 0 && raw.every((b) => b && typeof b === 'object' && typeof b.text === 'string')) {
+    const text = raw.map((b) => b.text).join('\n').trim();
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        return [];
+      }
+    }
+  }
+
+  // Composio wraps the payload in a { data: {...}, error, log_id, successful }
+  // envelope. The real results live at data.results / data.connections etc.
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data)) {
+    const inner = raw.data;
+    if (inner.results || inner.connections || inner.connected_accounts || inner.accounts || inner.items) {
+      raw = inner;
+    }
+  }
+
   let list: any[] = [];
 
   if (Array.isArray(raw)) {

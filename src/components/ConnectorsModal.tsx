@@ -464,7 +464,11 @@ export default function ConnectorsModal({
                 </div>
                 <div className="text-xs text-[#8f8a80] truncate mt-0.5">
                   {composio?.mcpConnected
-                    ? `${composio.connectedAccounts.length} app${composio.connectedAccounts.length === 1 ? '' : 's'} linked — Gmail, Drive and Calendar run through this one connection.`
+                    ? (() => {
+                        const apps = Array.from(new Set((composio.connectedAccounts || []).map((a: any) => a?.app_name || a?.appName || a?.app || a?.name).filter(Boolean)));
+                        const label = apps.length > 0 ? apps.join(', ') : 'accounts linked';
+                        return `${composio.connectedAccounts.length} account${composio.connectedAccounts.length === 1 ? '' : 's'} linked — ${label}.`;
+                      })()
                     : 'One sign-in unlocks Gmail, Google Drive, Google Calendar and more.'}
                 </div>
               </div>

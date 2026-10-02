@@ -319,26 +319,27 @@ export async function executeMcpTool(
     // field. Normalize account-inspection calls to an explicitly read-only
     // shape so we never accidentally initiate new auth links.
     //
-    // When the caller does not restrict the query we must ask Composio for
-    // *every* connected app ('*'). Substituting a fixed allowlist here made the
-    // answer depend on which apps happened to be hardcoded, silently hiding
-    // everything else the user had actually connected.
-    const rawToolkits = Array.isArray(callArgs.toolkits) && callArgs.toolkits.length > 0
-      ? callArgs.toolkits
-      : ['*'];
-
+    // When the caller does not restrict the query, omit toolkits entirely so
+    // Composio returns every connected app. Injecting a fixed allowlist (or a
+    // guessed '*' wildcard) made the answer depend on what we assumed instead
+    // of what the user actually connected.
+    const hasToolkits = Array.isArray(callArgs.toolkits) && callArgs.toolkits.length > 0;
     const requestedAction = String(callArgs.action || 'list').toLowerCase();
-    const normalizedToolkits = rawToolkits.map((item: any) => {
-      if (typeof item === 'string') {
-        return { name: item, action: requestedAction === 'add' ? 'add' : 'list' };
-      }
-      const name = String(item?.name || item?.toolkit || '').trim();
-      if (!name) return null;
-      const action = String(item?.action || requestedAction || 'list').toLowerCase();
-      return { ...item, name, action: action === 'add' || action === 'rename' || action === 'remove' ? action : 'list' };
-    }).filter(Boolean);
 
-    callArgs = { ...callArgs, toolkits: normalizedToolkits };
+    if (hasToolkits) {
+      const normalizedToolkits = callArgs.toolkits.map((item: any) => {
+        if (typeof item === 'string') {
+          return { name: item, action: requestedAction === 'add' ? 'add' : 'list' };
+        }
+        const name = String(item?.name || item?.toolkit || '').trim();
+        if (!name) return null;
+        const action = String(item?.action || requestedAction || 'list').toLowerCase();
+        return { ...item, name, action: action === 'add' || action === 'rename' || action === 'remove' ? action : 'list' };
+      }).filter(Boolean);
+      callArgs = { ...callArgs, toolkits: normalizedToolkits };
+    } else {
+      delete callArgs.toolkits;
+    }
     delete callArgs.action;
   }
 

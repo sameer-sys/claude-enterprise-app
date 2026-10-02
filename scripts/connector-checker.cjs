@@ -65,6 +65,30 @@ const checks = [
     'No invalid 0.0.0.0 OAuth callback is hardcoded',
     ![route, composio, native, mcpRoute, oauthCallback].some((s) => s.includes('0.0.0.0:3000/api/')),
   ],
+  [
+    'Deterministic playlist handler extracts title and privacy from follow-up',
+    route.includes("const titleMatch = lastText.match(/(?:name|call|title)\\s+(?:it|the playlist|this)?\\s*[:]?\\s*([A-Za-z0-9][A-Za-z0-9 _-]*)/i)") &&
+    route.includes("const privacyMatch = lastText.match(/\\b(private|unlisted|public)\\b/i)") &&
+    route.includes('if (privacy) args.privacyStatus = privacy;'),
+  ],
+  [
+    'Deterministic playlist handler resolves the YouTube account and executes YOUTUBE_CREATE_PLAYLIST',
+    route.includes("const youtubeAccount = accounts.find((a: any) => /youtube/i.test(String(a?.app_name || a?.appName || a?.app || a?.name || '')))") &&
+    route.includes("if (accountId) args.connected_account_id = accountId;") &&
+    route.includes("runAgentTool('YOUTUBE_CREATE_PLAYLIST', args, toolContext)") &&
+    route.includes('formatConnectorResult(lastText, liveResult)'),
+  ],
+  [
+    'Expired Composio session surfaces a reconnect link instead of hallucinating',
+    route.includes('[Reconnect Composio](/api/composio/connect)') &&
+    route.includes('isJwtExpired(composioMcpToken)'),
+  ],
+  [
+    'One-click Composio reconnect route redirects to the authorize page',
+    fs.existsSync(path.join(root, 'src/app/api/composio/connect/route.ts')) &&
+    read('src/app/api/composio/connect/route.ts').includes('NextResponse.redirect(authUrl, 302)') &&
+    read('src/app/api/composio/connect/route.ts').includes('composio_pkce_verifier'),
+  ],
 ];
 
 let failed = 0;

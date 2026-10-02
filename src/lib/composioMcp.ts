@@ -493,10 +493,10 @@ export async function listMcpToolsCachedWithAuth(
   accessToken: string,
   refreshToken?: string,
   ttlMs = 5 * 60 * 1000
-): Promise<{ tools: McpToolSchema[]; accessToken: string; refreshToken?: string; refreshed: boolean }> {
+): Promise<{ tools: McpToolSchema[]; accessToken: string; refreshToken?: string; refreshed: boolean; debug?: string }> {
   const hit = MCP_TOOL_CACHE.get(accessToken);
   if (hit && Date.now() - hit.at < ttlMs && hit.tools.length > 0) {
-    return { tools: hit.tools, accessToken, refreshToken, refreshed: false };
+    return { tools: hit.tools, accessToken, refreshToken, refreshed: false, debug: 'cache-hit' };
   }
 
   const response = await callComposioMcp(accessToken, 'tools/list', {}, refreshToken);
@@ -514,5 +514,6 @@ export async function listMcpToolsCachedWithAuth(
     accessToken: activeAccessToken,
     refreshToken: response.newRefreshToken || refreshToken,
     refreshed: Boolean(response.newAccessToken),
+    debug: `tools=${tools.length} success=${response.success} err=${String(response.error || '').slice(0, 160)} refreshed=${Boolean(response.newAccessToken)} hadRefresh=${Boolean(refreshToken)}`,
   };
 }

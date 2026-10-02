@@ -19,6 +19,7 @@ const lastComposioActionByUser = new Map<string, { slug: string; args: Record<st
 // response headers can expose it (used to debug Groq outages/rate limits).
 let agentLoopDebugInfo: string | null = null;
 let preHandlerDebugInfo: string | null = null;
+let mcpListDebugInfo: string | null = null;
 
 // Real agent tools - each one wraps an existing, genuinely working function.
 // No fabricated results: every tool returns real data or a real error string.
@@ -750,6 +751,7 @@ function streamTextDirectly(
         'X-Claude-Router': 'boss-agent-direct',
         ...(agentLoopDebugInfo ? { 'X-Debug-AgentLoop': agentLoopDebugInfo } : {}),
         ...(preHandlerDebugInfo ? { 'X-Debug-PreHandler': preHandlerDebugInfo } : {}),
+        ...(mcpListDebugInfo ? { 'X-Debug-McpList': mcpListDebugInfo } : {}),
       },
     }
   ), mcpContext);
@@ -1187,10 +1189,13 @@ export async function POST(req: NextRequest) {
     const maxAgentTurns = composioMcpToken || hasNativeMcp ? 24 : 8;
     let mcpLiveTools: any[] = [];
     let mcpToolNames: string[] = [];
+    let mcpListDebug = '';
     if (composioMcpToken) {
       try {
         const { listMcpToolsCachedWithAuth, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
         const listed = await listMcpToolsCachedWithAuth(composioMcpToken, composioMcpRefreshToken);
+        mcpListDebugInfo = listed.debug || '';
+        mcpListDebug = mcpListDebugInfo;
         if (listed.accessToken && listed.accessToken !== composioMcpToken) {
           composioMcpToken = listed.accessToken;
         }
@@ -1201,6 +1206,7 @@ export async function POST(req: NextRequest) {
         mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
       } catch (mcpListErr: any) {
         console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
+        mcpListDebug = `exception=${String((mcpListErr as any)?.message || mcpListErr).slice(0, 160)}`;
       }
     }
     const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;

@@ -1408,6 +1408,25 @@ export async function POST(req: NextRequest) {
     const connectorRequest = isConnectorRelatedRequest(lastText) || remoteConnectorMention;
     const hasRemoteMcpTools = remoteMcpTools.length > 0;
 
+    // A request is "compound" when it asks for more than one distinct action
+    // in the same message (e.g. "create a playlist AND add videos to it",
+    // "list my repos THEN open an issue on the top one"). The fast
+    // deterministic handlers below are single-shot by design - they execute
+    // one action and return immediately - so a compound request must skip
+    // them entirely and go through the real multi-turn loop, which keeps
+    // calling tools until the WHOLE task is actually done before replying.
+    const isCompoundMultiStepRequest = (() => {
+      const lower = lastText.toLowerCase();
+      const verbs = [
+        'create', 'make', 'add', 'new', 'remove', 'delete', 'update', 'edit',
+        'send', 'reply', 'insert', 'move', 'copy', 'transfer', 'list', 'show',
+        'get', 'check', 'find', 'search', 'post', 'upload', 'schedule',
+      ];
+      const hits = verbs.filter((v) => new RegExp(`\\b${v}\\b`, 'i').test(lower));
+      const hasJoiner = /\b(and then|then|and also|and add|and insert|and send|and update|after that|,\s*then)\b/i.test(lower);
+      return hits.length >= 2 && hasJoiner;
+    })();
+
     // PRIMARY CONNECTOR PATH:
     // Connector requests must enter the real live Composio MCP tool loop.
     // Do not guess an app-specific action from a keyword such as "playlist" or
@@ -1423,7 +1442,10 @@ export async function POST(req: NextRequest) {
 
       // Force the first turn only when the request is for the Composio For You
       // account. Custom remote MCP servers remain ordinary callable tools.
-      forceConnectorTool = Boolean(hasFocusedRemoteTools) || (mcpModeActive && !remoteConnectorMention);
+      // A compound request always forces a real tool call on turn 0 too, since
+      // it's skipping the fast single-shot handlers and needs the loop to
+      // start acting immediately rather than asking a clarifying question.
+      forceConnectorTool = Boolean(hasFocusedRemoteTools) || (mcpModeActive && !remoteConnectorMention) || isCompoundMultiStepRequest;
     }
 
     const toolContext = {
@@ -1532,7 +1554,7 @@ export async function POST(req: NextRequest) {
     // Playlist intent detected but Composio is not connected → prompt to
     // connect (with the auto-open reconnect popup) instead of letting the
     // fallback model ask for a name it can never act on.
-    if (!mcpModeActive && wantsPlaylist) {
+    if (!mcpModeActive && wantsPlaylist && !isCompoundMultiStepRequest) {
       agentLoopDebugInfo = `deterministic-playlist-handler:not-connected wants=${wantsPlaylist} coding=${isCodingTask}`;
       return streamTextDirectly(
         'Composio is not connected. [Connect Composio](/api/composio/connect) to create playlists on your YouTube account.',
@@ -1542,13 +1564,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (mcpModeActive && !isAccountQuery) {
+    if (mcpModeActive && !isAccountQuery && !isCompoundMultiStepRequest) {
       agentLoopDebugInfo = `deterministic-playlist-handler:block-reached mcp=${mcpModeActive} acctQuery=${isAccountQuery} last="${lastText.slice(0, 60)}"`;
       const lastHasPlaylist = /playlist/i.test(lastText);
       agentLoopDebugInfo = `deterministic-playlist-handler:block-reached wants=${wantsPlaylist} lastHasPlaylist=${lastHasPlaylist} lastIsNaming=${lastIsNaming}`;
       if (wantsPlaylist && (lastHasPlaylist || lastIsNaming)) {
         agentLoopDebugInfo = 'deterministic-playlist-handler:matched';
-        const titleMatch = lastText.match(/(?:name|call|title)\s+(?:it|the playlist|this)?\s*(?:as\s+)?[:]?\s*([A-Za-z0-9][A-Za-z0-9 _-]*)/i);
+        const titleMatch = lastText.match(/(?:name|call|title)\s+(?:it|the playlist|this)?\s*(?:as\s+)?[:]?\s*([A-Za-z0-9][A-Za-z0-9 _-]*?)(?=\s+\b(?:and|then|,)\b|[.,;:!?]|$)/i);
         const title = titleMatch ? titleMatch[1].trim().replace(/[.,;:!?]+$/, '') : '';
         const privacyMatch = lastText.match(/\b(private|unlisted|public)\b/i);
         const privacy = privacyMatch ? privacyMatch[1].toLowerCase() : '';

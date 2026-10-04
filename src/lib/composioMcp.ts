@@ -244,27 +244,8 @@ export async function listMcpTools(accessToken: string, refreshToken?: string): 
   return [];
 }
 
-export const DEFAULT_COMPOSIO_TOOLKITS = [
-  'youtube',
-  'github',
-  'gmail',
-  'googlecalendar',
-  'googledrive',
-  'slack',
-  'notion',
-  'discord',
-  'linear',
-  'asana',
-  'jira',
-  'trello',
-  'hubspot',
-  'salesforce',
-  'shopify',
-  'reddit',
-  'telegram',
-  'whatsapp',
-  'microsoft365',
-];
+/** Legacy compatibility only; runtime discovery uses Composio's live catalog. */
+export const DEFAULT_COMPOSIO_TOOLKITS: string[] = [];
 
 /**
  * Flatten a COMPOSIO_MANAGE_CONNECTIONS payload into one list of accounts.
@@ -397,6 +378,86 @@ export async function executeMcpTool(
     newAccessToken: response.newAccessToken,
     newRefreshToken: response.newRefreshToken,
   };
+}
+
+
+/**
+ * Discover toolkit slugs from Composio's live catalog.
+ * Never maintain an app-specific allow-list here.
+ */
+export async function listComposioToolkitSlugs(
+  accessToken: string,
+  refreshToken?: string,
+  availableToolNames: string[] = []
+): Promise<string[]> {
+  const toolName = pickMcpToolName(
+    availableToolNames,
+    [/LIST_TOOLKITS/i],
+    'COMPOSIO_LIST_TOOLKITS'
+  );
+  const response = await executeMcpTool(accessToken, toolName, {}, refreshToken);
+  if (!response.success) return [];
+
+  let raw: any = response.data;
+  const text = mcpContentToText(raw);
+  try { raw = JSON.parse(text); } catch {}
+
+  const found = new Set<string>();
+  const visit = (value: any) => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (typeof value !== 'object') return;
+    for (const candidate of [value.slug, value.toolkit_slug, value.toolkitSlug]) {
+      const slug = String(candidate || '').trim().toLowerCase();
+      if (/^[a-z0-9][a-z0-9_-]{1,127}$/.test(slug)) found.add(slug);
+    }
+    for (const key of ['toolkits', 'items', 'results', 'data']) {
+      if (value[key] !== undefined) visit(value[key]);
+    }
+  };
+  visit(raw);
+  return [...found];
+}
+
+/**
+ * Read active connected accounts without assuming which apps exist.
+ * Prefer Composio's bulk active-connection meta-tool; otherwise discover the
+ * live toolkit catalog and query MANAGE_CONNECTIONS for those slugs.
+ */
+export async function listComposioActiveConnections(
+  accessToken: string,
+  refreshToken?: string,
+  availableToolNames: string[] = []
+): Promise<any[]> {
+  const activeTool = pickMcpToolName(
+    availableToolNames,
+    [/CHECK_ACTIVE_CONNECTIONS/i],
+    'COMPOSIO_CHECK_ACTIVE_CONNECTIONS'
+  );
+  const direct = await executeMcpTool(accessToken, activeTool, {}, refreshToken);
+  if (direct.success) {
+    const directAccounts = normalizeConnectedAccounts(direct.data);
+    if (directAccounts.length > 0) return directAccounts;
+  }
+
+  const toolkitSlugs = await listComposioToolkitSlugs(accessToken, refreshToken, availableToolNames);
+  if (toolkitSlugs.length === 0) return [];
+
+  const manageTool = pickMcpToolName(
+    availableToolNames,
+    [/MANAGE_CONNECTIONS/i],
+    'COMPOSIO_MANAGE_CONNECTIONS'
+  );
+  const managed = await executeMcpTool(
+    accessToken,
+    manageTool,
+    { toolkits: toolkitSlugs.map((name) => ({ name, action: 'list' })) },
+    refreshToken
+  );
+  return managed.success ? normalizeConnectedAccounts(managed.data) : [];
 }
 
 

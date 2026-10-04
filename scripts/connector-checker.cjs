@@ -29,8 +29,8 @@ const checks = [
   ],
   [
     'No deterministic playlist/test-specific handler remains',
-    !route.includes('deterministic-playlist-handler') &&
-    !route.includes('YOUTUBE_CREATE_PLAYLIST'),
+    !/runAgentTool\\(\\s*['"][A-Z0-9_]+['"]/.test(route) &&
+    !route.includes('deterministic-playlist-handler'),
   ],
   [
     'Composio tool schemas are converted into callable model tools',

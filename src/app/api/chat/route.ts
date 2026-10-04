@@ -1899,7 +1899,8 @@ export async function POST(req: NextRequest) {
             content: result,
           });
 
-          if (mcpToolNames.includes(String(toolName)) && !toolFailed) {
+          const isCapabilityOnlyTool = /^(?:COMPOSIO_SEARCH_TOOLS|COMPOSIO_SEARCH_SKILLS|COMPOSIO_MANAGE_CONNECTIONS|COMPOSIO_GET_TOOL_SCHEMAS)$/i.test(String(toolName || ''));
+          if (mcpToolNames.includes(String(toolName)) && !toolFailed && !isCapabilityOnlyTool) {
             successfulMcpToolCalls++;
           }
 

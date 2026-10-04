@@ -850,6 +850,17 @@ function isJwtExpired(token: string): boolean {
   }
 }
 
+function isComposioExecutionFailure(text: string): boolean {
+  const lower = String(text || '').toLowerCase().trim();
+  if (!lower) return true;
+  return (
+    /\b(?:error|failed|failure|exception|unauthorized|forbidden|validation error|invalid argument|missing required|not connected|could not|unable to|timed out|timeout)\b/.test(lower) ||
+    /\b(?:status|http)\s*[45]\d\d\b/.test(lower) ||
+    lower.startsWith('tool "') ||
+    lower.startsWith('mcp server responded')
+  );
+}
+
 function formatConnectorResult(requestText: string, result: any): string {
   let data = result?.data ?? result;
   const lower = String(requestText || '').toLowerCase();
@@ -1550,11 +1561,28 @@ export async function POST(req: NextRequest) {
         }
         lastComposioActionByUser.set(composioUserId, detectedAction);
         const liveResult = await runAgentTool(detectedAction.slug, detectedAction.args, toolContext);
-        return streamTextDirectly(
-          formatComposioActionResult(detectedAction, liveResult),
-          detectedSkill,
-          toolContext
-        );
+
+        // A fast-path is only an optimization. If Composio rejects the real
+        // action, DO NOT return the error as the final answer. Put the real
+        // failure into the agent context and let the dynamic tool loop search
+        // for the correct schema/action and retry. This is critical for writes
+        // and for newly-connected apps that are not in our legacy action map.
+        if (!isComposioExecutionFailure(liveResult)) {
+          return streamTextDirectly(
+            formatComposioActionResult(detectedAction, liveResult),
+            detectedSkill,
+            toolContext
+          );
+        }
+
+        fullMessages.push({
+          role: 'system',
+          content:
+            'The deterministic Composio fast-path failed with this REAL error: ' +
+            liveResult +
+            '\nDo not stop. Use the live Composio tools/search/schema tools to find the correct action and parameters, then retry the requested task. Do not claim completion until the real action succeeds.'
+        });
+        forceConnectorTool = true;
       }
     }
 
@@ -1863,8 +1891,20 @@ export async function POST(req: NextRequest) {
         }
         // Once a real MCP tool has run, let the model decide: keep calling tools or finish.
         if (mcpModeActive && mcpToolCallsMade > 0) forceConnectorTool = false;
-      } catch (e) {
-        break;
+      } catch (e: any) {
+        // Never silently abandon a connector task after a transient provider,
+        // malformed-tool, or execution error. Feed the failure back into the
+        // same agent loop so it can discover/retry another live Composio tool.
+        const failure = String(e?.message || e || 'unknown agent error').slice(0, 2000);
+        fullMessages.push({
+          role: 'system',
+          content:
+            'The previous connector attempt failed before completion: ' +
+            failure +
+            '\nContinue the task. Re-check live Composio tools/schemas and retry. Only finish after the requested external action has actually succeeded.'
+        });
+        forceConnectorTool = Boolean(mcpModeActive);
+        continue;
       }
     }
 

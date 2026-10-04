@@ -330,15 +330,20 @@ async function runAgentTool(
         }
 
         if (name === 'Manage_connections' || name === 'connector_manage_connections' || name === 'COMPOSIO_MANAGE_CONNECTIONS') {
-          const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-          // Do not inject a toolkit allowlist here. When the caller does not
-          // restrict the query, Composio must be asked for all connections so
-          // the answer reflects what is actually linked.
           const hasToolkits = Array.isArray(args?.toolkits) && args.toolkits.length > 0;
+          if (!hasToolkits && String(args?.action || 'list').toLowerCase() === 'list') {
+            const accounts = await fetchComposioAccounts(
+              connectorContext.mcpToken,
+              connectorContext.mcpRefreshToken,
+              connectorContext
+            );
+            return clip(JSON.stringify({ connections: accounts }));
+          }
+          const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
           const res = await executeMcpTool(
             connectorContext.mcpToken,
             manageTool,
-            hasToolkits ? { ...args, toolkits: args.toolkits } : { ...args, toolkits: undefined },
+            { ...args, toolkits: args.toolkits },
             connectorContext.mcpRefreshToken
           );
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
@@ -1522,18 +1527,13 @@ export async function POST(req: NextRequest) {
     // Connected-app queries are deterministic: always ask Composio directly
     // so the answer cannot degrade into the UI fallback message.
     if (connectorRequest && isAccountQuery && mcpModeActive) {
-      const targetTool = pickMcpToolName(
-        mcpToolNames,
-        [/MANAGE_CONNECTIONS/i],
-        'COMPOSIO_MANAGE_CONNECTIONS'
-      );
-      const liveResult = await runAgentTool(
-        targetTool,
-        { action: 'list' },
+      const accounts = await fetchComposioAccounts(
+        composioMcpToken,
+        composioMcpRefreshToken,
         toolContext
       );
       return streamTextDirectly(
-        formatConnectorResult(lastText, liveResult),
+        formatConnectorResult(lastText, { connections: accounts }),
         detectedSkill,
         toolContext
       );

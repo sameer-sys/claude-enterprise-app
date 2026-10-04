@@ -257,7 +257,26 @@ async function runAgentTool(
         const liveNames = connectorContext.mcpToolNames || [];
         const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
 
-        if (liveNames.includes(name)) {
+        // These five are Composio's foundational meta-tools (search, run,
+        // schema lookup, connection management) - they exist on every
+        // Composio "For You" MCP server regardless of which third-party
+        // apps are connected. Relying only on liveNames.includes(name) to
+        // decide whether to even attempt them is fragile: if the live
+        // tools/list response is briefly stale, renamed, or filters out a
+        // name with an unexpected character, the call was silently
+        // rejected locally as "Unknown tool" before ever reaching Composio
+        // - even though Composio itself would have accepted it. Always
+        // attempt these by name and let Composio's own API be the real
+        // authority on whether the call is valid.
+        const CORE_META_TOOLS = new Set([
+          'COMPOSIO_SEARCH_TOOLS',
+          'COMPOSIO_SEARCH_SKILLS',
+          'COMPOSIO_MANAGE_CONNECTIONS',
+          'COMPOSIO_MULTI_EXECUTE_TOOL',
+          'COMPOSIO_GET_TOOL_SCHEMAS',
+        ]);
+
+        if (liveNames.includes(name) || CORE_META_TOOLS.has(name)) {
           // Normalize arguments for tools whose schema the model unreliably
           // generates correctly (nested array-of-object shapes especially).
           // Without this, the model's own malformed args get sent straight

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { executeMcpTool, DEFAULT_COMPOSIO_TOOLKITS } from '@/lib/composioMcp';
+import { executeMcpTool, listComposioActiveConnections } from '@/lib/composioMcp';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -29,22 +29,18 @@ export async function GET(req: NextRequest) {
   }
 
   const results: Record<string, any> = {};
-  const attempts = [
-    { label: 'default-toolkit-list', args: { action: 'list', toolkits: DEFAULT_COMPOSIO_TOOLKITS } },
-    { label: 'no-toolkits', args: { action: 'list' } },
-  ];
-
-  for (const attempt of attempts) {
-    try {
-      const res = await executeMcpTool(mcpToken, 'COMPOSIO_MANAGE_CONNECTIONS', attempt.args, mcpRefreshToken);
-      results[attempt.label] = {
-        success: res.success,
-        error: res.error || null,
-        data: res.data,
-      };
-    } catch (err: any) {
-      results[attempt.label] = { success: false, error: String(err?.message || err) };
-    }
+  try {
+    const accounts = await listComposioActiveConnections(mcpToken, mcpRefreshToken);
+    results['dynamic-active-connections'] = {
+      success: true,
+      count: accounts.length,
+      data: accounts,
+    };
+  } catch (err: any) {
+    results['dynamic-active-connections'] = {
+      success: false,
+      error: String(err?.message || err),
+    };
   }
 
   return NextResponse.json({ ok: true, results });

@@ -29,7 +29,7 @@ const checks = [
   ],
   [
     'No deterministic playlist/test-specific handler remains',
-    !/runAgentTool\\(\\s*['"][A-Z0-9_]+['"]/.test(route) &&
+    !route.includes("runAgentTool('") && !route.includes('runAgentTool("') &&
     !route.includes('deterministic-playlist-handler'),
   ],
   [

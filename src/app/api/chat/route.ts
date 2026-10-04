@@ -153,17 +153,12 @@ async function fetchComposioAccounts(
   toolContext: { mcpToolNames?: string[] }
 ): Promise<any[]> {
   try {
-    const { pickMcpToolName, executeMcpTool, mcpContentToText, normalizeConnectedAccounts } = await import('@/lib/composioMcp');
-    const manageTool = pickMcpToolName(toolContext.mcpToolNames || [], [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-    const res = await executeMcpTool(mcpToken, manageTool, { action: 'list' }, mcpRefreshToken);
-    const text = mcpContentToText(res.data);
-    let parsed: any = text;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // keep raw text
-    }
-    return normalizeConnectedAccounts(parsed);
+    const { listComposioActiveConnections } = await import('@/lib/composioMcp');
+    return await listComposioActiveConnections(
+      mcpToken,
+      mcpRefreshToken,
+      toolContext.mcpToolNames || []
+    );
   } catch (err: any) {
     console.error('[COMPOSIO ACCOUNTS ERR]', err?.message || err);
     return [];
@@ -274,6 +269,9 @@ async function runAgentTool(
           'COMPOSIO_MANAGE_CONNECTIONS',
           'COMPOSIO_MULTI_EXECUTE_TOOL',
           'COMPOSIO_GET_TOOL_SCHEMAS',
+          'COMPOSIO_LIST_TOOLKITS',
+          'COMPOSIO_CHECK_ACTIVE_CONNECTIONS',
+          'COMPOSIO_CHECK_ACTIVE_CONNECTION',
         ]);
 
         if (liveNames.includes(name) || CORE_META_TOOLS.has(name)) {

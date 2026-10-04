@@ -13,7 +13,6 @@ const DEFAULT_MAX_TOKENS = 32768;
 // Tracks the last deterministic Composio action per user so follow-up
 // verification requests ("check closely", "check again") re-run the real
 // action instead of falling into the flaky model agent loop.
-const lastComposioActionByUser = new Map<string, { slug: string; args: Record<string, any>; label: string; app: string }>();
 
 // Diagnostic: captures why the agent loop's primary LLM call failed so the
 // response headers can expose it (used to debug Groq outages/rate limits).
@@ -1540,129 +1539,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Deterministic connector action dispatcher: detect the user's intent
-    // (playlists, mail, repos, events) and execute the real Composio MCP
-    // action directly. This is one round-trip instead of the slow model agent
-    // loop, which caused timeouts/500s on Vercel for connector requests.
-    if (connectorRequest && mcpModeActive && !isAccountQuery) {
-      const { detectComposioAction, formatComposioActionResult, resolveComposioAccounts } = await import('@/lib/composioActions');
-      const detectedAction = detectComposioAction(lastText);
-      if (detectedAction) {
-        // When an app has multiple connected accounts Composio requires
-        // connected_account_id. Resolve the account(s) to use so "total repos
-        // we have" covers every account instead of erroring out.
-        const accounts = await fetchComposioAccounts(composioMcpToken, composioMcpRefreshToken, toolContext);
-        const accountIds = resolveComposioAccounts(lastText, accounts, detectedAction.app);
-        if (accountIds.length > 0) {
-          detectedAction.accountIds = accountIds;
-          detectedAction.args = { ...detectedAction.args, connected_account_id: accountIds };
-        }
-        lastComposioActionByUser.set(composioUserId, detectedAction);
-        const liveResult = await runAgentTool(detectedAction.slug, detectedAction.args, toolContext);
+    // Do not map natural-language requests to app-specific actions here.
+    // All connector work is discovered from Composio's live tools/schemas.
 
-        // A fast-path is only an optimization. If Composio rejects the real
-        // action, DO NOT return the error as the final answer. Put the real
-        // failure into the agent context and let the dynamic tool loop search
-        // for the correct schema/action and retry. This is critical for writes
-        // and for newly-connected apps that are not in our legacy action map.
-        if (!isComposioExecutionFailure(liveResult)) {
-          return streamTextDirectly(
-            formatComposioActionResult(detectedAction, liveResult),
-            detectedSkill,
-            toolContext
-          );
-        }
-
-        fullMessages.push({
-          role: 'system',
-          content:
-            'The deterministic Composio fast-path failed with this REAL error: ' +
-            liveResult +
-            '\nDo not stop. Use the live Composio tools/search/schema tools to find the correct action and parameters, then retry the requested task. Do not claim completion until the real action succeeds.'
-        });
-        forceConnectorTool = true;
-      }
-    }
-
-    // Follow-up verification ("check closely", "check again", "verify") re-runs
-    // the last deterministic action so the user gets a fresh real result.
-    if (mcpModeActive && !isAccountQuery) {
-      const { isFollowUpCheck, formatComposioActionResult } = await import('@/lib/composioActions');
-      if (isFollowUpCheck(lastText)) {
-        const lastAction = lastComposioActionByUser.get(composioUserId);
-        if (lastAction) {
-          const liveResult = await runAgentTool(lastAction.slug, lastAction.args, toolContext);
-          return streamTextDirectly(
-            formatComposioActionResult(lastAction, liveResult),
-            detectedSkill,
-            toolContext
-          );
-        }
-      }
-    }
-
-    // Deterministic write-intent completion: when the conversation contains a
-    // create-playlist intent and the latest message supplies the details,
-    // execute the real Composio action directly. This keeps the action working
-    // even when the primary LLM key is invalid (Groq 401) and the fallback
-    // model would otherwise hallucinate or echo raw JSON.
-    agentLoopDebugInfo = `pre-handler mcp=${mcpModeActive} acctQuery=${isAccountQuery} connectorReq=${connectorRequest} token=${Boolean(composioMcpToken)} tools=${mcpToolNames.length}`;
-    preHandlerDebugInfo = agentLoopDebugInfo;
-
-    const historyText = messages.map((m: any) => String(m.content || '')).join(' ').toLowerCase();
-    const lastLower = lastText.toLowerCase();
-    // A naming follow-up ("name it X", "call it X") after a creation request.
-    const lastIsNaming = /(?:name|call|title)\s+(?:it|the playlist|this)?\s*(?:as\s+)?[:]?\s*[A-Za-z0-9]/i.test(lastText);
-    // Coding/UI requests must never be routed to the Composio connect prompt.
-    const isCodingTask = /\b(react|component|html|css|javascript|typescript|python|code|function|api|app|website|page|ui|svg|tailwind|script|debug|algorithm|database|server|client)\b/i.test(historyText);
-    const wantsPlaylist =
-      /\b(create|make|add|new)\b[^.]*\bplaylist\b/i.test(historyText) ||
-      /\bplaylist\b[^.]*\b(create|make|add|new)\b/i.test(historyText) ||
-      (/\b(create|make|add|new)\b[^.]*\bone\b/i.test(historyText) && !isCodingTask) ||
-      (/\b(create|make|add|new)\b/i.test(historyText) && lastIsNaming && !isCodingTask);
-
-    // Playlist intent detected but Composio is not connected → prompt to
-    // connect (with the auto-open reconnect popup) instead of letting the
-    // fallback model ask for a name it can never act on.
-    if (!mcpModeActive && wantsPlaylist && !isCompoundMultiStepRequest) {
-      agentLoopDebugInfo = `deterministic-playlist-handler:not-connected wants=${wantsPlaylist} coding=${isCodingTask}`;
-      return streamTextDirectly(
-        'Composio is not connected. [Connect Composio](/api/composio/connect) to create playlists on your YouTube account.',
-        detectedSkill,
-        undefined,
-        true
-      );
-    }
-
-    if (mcpModeActive && !isAccountQuery && !isCompoundMultiStepRequest) {
-      agentLoopDebugInfo = `deterministic-playlist-handler:block-reached mcp=${mcpModeActive} acctQuery=${isAccountQuery} last="${lastText.slice(0, 60)}"`;
-      const lastHasPlaylist = /playlist/i.test(lastText);
-      agentLoopDebugInfo = `deterministic-playlist-handler:block-reached wants=${wantsPlaylist} lastHasPlaylist=${lastHasPlaylist} lastIsNaming=${lastIsNaming}`;
-      if (wantsPlaylist && (lastHasPlaylist || lastIsNaming)) {
-        agentLoopDebugInfo = 'deterministic-playlist-handler:matched';
-        const titleMatch = lastText.match(/(?:name|call|title)\s+(?:it|the playlist|this)?\s*(?:as\s+)?[:]?\s*([A-Za-z0-9][A-Za-z0-9 _-]*?)(?=\s+\b(?:and|then|,)\b|[.,;:!?]|$)/i);
-        const title = titleMatch ? titleMatch[1].trim().replace(/[.,;:!?]+$/, '') : '';
-        const privacyMatch = lastText.match(/\b(private|unlisted|public)\b/i);
-        const privacy = privacyMatch ? privacyMatch[1].toLowerCase() : '';
-        if (title) {
-          agentLoopDebugInfo = `deterministic-playlist-handler:title=${title}`;
-          const args: Record<string, any> = { title };
-          if (privacy) args.privacyStatus = privacy;
-          const accounts = await fetchComposioAccounts(composioMcpToken, composioMcpRefreshToken, toolContext);
-          const youtubeAccount = accounts.find((a: any) => /youtube/i.test(String(a?.app_name || a?.appName || a?.app || a?.name || '')));
-          const accountId = String(youtubeAccount?.id || youtubeAccount?.connected_account_id || '');
-          if (accountId) args.connected_account_id = accountId;
-          agentLoopDebugInfo = `deterministic-playlist-handler:executing account=${accountId}`;
-          const liveResult = await runAgentTool('YOUTUBE_CREATE_PLAYLIST', args, toolContext);
-          agentLoopDebugInfo = `deterministic-playlist-handler:done result=${String(liveResult).slice(0, 120)}`;
-          return streamTextDirectly(
-            formatConnectorResult(lastText, liveResult),
-            detectedSkill,
-            toolContext
-          );
-        }
-      }
-    }
+    // Connector actions are intentionally not hardcoded here. The live
+    // Composio search/schema/execution loop below handles every toolkit/action.
 
     let mcpToolCallsMade = 0;
     let successfulMcpToolCalls = 0;

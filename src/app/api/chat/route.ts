@@ -258,7 +258,32 @@ async function runAgentTool(
         const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
 
         if (liveNames.includes(name)) {
-          const res = await executeMcpTool(connectorContext.mcpToken, name, args || {}, connectorContext.mcpRefreshToken);
+          // Normalize arguments for tools whose schema the model unreliably
+          // generates correctly (nested array-of-object shapes especially).
+          // Without this, the model's own malformed args get sent straight
+          // to Composio's API and fail with "Validation error: Required at
+          // ...", which breaks tool discovery for EVERY action that isn't
+          // one of the handful of hardcoded fast-path cases - not just one
+          // specific request.
+          let normalizedArgs: any = args || {};
+          if (name === 'COMPOSIO_SEARCH_TOOLS' || name === 'COMPOSIO_SEARCH_SKILLS') {
+            const rawQueries = (normalizedArgs as any)?.queries;
+            const alreadyValid =
+              Array.isArray(rawQueries) &&
+              rawQueries.length > 0 &&
+              rawQueries.every((q: any) => q && typeof q === 'object' && typeof q.use_case === 'string' && q.use_case.trim());
+            if (!alreadyValid) {
+              const useCase = String(
+                (normalizedArgs as any)?.use_case ||
+                (normalizedArgs as any)?.query ||
+                (normalizedArgs as any)?.search ||
+                (typeof rawQueries === 'string' ? rawQueries : '') ||
+                ''
+              ).trim() || 'find the right tool for this request';
+              normalizedArgs = { queries: [{ use_case: useCase }], session: { generate_id: true } };
+            }
+          }
+          const res = await executeMcpTool(connectorContext.mcpToken, name, normalizedArgs, connectorContext.mcpRefreshToken);
           if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
           if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
           const text = mcpContentToText(res.data);

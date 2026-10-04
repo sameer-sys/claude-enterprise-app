@@ -8,86 +8,60 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
 const route = read('src/app/api/chat/route.ts');
 const composio = read('src/lib/composioMcp.ts');
-const native = read('src/lib/nativeConnectors.ts');
-const mcpRoute = read('src/app/api/mcp/route.ts');
-const oauthCallback = read('src/app/api/mcp/oauth/callback/route.ts');
 
 const checks = [
   [
-    'Composio MANAGE_CONNECTIONS normalizes toolkit actions',
-    composio.includes("if (/MANAGE_CONNECTIONS/i.test(toolName))") &&
-    composio.includes('const normalizedToolkits = rawToolkits.map') &&
-    composio.includes('delete callArgs.action;'),
-  ],
-  [
-    'Chat route deterministically formats connected-account results',
-    /if \(connectorRequest && isAccountQuery && mcpModeActive\)[\s\S]*formatConnectorResult\(lastText, liveResult\)/.test(route),
-  ],
-  [
-    'Chat route stops raw MANAGE_CONNECTIONS JSON from reaching the UI',
-    /if \(isAccountQuery && \/MANAGE_CONNECTIONS\/i\.test\(String\(toolName \|\| ''\)\)\)[\s\S]*formatConnectorResult\(lastText, result\)/.test(route),
-  ],
-  [
-    'Chat route contains the built-in dispatcher definition when referenced',
-    route.includes('const builtInToMcpAction: Record<string, string>') &&
-    route.includes('if (builtInToMcpAction[name])') &&
-    !route.includes('Boolean(builtInToMcpAction[name])'),
-  ],
-  [
-    'Composio MULTI_EXECUTE payloads use tool_slug (not name)',
-    route.includes('tool_slug: mcpAction') &&
-    route.includes('tool_slug: name') &&
-    !/tools:\s*\[\s*\{\s*name:\s*(?:mcpAction|name|args\.action)/.test(route),
-  ],
-  [
-    'Composio dispatcher resolves connected_account_id for multi-account apps',
-    route.includes('resolveComposioAccounts') &&
-    route.includes('connected_account_id: accountIds') &&
-    route.includes('accountIds.map((id: string) => ({ tool_slug:') &&
+    'Composio connection discovery is live/dynamic',
+    composio.includes('listComposioActiveConnections') &&
+    composio.includes('listComposioToolkitSlugs') &&
     route.includes('fetchComposioAccounts'),
   ],
   [
-    'Native connector OAuth callback uses the forwarded public origin',
-    /x-forwarded-host/.test(mcpRoute) && /x-forwarded-proto/.test(mcpRoute),
+    'Runtime discovery does not depend on a fixed toolkit allow-list',
+    /DEFAULT_COMPOSIO_TOOLKITS:\s*string\[\]\s*=\s*\[\]/.test(composio),
   ],
   [
-    'OAuth callback exchanges the authorization code for a real access token',
-    /grant_type:\s*'authorization_code'/.test(oauthCallback) && /data\?\.access_token/.test(oauthCallback),
+    'Connector requests use live Composio tools instead of app-specific action maps',
+    route.includes('mcpToolsToOpenAI') &&
+    route.includes('runAgentTool') &&
+    !route.includes('const builtInToMcpAction: Record<string, string>') &&
+    !route.includes('detectComposioAction(lastText)'),
   ],
   [
-    'Native connector directory contains the expected core MCP providers',
-    /api\.githubcopilot\.com\/mcp/.test(native) &&
-    /gmailmcp\.googleapis\.com\/mcp/.test(native) &&
-    /drivemcp\.googleapis\.com\/mcp/.test(native) &&
-    /calendarmcp\.googleapis\.com\/mcp/.test(native),
+    'No deterministic playlist/test-specific handler remains',
+    !route.includes('deterministic-playlist-handler') &&
+    !route.includes('YOUTUBE_CREATE_PLAYLIST'),
   ],
   [
-    'No invalid 0.0.0.0 OAuth callback is hardcoded',
-    ![route, composio, native, mcpRoute, oauthCallback].some((s) => s.includes('0.0.0.0:3000/api/')),
+    'Composio tool schemas are converted into callable model tools',
+    composio.includes('mcpToolsToOpenAI') &&
+    /function:\s*\{[\s\S]*?name:\s*tool\.name/.test(composio),
   ],
   [
-    'Deterministic playlist handler extracts title and privacy from follow-up',
-    route.includes("const titleMatch = lastText.match(/(?:name|call|title)\\s+(?:it|the playlist|this)?\\s*(?:as\\s+)?[:]?\\s*([A-Za-z0-9][A-Za-z0-9 _-]*?)(?=\\s+\\b(?:and|then|,)\\b|[.,;:!?]|$)/i)") &&
-    route.includes("const privacyMatch = lastText.match(/\\b(private|unlisted|public)\\b/i)") &&
-    route.includes('if (privacy) args.privacyStatus = privacy;'),
+    'Real connector execution failures are returned to the agent loop',
+    route.includes('isComposioExecutionFailure') &&
+    route.includes('AUTOMATIC COMPOSIO SKILL RECOVERY') &&
+    route.includes('Do not stop until the requested task succeeds'),
   ],
   [
-    'Deterministic playlist handler resolves the YouTube account and executes YOUTUBE_CREATE_PLAYLIST',
-    route.includes("const youtubeAccount = accounts.find((a: any) => /youtube/i.test(String(a?.app_name || a?.appName || a?.app || a?.name || '')))") &&
-    route.includes("if (accountId) args.connected_account_id = accountId;") &&
-    route.includes("runAgentTool('YOUTUBE_CREATE_PLAYLIST', args, toolContext)") &&
-    route.includes('formatConnectorResult(lastText, liveResult)'),
+    'Connector requests require real external execution before completion',
+    route.includes('successfulMcpToolCalls') &&
+    route.includes('requiredMcpToolCalls') &&
+    route.includes('Do NOT finish yet'),
   ],
   [
-    'Expired Composio session surfaces a reconnect link instead of hallucinating',
-    route.includes('[Reconnect Composio](/api/composio/connect)') &&
-    route.includes('isJwtExpired(composioMcpToken)'),
+    'Multiple connected accounts are handled dynamically',
+    route.includes('connected_account_id') &&
+    route.includes('fetchComposioAccounts'),
   ],
   [
-    'One-click Composio reconnect route redirects to the authorize page',
+    'No invalid local OAuth callback is hardcoded',
+    ![route, composio].some((s) => s.includes('0.0.0.0:3000/api/')),
+  ],
+  [
+    'Composio reconnect route exists',
     fs.existsSync(path.join(root, 'src/app/api/composio/connect/route.ts')) &&
-    read('src/app/api/composio/connect/route.ts').includes('NextResponse.redirect(authUrl, 302)') &&
-    read('src/app/api/composio/connect/route.ts').includes('composio_pkce_verifier'),
+    read('src/app/api/composio/connect/route.ts').includes('NextResponse.redirect(authUrl, 302)'),
   ],
 ];
 

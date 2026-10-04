@@ -1667,7 +1667,9 @@ export async function POST(req: NextRequest) {
     }
 
     let mcpToolCallsMade = 0;
+    let successfulMcpToolCalls = 0;
     let mcpNudges = 0;
+    const requiredMcpToolCalls = isCompoundMultiStepRequest ? 2 : (connectorRequest ? 1 : 0);
 
     for (let turn = 0; turn < maxAgentTurns; turn++) {
       if (Date.now() > agentDeadline) break;
@@ -1854,6 +1856,26 @@ export async function POST(req: NextRequest) {
           }
 
           if (contentText) {
+            // For connector requests, especially compound requests, prose is
+            // not completion evidence. Require the real external action(s) to
+            // succeed before allowing the model to end the turn.
+            if (
+              connectorRequest &&
+              requiredMcpToolCalls > 0 &&
+              successfulMcpToolCalls < requiredMcpToolCalls
+            ) {
+              mcpNudges++;
+              fullMessages.push({
+                role: 'system',
+                content:
+                  'Do NOT finish yet. The requested connector task is not complete. ' +
+                  'Only ' + successfulMcpToolCalls + ' of at least ' + requiredMcpToolCalls +
+                  ' required real external action(s) have succeeded. Continue using live Composio tools until the whole task is actually completed. ' +
+                  'Do not tell the user it is done yet.'
+              });
+              forceConnectorTool = Boolean(mcpModeActive);
+              continue;
+            }
             return streamTextDirectly(contentText, detectedSkill, toolContext);
           }
           break;
@@ -1869,12 +1891,45 @@ export async function POST(req: NextRequest) {
           } catch (e) {}
 
           const result = await runAgentTool(toolName, toolArgs, toolContext);
+          const toolFailed = isComposioExecutionFailure(result);
 
           fullMessages.push({
             role: 'tool',
             tool_call_id: call.id,
             content: result,
           });
+
+          if (mcpToolNames.includes(String(toolName)) && !toolFailed) {
+            successfulMcpToolCalls++;
+          }
+
+          if (mcpModeActive && toolFailed && mcpToolCallsMade < 6) {
+            // Automatically perform a second layer of live capability
+            // discovery after a real execution failure. This is intentionally
+            // dynamic: no app/tool slug is hardcoded here.
+            const skillTool = pickMcpToolName(
+              mcpToolNames,
+              [/SEARCH_SKILLS/i],
+              'COMPOSIO_SEARCH_SKILLS'
+            );
+            const skillResult = await runAgentTool(
+              skillTool,
+              {
+                queries: [{ use_case: lastText }],
+                session: { generate_id: true }
+              },
+              toolContext
+            );
+            fullMessages.push({
+              role: 'system',
+              content:
+                'AUTOMATIC COMPOSIO SKILL RECOVERY. The previous real tool failed. ' +
+                'Use this live skill/capability discovery result to choose a valid tool and retry. ' +
+                'Do not stop until the requested task succeeds:\n' +
+                skillResult
+            });
+            forceConnectorTool = false;
+          }
 
           // Connected-app/account queries are deterministic. Once the real
           // Composio MANAGE_CONNECTIONS tool has returned, format that result

@@ -214,18 +214,6 @@ async function runAgentTool(
 ): Promise<string> {
   try {
     // Handle Composio "For You" MCP execution
-    const builtInToMcpAction: Record<string, string> = {
-      'youtube_list_playlists': 'YOUTUBE_LIST_USER_PLAYLISTS',
-      'youtube_create_playlist': 'YOUTUBE_CREATE_PLAYLIST',
-      'youtube_add_video_to_playlist': 'YOUTUBE_INSERT_PLAYLIST_ITEM',
-      'github_list_repos': 'GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER',
-      'github_create_issue': 'GITHUB_CREATE_AN_ISSUE',
-      'gmail_list_messages': 'GMAIL_LIST_THREADS',
-      'gmail_send_email': 'GMAIL_SEND_EMAIL',
-      'google_calendar_list_events': 'GOOGLECALENDAR_LIST_EVENTS',
-      'google_calendar_create_event': 'GOOGLECALENDAR_CREATE_EVENT',
-    };
-
     const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
     if (remoteRoute) {
       const { callRemoteMcpTool } = await import('@/lib/remoteMcp');
@@ -351,20 +339,6 @@ async function runAgentTool(
           return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
         }
 
-        // Built-in actions mapped to Composio "For You" MCP
-        if (builtInToMcpAction[name]) {
-          const mcpAction = builtInToMcpAction[name];
-          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          const { connected_account_id, ...toolArgs } = args || {};
-          const accountIds = Array.isArray(connected_account_id) ? connected_account_id : connected_account_id ? [connected_account_id] : [];
-          const tools = accountIds.length > 0
-            ? accountIds.map((id: string) => ({ tool_slug: mcpAction, arguments: { ...toolArgs, connected_account_id: id } }))
-            : [{ tool_slug: mcpAction, arguments: toolArgs }];
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, { tools }, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
 
         // Direct action slug dispatcher (e.g. YOUTUBE_CREATE_PLAYLIST) routed via MULTI_EXECUTE
         if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {

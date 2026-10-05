@@ -1567,6 +1567,20 @@ export async function POST(req: NextRequest) {
       /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
       /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
 
+    // Connection status is a read-only metadata request. Do not make it
+    // depend on the LLM producing a tool call: directly invoke Composio Search
+    // Tools and format its live toolkit_connection_statuses response.
+    if (isAccountQuery && mcpModeActive && composioMcpToken) {
+      const searchTool = pickMcpToolName(mcpToolNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
+      const accountResult = await runAgentTool(searchTool, {
+        queries: [{ use_case: 'list all apps and accounts currently connected to this user in Composio' }],
+        session: { generate_id: true },
+        model: 'gpt-5.6',
+      }, toolContext);
+      const formatted = formatConnectorResult(lastText, accountResult);
+      return streamTextDirectly(formatted, detectedSkill, toolContext);
+    }
+
     // Connection/app queries use Composio Tool Router discovery.
     // A For You MCP session exposes meta-tools; it is not a guaranteed
     // connection registry. Keep the request inside the normal SEARCH_TOOLS

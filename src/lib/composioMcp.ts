@@ -449,19 +449,50 @@ export async function listComposioActiveConnections(
   refreshToken?: string,
   availableToolNames: string[] = []
 ): Promise<any[]> {
-  const toolkitSlugs = await listComposioToolkitSlugs(accessToken, refreshToken, availableToolNames);
-  if (toolkitSlugs.length === 0) {
-    throw new Error('Composio did not return its live toolkit catalog for this MCP session.');
+  // 1) Prefer Composio's live bulk connection checker when this MCP session
+  // exposes it. This requires no guessed toolkit catalog at all.
+  const checkTool = pickMcpToolName(
+    availableToolNames,
+    [/CHECK_ACTIVE_CONNECTIONS/i, /CHECK_ACTIVE_CONNECTION$/i],
+    ''
+  );
+  if (checkTool) {
+    const checked = await executeMcpTool(accessToken, checkTool, {}, refreshToken);
+    if (checked.success) {
+      const accounts = normalizeConnectedAccounts(checked.data);
+      if (accounts.length > 0) return accounts;
+    }
   }
 
-  // The documented MANAGE_CONNECTIONS schema requires one object per toolkit
-  // and an explicit action such as "list". Query in bounded chunks so a
-  // catalog with hundreds of toolkits does not produce an oversized request.
+  // 2) Ask MANAGE_CONNECTIONS directly for its complete active-account list.
+  // Some Composio MCP sessions support this bulk form and do not expose a
+  // separate toolkit catalog. Do not manufacture a zero-app result when that
+  // happens.
   const manageTool = pickMcpToolName(
     availableToolNames,
     [/MANAGE_CONNECTIONS/i],
     'COMPOSIO_MANAGE_CONNECTIONS'
   );
+  const bulk = await executeMcpTool(
+    accessToken,
+    manageTool,
+    { action: 'list' },
+    refreshToken
+  );
+  if (bulk.success) {
+    const accounts = normalizeConnectedAccounts(bulk.data);
+    if (accounts.length > 0) return accounts;
+  }
+
+  // 3) Last resort: discover the live toolkit catalog and query it in bounded
+  // chunks. This remains fully dynamic and is only needed for MCP versions
+  // that require explicit toolkit objects.
+  const toolkitSlugs = await listComposioToolkitSlugs(accessToken, refreshToken, availableToolNames);
+  if (toolkitSlugs.length === 0) {
+    throw new Error(
+      'Composio could not return active connections through its bulk connection tools or live toolkit catalog.'
+    );
+  }
 
   const chunkSize = 40;
   const allAccounts: any[] = [];
@@ -473,9 +504,7 @@ export async function listComposioActiveConnections(
     const managed = await executeMcpTool(
       accessToken,
       manageTool,
-      {
-        toolkits: chunk.map((name) => ({ name, action: 'list' })),
-      },
+      { toolkits: chunk.map((name) => ({ name, action: 'list' })) },
       refreshToken
     );
 
@@ -506,6 +535,7 @@ export async function listComposioActiveConnections(
     return true;
   });
 }
+
 
 
 /**

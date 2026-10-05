@@ -650,7 +650,7 @@ When connected to Composio "For You" (https://connect.composio.dev/mcp) or user-
 - web_fetch: Fetch readable content from any URL.
 
 CONNECTED APPS DIRECTIVE:
-- When asked what apps or services are connected, inspect them using COMPOSIO_MANAGE_CONNECTIONS.
+- When asked what apps or services are connected, first use COMPOSIO_SEARCH_TOOLS with a connection-status query and read its toolkit_connection_statuses. Use COMPOSIO_MANAGE_CONNECTIONS only when Search Tools explicitly says a specific toolkit needs a connection.
 - Deliver clear, conversational answers with real account details. Never output internal planning notes, meta-instructions, or JSON tool definitions in your final reply.`,
 };
 
@@ -887,6 +887,52 @@ function formatConnectorResult(requestText: string, result: any): string {
     /\bcomposio\b/i.test(lower);
 
   if (isAccountQuery) {
+    // COMPOSIO_SEARCH_TOOLS returns live toolkit_connection_statuses, including
+    // active account IDs/aliases/user_info. Prefer that canonical Tool Router
+    // registry over trying to call MANAGE_CONNECTIONS without toolkit names.
+    const statusRows = Array.isArray((data as any)?.toolkit_connection_statuses)
+      ? (data as any).toolkit_connection_statuses
+      : Array.isArray((data as any)?.data?.toolkit_connection_statuses)
+        ? (data as any).data.toolkit_connection_statuses
+        : [];
+
+    if (statusRows.length > 0) {
+      const activeRows = statusRows.filter((row: any) => row?.has_active_connection === true);
+      if (activeRows.length === 0) {
+        return 'You currently have **0 active external apps** connected in your Composio "For You" session.';
+      }
+
+      const accountLines: string[] = [];
+      const appNames = new Set<string>();
+      for (const row of activeRows) {
+        const toolkit = String(row?.toolkit || '').trim();
+        const app = toolkit
+          ? toolkit.replace(/[_-]+/g, ' ').replace(/\\b\\w/g, (m: string) => m.toUpperCase())
+          : 'App';
+        appNames.add(app.toLowerCase());
+        const accounts = Array.isArray(row?.accounts) ? row.accounts : [];
+        if (accounts.length === 0) {
+          accountLines.push(`- **${app}** — Active`);
+          continue;
+        }
+        for (const account of accounts) {
+          const info = account?.user_info || account?.userInfo || {};
+          const identifier = String(
+            info?.email || info?.login || info?.name || account?.alias || account?.id || ''
+          ).trim();
+          const alias = String(account?.alias || '').trim();
+          const label = identifier || alias || String(account?.id || '').trim();
+          accountLines.push(`- **${app}**${label ? ` (${label})` : ''} — ${String(account?.status || 'ACTIVE')}`);
+        }
+      }
+
+      const wantsCount = /\\b(how many|total|count|number of)\\b/i.test(lower);
+      const header = wantsCount
+        ? `You're connected to **${appNames.size} apps** (${accountLines.length} active accounts) in your Composio "For You" session:`
+        : 'Here are your live connected apps and accounts from Composio "For You":';
+      return header + '\\n\\n' + accountLines.join('\\n');
+    }
+
     // COMPOSIO_MANAGE_CONNECTIONS currently returns:
     // { results: { toolkit: { status, accounts: [...] } }, summary: {...} }
     // Normalize via the shared parser so this route and the Connectors status
@@ -1679,17 +1725,19 @@ export async function POST(req: NextRequest) {
             if (mcpModeActive && mcpToolCallsMade === 0) {
               const targetTool = pickMcpToolName(
                 mcpToolNames,
-                [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
-                isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                [/SEARCH_TOOLS/i],
+                'COMPOSIO_SEARCH_TOOLS'
               );
 
-              const autoArgs = isAccountQuery
-                ? { action: 'list' }
-                : {
-                    queries: [{ use_case: lastText }],
-                    session: { generate_id: true },
-                    model: 'gpt-5.6',
-                  };
+              const autoArgs = {
+                queries: [{
+                  use_case: isAccountQuery
+                    ? 'List all apps, toolkits, and accounts currently connected to this user in Composio. Return only the live connection statuses and active account details; do not search for unrelated application actions.'
+                    : lastText
+                }],
+                session: { generate_id: true },
+                model: 'gpt-5.6',
+              };
 
               const autoResult = await runAgentTool(targetTool, autoArgs, toolContext);
               mcpToolCallsMade++;
@@ -1715,7 +1763,7 @@ export async function POST(req: NextRequest) {
             fullMessages.push({
               role: 'system',
               content: isAccountQuery
-                ? 'Call COMPOSIO_MANAGE_CONNECTIONS now.'
+                ? 'Call COMPOSIO_SEARCH_TOOLS now with a connection-status query. Use its toolkit_connection_statuses result to answer which apps/accounts are connected.'
                 : 'Call the required Composio tool now.',
             });
             continue;
@@ -1801,7 +1849,7 @@ export async function POST(req: NextRequest) {
           // Connected-app/account queries are deterministic. Once the real
           // Composio MANAGE_CONNECTIONS tool has returned, format that result
           // ourselves and stop the LLM from echoing raw JSON/auth links.
-          if (isAccountQuery && /MANAGE_CONNECTIONS/i.test(String(toolName || ''))) {
+          if (isAccountQuery && /(?:MANAGE_CONNECTIONS|SEARCH_TOOLS)/i.test(String(toolName || ''))) {
             return streamTextDirectly(
               formatConnectorResult(lastText, result),
               detectedSkill,

@@ -30,15 +30,16 @@ const DEFAULT_SESSION: Session = {
 
 
 function normalizeConnectors(raw: any[]): Connector[] {
+  // Composio is the sole built-in connector runtime. Preserve only
+  // connectors explicitly created by the user; legacy native app cards
+  // must never re-enter from localStorage or cloud state.
   const defaults = createDefaultConnectors();
   const byId = new Map<string, Connector>(defaults.map((connector) => [connector.id, connector]));
-  const input = Array.isArray(raw) ? raw.filter((connector: any) => connector && typeof connector === 'object') : [];
+  const input = Array.isArray(raw)
+    ? raw.filter((connector: any) => connector && typeof connector === 'object' && connector.isCustom === true)
+    : [];
 
   for (const connector of input) {
-    const type = String(connector?.config?.connectionType || connector?.provider || '').toLowerCase();
-    const url = String(connector?.config?.mcpUrl || connector?.url || '').trim();
-    if (type !== 'mcp' || !/^https?:\/\//i.test(url)) continue;
-
     const safeConfig = { ...(connector.config || {}) };
     delete safeConfig.authToken;
     delete safeConfig.apiKey;
@@ -125,7 +126,7 @@ export default function Home() {
     if (typeof window !== 'undefined' && 'caches' in window) {
       caches.keys().then((keys) => {
         keys.forEach((key) => {
-          if (key !== 'claude-live-v2') caches.delete(key).catch(() => {});
+          if (key !== 'claude-live-v3') caches.delete(key).catch(() => {});
         });
       }).catch(() => {});
     }
@@ -241,6 +242,20 @@ export default function Home() {
     }
   }, []);
 
+  // Remove any legacy built-in connector cards that may still be held in an open session.
+  useEffect(() => {
+    setSessions((prev) => {
+      let changed = false;
+      const cleaned = prev.map((session) => {
+        const existing = Array.isArray(session.connectors) ? session.connectors : [];
+        const connectors = existing.filter((connector) => connector?.isCustom === true);
+        if (connectors.length !== existing.length) changed = true;
+        return connectors.length === existing.length ? session : { ...session, connectors };
+      });
+      return changed ? cleaned : prev;
+    });
+  }, []);
+
   // Push updates to cloud relay or Supabase
   const handleTriggerSyncNow = async () => {
     if (!syncRoomId && !supabaseUrl) return;
@@ -310,10 +325,10 @@ export default function Home() {
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) || sessions[0] || DEFAULT_SESSION;
 
+  // Never let legacy native connectors reach chat/UI, even before a
+  // localStorage/cloud migration finishes.
   const currentSessionConnectors =
-    activeSession.connectors && activeSession.connectors.length > 0
-      ? activeSession.connectors
-      : createDefaultConnectors();
+    (activeSession.connectors || []).filter((connector) => connector?.isCustom === true);
 
   const activeConnectorsCount = currentSessionConnectors.filter((connector) => connector.enabled).length;
 

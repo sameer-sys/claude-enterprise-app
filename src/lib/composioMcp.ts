@@ -472,6 +472,23 @@ export async function listComposioActiveConnections(
     }
   }
 
+  // Prefer the dedicated bulk active-connection meta-tool.
+  const checkAllTool = pickMcpToolName(
+    availableToolNames,
+    [/CHECK_ACTIVE_CONNECTIONS/i],
+    'COMPOSIO_CHECK_ACTIVE_CONNECTIONS'
+  );
+  const checkedAll = await executeMcpTool(
+    accessToken,
+    checkAllTool,
+    { requests: [] },
+    refreshToken
+  );
+  if (checkedAll.success) {
+    const accounts = normalizeConnectedAccounts(checkedAll.data);
+    if (accounts.length > 0) return accounts;
+  }
+
   // 2) Ask MANAGE_CONNECTIONS directly for its complete active-account list.
   // Some Composio MCP sessions support this bulk form and do not expose a
   // separate toolkit catalog. Do not manufacture a zero-app result when that

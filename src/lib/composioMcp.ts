@@ -432,32 +432,50 @@ export async function listComposioActiveConnections(
   refreshToken?: string,
   availableToolNames: string[] = []
 ): Promise<any[]> {
-  const activeTool = pickMcpToolName(
-    availableToolNames,
-    [/CHECK_ACTIVE_CONNECTIONS/i],
-    'COMPOSIO_CHECK_ACTIVE_CONNECTIONS'
-  );
-  const direct = await executeMcpTool(accessToken, activeTool, {}, refreshToken);
-  if (direct.success) {
-    const directAccounts = normalizeConnectedAccounts(direct.data);
-    if (directAccounts.length > 0) return directAccounts;
+  // COMPOSIO_CHECK_ACTIVE_CONNECTIONS is a bulk status tool, but its
+  // required input is `requests`. Calling it with {} can succeed while
+  // legitimately returning an empty result. Build that request dynamically
+  // from Composio's live toolkit catalog; never maintain an app allow-list.
+  const toolkitSlugs = await listComposioToolkitSlugs(accessToken, refreshToken, availableToolNames);
+
+  if (toolkitSlugs.length > 0) {
+    const activeTool = pickMcpToolName(
+      availableToolNames,
+      [/CHECK_ACTIVE_CONNECTIONS/i],
+      'COMPOSIO_CHECK_ACTIVE_CONNECTIONS'
+    );
+    const direct = await executeMcpTool(
+      accessToken,
+      activeTool,
+      { requests: toolkitSlugs.map((toolkit) => ({ toolkit })) },
+      refreshToken
+    );
+    if (direct.success) {
+      const directAccounts = normalizeConnectedAccounts(direct.data);
+      if (directAccounts.length > 0) return directAccounts;
+    }
+
+    // MANAGE_CONNECTIONS is the documented fallback for verifying the exact
+    // toolkit slugs returned by Composio. It must receive strings, not our
+    // legacy {name, action} objects.
+    const manageTool = pickMcpToolName(
+      availableToolNames,
+      [/MANAGE_CONNECTIONS/i],
+      'COMPOSIO_MANAGE_CONNECTIONS'
+    );
+    const managed = await executeMcpTool(
+      accessToken,
+      manageTool,
+      { toolkits: toolkitSlugs },
+      refreshToken
+    );
+    if (managed.success) {
+      const managedAccounts = normalizeConnectedAccounts(managed.data);
+      if (managedAccounts.length > 0) return managedAccounts;
+    }
   }
 
-  const toolkitSlugs = await listComposioToolkitSlugs(accessToken, refreshToken, availableToolNames);
-  if (toolkitSlugs.length === 0) return [];
-
-  const manageTool = pickMcpToolName(
-    availableToolNames,
-    [/MANAGE_CONNECTIONS/i],
-    'COMPOSIO_MANAGE_CONNECTIONS'
-  );
-  const managed = await executeMcpTool(
-    accessToken,
-    manageTool,
-    { toolkits: toolkitSlugs.map((name) => ({ name, action: 'list' })) },
-    refreshToken
-  );
-  return managed.success ? normalizeConnectedAccounts(managed.data) : [];
+  return [];
 }
 
 

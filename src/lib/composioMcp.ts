@@ -310,7 +310,7 @@ export function normalizeConnectedAccounts(raw: any): any[] {
   // envelope. The real results live at data.results / data.connections etc.
   if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data)) {
     const inner = raw.data;
-    if (inner.results || inner.connections || inner.connected_accounts || inner.accounts || inner.items) {
+    if (inner.results || inner.connections || inner.connected_accounts || inner.accounts || inner.items || inner.toolkit_connection_statuses) {
       raw = inner;
     }
   }
@@ -327,6 +327,25 @@ export function normalizeConnectedAccounts(raw: any): any[] {
     list = raw.accounts;
   } else if (Array.isArray(raw.items)) {
     list = raw.items;
+  } else if (Array.isArray(raw.toolkit_connection_statuses)) {
+    for (const status of raw.toolkit_connection_statuses) {
+      if (!status || status.has_active_connection !== true) continue;
+      const details = status.connection_details && typeof status.connection_details === 'object' ? status.connection_details : {};
+      const info = status.current_user_info && typeof status.current_user_info === 'object' ? status.current_user_info : {};
+      const account = details.connected_account || details.connectedAccount || details.account || {};
+      const id = String(account?.id || details.connected_account_id || details.connectedAccountId || '').trim();
+      list.push({
+        ...account,
+        id: id || account?.id,
+        connected_account_id: id || undefined,
+        app_name: status.toolkit,
+        toolkit: status.toolkit,
+        status: 'ACTIVE',
+        email: account?.email || info.email || info.email_address || undefined,
+        user_id: account?.user_id || info.user_id || undefined,
+        account_identifier: account?.email || info.email || info.name || undefined,
+      });
+    }
   } else if (raw.results && typeof raw.results === 'object' && !Array.isArray(raw.results)) {
     for (const [toolkit, entry] of Object.entries(raw.results as Record<string, any>)) {
       const value: any = entry || {};

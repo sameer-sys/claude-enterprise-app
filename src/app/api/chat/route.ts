@@ -907,7 +907,7 @@ function formatConnectorResult(requestText: string, result: any): string {
       for (const row of activeRows) {
         const toolkit = String(row?.toolkit || '').trim();
         const app = toolkit
-          ? toolkit.replace(/[_-]+/g, ' ').replace(/\\b\\w/g, (m: string) => m.toUpperCase())
+          ? toolkit.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m: string) => m.toUpperCase())
           : 'App';
         appNames.add(app.toLowerCase());
         const accounts = Array.isArray(row?.accounts) ? row.accounts : [];
@@ -926,11 +926,11 @@ function formatConnectorResult(requestText: string, result: any): string {
         }
       }
 
-      const wantsCount = /\\b(how many|total|count|number of)\\b/i.test(lower);
+      const wantsCount = /\b(how many|total|count|number of)\b/i.test(lower);
       const header = wantsCount
         ? `You're connected to **${appNames.size} apps** (${accountLines.length} active accounts) in your Composio "For You" session:`
         : 'Here are your live connected apps and accounts from Composio "For You":';
-      return header + '\\n\\n' + accountLines.join('\\n');
+      return header + '\n\n' + accountLines.join('\n');
     }
 
     // COMPOSIO_MANAGE_CONNECTIONS currently returns:

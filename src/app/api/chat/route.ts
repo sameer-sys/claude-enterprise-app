@@ -164,6 +164,29 @@ async function fetchComposioAccounts(
   }
 }
 
+async function fetchComposioAccountsDetailed(
+  mcpToken: string,
+  mcpRefreshToken: string | undefined,
+  toolContext: { mcpToolNames?: string[] }
+): Promise<{ accounts: any[]; verified: boolean; error?: string }> {
+  try {
+    const { listComposioActiveConnections } = await import('@/lib/composioMcp');
+    const accounts = await listComposioActiveConnections(
+      mcpToken,
+      mcpRefreshToken,
+      toolContext.mcpToolNames || []
+    );
+    return { accounts, verified: true };
+  } catch (err: any) {
+    console.error('[COMPOSIO ACCOUNTS ERR]', err?.message || err);
+    return {
+      accounts: [],
+      verified: false,
+      error: String(err?.message || err || 'Unable to verify Composio connections'),
+    };
+  }
+}
+
 /**
  * Safety net: when the agent calls MULTI_EXECUTE for an app that has multiple
  * connected accounts but did not pass connected_account_id, inject the first
@@ -1501,13 +1524,21 @@ export async function POST(req: NextRequest) {
     // Connected-app queries are deterministic: always ask Composio directly
     // so the answer cannot degrade into the UI fallback message.
     if (connectorRequest && isAccountQuery && mcpModeActive) {
-      const accounts = await fetchComposioAccounts(
+      const listing = await fetchComposioAccountsDetailed(
         composioMcpToken,
         composioMcpRefreshToken,
         toolContext
       );
+
+      // A failed connection listing must never be presented as a real
+      // zero-account result. Zero is only valid after Composio successfully
+      // inspected the live connection state.
+      const responseText = listing.verified
+        ? formatConnectorResult(lastText, { connections: listing.accounts })
+        : `I could not verify your live Composio connections right now: ${listing.error || 'unknown Composio error'}`;
+
       return streamTextDirectly(
-        formatConnectorResult(lastText, { connections: accounts }),
+        responseText,
         detectedSkill,
         toolContext
       );

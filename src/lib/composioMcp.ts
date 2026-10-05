@@ -155,8 +155,8 @@ export async function callComposioMcp(
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          ...(process.env.COMPOSIO_CONSUMER_API_KEY
-            ? { 'x-consumer-api-key': process.env.COMPOSIO_CONSUMER_API_KEY }
+          ...(process.env.COMPOSIO_API_KEY
+            ? { 'x-consumer-api-key': process.env.COMPOSIO_API_KEY }
             : {}),
           'Content-Type': 'application/json',
           'Accept': 'application/json, text/event-stream',

@@ -1521,28 +1521,10 @@ export async function POST(req: NextRequest) {
       /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
       /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
 
-    // Connected-app queries are deterministic: always ask Composio directly
-    // so the answer cannot degrade into the UI fallback message.
-    if (connectorRequest && isAccountQuery && mcpModeActive) {
-      const listing = await fetchComposioAccountsDetailed(
-        composioMcpToken,
-        composioMcpRefreshToken,
-        toolContext
-      );
-
-      // A failed connection listing must never be presented as a real
-      // zero-account result. Zero is only valid after Composio successfully
-      // inspected the live connection state.
-      const responseText = listing.verified
-        ? formatConnectorResult(lastText, { connections: listing.accounts })
-        : `I could not verify your live Composio connections right now: ${listing.error || 'unknown Composio error'}`;
-
-      return streamTextDirectly(
-        responseText,
-        detectedSkill,
-        toolContext
-      );
-    }
+    // Connection/app queries use Composio Tool Router discovery.
+    // A For You MCP session exposes meta-tools; it is not a guaranteed
+    // connection registry. Keep the request inside the normal SEARCH_TOOLS
+    // -> execute loop so Composio resolves the relevant toolkit/account.
 
     // Do not map natural-language requests to app-specific actions here.
     // All connector work is discovered from Composio's live tools/schemas.
@@ -1577,8 +1559,8 @@ export async function POST(req: NextRequest) {
                         function: {
                           name: pickMcpToolName(
                             mcpToolNames,
-                            [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
-                            isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                            [/SEARCH_TOOLS/i],
+                            'COMPOSIO_SEARCH_TOOLS'
                           ),
                         },
                       }

@@ -5,6 +5,35 @@ export const COMPOSIO_MCP_AUTH_ENDPOINT = 'https://connect.composio.dev/oauth/au
 export const COMPOSIO_MCP_TOKEN_ENDPOINT = 'https://login.composio.dev/oauth2/token';
 export const COMPOSIO_MCP_SERVER_URL = 'https://connect.composio.dev/mcp';
 
+function decodeJwtPayload(token: string): Record<string, any> {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 3) return {};
+    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(parts[1].length / 4) * 4, '=');
+    return JSON.parse(Buffer.from(normalized, 'base64').toString('utf8'));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Composio For You sessions are user-scoped. Current Composio MCP requires
+ * the Composio user_id on the MCP URL; the OAuth token's subject is the
+ * authoritative user identifier, so never invent a local user id.
+ */
+export function getComposioUserId(accessToken: string): string {
+  const payload = decodeJwtPayload(accessToken);
+  return String(payload.sub || payload.user_id || payload.userId || payload.client_unique_user_id || '').trim();
+}
+
+function getComposioMcpUrl(accessToken: string): string {
+  const userId = getComposioUserId(accessToken);
+  if (!userId) return COMPOSIO_MCP_SERVER_URL;
+  const url = new URL(COMPOSIO_MCP_SERVER_URL);
+  url.searchParams.set('user_id', userId);
+  return url.toString();
+}
+
 export interface McpOAuthResult {
   authUrl: string;
   codeVerifier: string;
@@ -151,7 +180,7 @@ export async function callComposioMcp(
   try {
     const doFetch = async (token: string) => {
       const id = Date.now();
-      return fetch(COMPOSIO_MCP_SERVER_URL, {
+      return fetch(getComposioMcpUrl(token), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -332,35 +361,14 @@ export async function executeMcpTool(
 ): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string; newRefreshToken?: string }> {
   let callArgs = args || {};
   if (/MANAGE_CONNECTIONS/i.test(toolName)) {
-    // Current Composio MCP expects `toolkits` as objects:
-    // [{ name: "gmail", action: "list" }].
-    // Older code converted these objects to bare strings and deleted the
-    // per-toolkit action, which made account discovery fail silently.
-    const rawToolkits = Array.isArray(callArgs.toolkits) && callArgs.toolkits.length > 0
-      ? callArgs.toolkits
-      : DEFAULT_COMPOSIO_TOOLKITS;
-
-    const defaultAction = String(callArgs.action || 'list').toLowerCase();
+    // Current Composio MCP expects toolkit slugs as strings.
+    // Keep the exact slugs returned by Composio; never invent app-specific ones.
+    const rawToolkits = Array.isArray(callArgs.toolkits) ? callArgs.toolkits : DEFAULT_COMPOSIO_TOOLKITS;
     const normalizedToolkits = rawToolkits
-      .map((item: any) => {
-        if (typeof item === 'string') {
-          const name = item.trim().toLowerCase();
-          return name ? { name, action: defaultAction } : null;
-        }
-        const name = String(item?.name || item?.toolkit || '').trim().toLowerCase();
-        if (!name) return null;
-        const action = String(item?.action || defaultAction || 'list').toLowerCase();
-        return {
-          name,
-          action,
-          ...(item?.alias ? { alias: String(item.alias) } : {}),
-          ...(item?.account_id || item?.accountId
-            ? { account_id: String(item.account_id || item.accountId) }
-            : {}),
-        };
-      })
+      .map((item: any) => typeof item === 'string'
+        ? item.trim().toLowerCase()
+        : String(item?.name || item?.toolkit || item?.slug || '').trim().toLowerCase())
       .filter(Boolean);
-
     callArgs = { ...callArgs, toolkits: normalizedToolkits };
     delete callArgs.action;
   }

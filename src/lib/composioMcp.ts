@@ -297,9 +297,19 @@ export function normalizeConnectedAccounts(raw: any): any[] {
     list = raw.items;
   } else if (raw.results && typeof raw.results === 'object' && !Array.isArray(raw.results)) {
     for (const [toolkit, entry] of Object.entries(raw.results as Record<string, any>)) {
-      const accounts = Array.isArray((entry as any)?.accounts) ? (entry as any).accounts : [];
+      const value: any = entry || {};
+      const accounts = Array.isArray(value.accounts)
+        ? value.accounts
+        : Array.isArray(value.connected_accounts)
+          ? value.connected_accounts
+          : Array.isArray(value.connectedAccounts)
+            ? value.connectedAccounts
+            : (value.connected_account || value.connectedAccount || value.connection
+              ? [value.connected_account || value.connectedAccount || value.connection]
+              : []);
       for (const account of accounts) {
-        list.push({ ...(account || {}), app_name: toolkit });
+        if (!account || typeof account !== 'object') continue;
+        list.push({ ...account, app_name: account.app_name || account.appName || toolkit });
       }
     }
   }

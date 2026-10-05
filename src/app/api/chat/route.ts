@@ -1570,7 +1570,7 @@ export async function POST(req: NextRequest) {
     // Connection status is a read-only metadata request. Do not make it
     // depend on the LLM producing a tool call: directly invoke Composio Search
     // Tools and format its live toolkit_connection_statuses response.
-    if (isAccountQuery && mcpModeActive && composioMcpToken) {
+    if (isAccountQuery && composioMcpToken) {
       const searchTool = pickMcpToolName(mcpToolNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
       const accountResult = await runAgentTool(searchTool, {
         queries: [{ use_case: 'list all apps and accounts currently connected to this user in Composio' }],

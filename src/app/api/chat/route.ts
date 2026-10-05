@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 const BOSS_TARGET_MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'];
-const DEFAULT_MAX_TOKENS = 32768;
+const DEFAULT_MAX_TOKENS = 8192;
 
 // Tracks the last deterministic Composio action per user so follow-up
 // verification requests ("check closely", "check again") re-run the real
@@ -1032,9 +1032,13 @@ function formatConnectorResult(requestText: string, result: any): string {
   }
 
   const compact = Object.entries(data)
-    .filter(([key]) => !['access_token','refresh_token','token','credentials','connectionParams'].includes(key))
+    .filter(([key]) => !['access_token','refresh_token','token','credentials','connectionParams','tool_schemas','execution_guidance','next_steps_guidance','time_info','session'].includes(key))
     .slice(0, 8)
-    .map(([key, value]) => key + ': ' + (typeof value === 'object' ? JSON.stringify(value) : String(value)))
+    .map(([key, value]) => {
+      let rendered = typeof value === 'object' ? JSON.stringify(value) : String(value);
+      if (rendered.length > 700) rendered = rendered.slice(0, 700) + '…';
+      return key + ': ' + rendered;
+    })
     .join('\n');
   return compact || 'Action completed successfully.';
 }

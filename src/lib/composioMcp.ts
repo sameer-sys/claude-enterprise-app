@@ -332,18 +332,33 @@ export async function executeMcpTool(
 ): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string; newRefreshToken?: string }> {
   let callArgs = args || {};
   if (/MANAGE_CONNECTIONS/i.test(toolName)) {
-    // Current Composio MCP expects toolkit slugs as strings. Keep the
-    // payload schema exactly as returned by the live tool definition.
-    // Never invent toolkit names and never turn a status check into an auth
-    // initiation by adding an implicit action.
+    // Current Composio MCP expects `toolkits` as objects:
+    // [{ name: "gmail", action: "list" }].
+    // Older code converted these objects to bare strings and deleted the
+    // per-toolkit action, which made account discovery fail silently.
     const rawToolkits = Array.isArray(callArgs.toolkits) && callArgs.toolkits.length > 0
       ? callArgs.toolkits
       : DEFAULT_COMPOSIO_TOOLKITS;
 
+    const defaultAction = String(callArgs.action || 'list').toLowerCase();
     const normalizedToolkits = rawToolkits
-      .map((item: any) => typeof item === 'string'
-        ? item.trim().toLowerCase()
-        : String(item?.name || item?.toolkit || '').trim().toLowerCase())
+      .map((item: any) => {
+        if (typeof item === 'string') {
+          const name = item.trim().toLowerCase();
+          return name ? { name, action: defaultAction } : null;
+        }
+        const name = String(item?.name || item?.toolkit || '').trim().toLowerCase();
+        if (!name) return null;
+        const action = String(item?.action || defaultAction || 'list').toLowerCase();
+        return {
+          name,
+          action,
+          ...(item?.alias ? { alias: String(item.alias) } : {}),
+          ...(item?.account_id || item?.accountId
+            ? { account_id: String(item.account_id || item.accountId) }
+            : {}),
+        };
+      })
       .filter(Boolean);
 
     callArgs = { ...callArgs, toolkits: normalizedToolkits };
@@ -434,50 +449,62 @@ export async function listComposioActiveConnections(
   refreshToken?: string,
   availableToolNames: string[] = []
 ): Promise<any[]> {
-  // COMPOSIO_CHECK_ACTIVE_CONNECTIONS is a bulk status tool, but its
-  // required input is `requests`. Calling it with {} can succeed while
-  // legitimately returning an empty result. Build that request dynamically
-  // from Composio's live toolkit catalog; never maintain an app allow-list.
   const toolkitSlugs = await listComposioToolkitSlugs(accessToken, refreshToken, availableToolNames);
+  if (toolkitSlugs.length === 0) {
+    throw new Error('Composio did not return its live toolkit catalog for this MCP session.');
+  }
 
-  if (toolkitSlugs.length > 0) {
-    const activeTool = pickMcpToolName(
-      availableToolNames,
-      [/CHECK_ACTIVE_CONNECTIONS/i],
-      'COMPOSIO_CHECK_ACTIVE_CONNECTIONS'
-    );
-    const direct = await executeMcpTool(
-      accessToken,
-      activeTool,
-      { requests: toolkitSlugs.map((toolkit) => ({ toolkit })) },
-      refreshToken
-    );
-    if (direct.success) {
-      const directAccounts = normalizeConnectedAccounts(direct.data);
-      if (directAccounts.length > 0) return directAccounts;
-    }
+  // The documented MANAGE_CONNECTIONS schema requires one object per toolkit
+  // and an explicit action such as "list". Query in bounded chunks so a
+  // catalog with hundreds of toolkits does not produce an oversized request.
+  const manageTool = pickMcpToolName(
+    availableToolNames,
+    [/MANAGE_CONNECTIONS/i],
+    'COMPOSIO_MANAGE_CONNECTIONS'
+  );
 
-    // MANAGE_CONNECTIONS is the documented fallback for verifying the exact
-    // toolkit slugs returned by Composio. It must receive strings, not our
-    // legacy {name, action} objects.
-    const manageTool = pickMcpToolName(
-      availableToolNames,
-      [/MANAGE_CONNECTIONS/i],
-      'COMPOSIO_MANAGE_CONNECTIONS'
-    );
+  const chunkSize = 40;
+  const allAccounts: any[] = [];
+  let successfulChunks = 0;
+  let lastError = '';
+
+  for (let i = 0; i < toolkitSlugs.length; i += chunkSize) {
+    const chunk = toolkitSlugs.slice(i, i + chunkSize);
     const managed = await executeMcpTool(
       accessToken,
       manageTool,
-      { toolkits: toolkitSlugs },
+      {
+        toolkits: chunk.map((name) => ({ name, action: 'list' })),
+      },
       refreshToken
     );
-    if (managed.success) {
-      const managedAccounts = normalizeConnectedAccounts(managed.data);
-      if (managedAccounts.length > 0) return managedAccounts;
+
+    if (!managed.success) {
+      lastError = String(managed.error || 'Composio connection listing failed');
+      continue;
     }
+
+    successfulChunks++;
+    allAccounts.push(...normalizeConnectedAccounts(managed.data));
   }
 
-  return [];
+  if (successfulChunks === 0) {
+    throw new Error(lastError || 'Composio could not list connected accounts.');
+  }
+
+  const seen = new Set<string>();
+  return allAccounts.filter((account: any) => {
+    const id = String(
+      account?.id ||
+      account?.connected_account_id ||
+      account?.connectedAccountId ||
+      account?.alias ||
+      JSON.stringify(account)
+    );
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 

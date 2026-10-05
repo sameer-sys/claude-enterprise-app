@@ -40,6 +40,9 @@ function normalizeConnectors(raw: any[]): Connector[] {
     : [];
 
   for (const connector of input) {
+    const url = String(connector?.config?.mcpUrl || connector?.url || '').trim();
+    if (!/^https?:\/\//i.test(url)) continue;
+
     const safeConfig = { ...(connector.config || {}) };
     delete safeConfig.authToken;
     delete safeConfig.apiKey;

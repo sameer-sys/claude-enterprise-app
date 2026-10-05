@@ -319,30 +319,19 @@ export async function executeMcpTool(
 ): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string; newRefreshToken?: string }> {
   let callArgs = args || {};
   if (/MANAGE_CONNECTIONS/i.test(toolName)) {
-    // Composio expects the action on each toolkit item, not as a top-level
-    // field. Normalize account-inspection calls to an explicitly read-only
-    // shape so we never accidentally initiate new auth links.
-    //
-    // Composio's MANAGE_CONNECTIONS REQUIRES the toolkits field (verified
-    // against the live API: omitting it returns 'Validation error: Required
-    // at "toolkits"'). A '*' wildcard is accepted but is treated as an
-    // initiate-all call ('All connections have been initiated and are pending
-    // completion'), not a listing. So when the caller does not restrict the
-    // query we must fall back to the supported toolkit list.
+    // Current Composio MCP expects toolkit slugs as strings. Keep the
+    // payload schema exactly as returned by the live tool definition.
+    // Never invent toolkit names and never turn a status check into an auth
+    // initiation by adding an implicit action.
     const rawToolkits = Array.isArray(callArgs.toolkits) && callArgs.toolkits.length > 0
       ? callArgs.toolkits
       : DEFAULT_COMPOSIO_TOOLKITS;
 
-    const requestedAction = String(callArgs.action || 'list').toLowerCase();
-    const normalizedToolkits = rawToolkits.map((item: any) => {
-      if (typeof item === 'string') {
-        return { name: item, action: requestedAction === 'add' ? 'add' : 'list' };
-      }
-      const name = String(item?.name || item?.toolkit || '').trim();
-      if (!name) return null;
-      const action = String(item?.action || requestedAction || 'list').toLowerCase();
-      return { ...item, name, action: action === 'add' || action === 'rename' || action === 'remove' ? action : 'list' };
-    }).filter(Boolean);
+    const normalizedToolkits = rawToolkits
+      .map((item: any) => typeof item === 'string'
+        ? item.trim().toLowerCase()
+        : String(item?.name || item?.toolkit || '').trim().toLowerCase())
+      .filter(Boolean);
 
     callArgs = { ...callArgs, toolkits: normalizedToolkits };
     delete callArgs.action;

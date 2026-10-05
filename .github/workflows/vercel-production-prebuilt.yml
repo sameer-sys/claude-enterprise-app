@@ -40,3 +40,5 @@ jobs:
 # Fresh production deployment trigger after environment variable update.
 
 # redeploy after Composio project key rotation
+
+# redeploy connector runtime after Search Tools connection-status fix

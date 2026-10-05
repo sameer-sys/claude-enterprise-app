@@ -1575,6 +1575,10 @@ export async function POST(req: NextRequest) {
       const accountResult = await runAgentTool(searchTool, {
         queries: [{ use_case: 'list all apps and accounts currently connected to this user in Composio' }],
         session: { generate_id: true },
+        // Composio can reuse a cached plan for a matching use-case.
+        // Connection status must reflect the user's CURRENT Composio state,
+        // so bypass the cached-plan path and perform a fresh tool search.
+        search_strategy: 'tool_search',
         model: 'gpt-5.6',
       }, toolContext);
       const formatted = formatConnectorResult(lastText, accountResult);

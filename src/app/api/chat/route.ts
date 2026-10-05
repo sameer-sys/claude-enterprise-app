@@ -871,7 +871,27 @@ function formatConnectorResult(requestText: string, result: any): string {
       try {
         data = JSON.parse(trimmed);
       } catch {
-        return trimmed;
+        // Composio MCP content can append human-readable guidance after the
+        // JSON payload (for example "No exact fit? ..."). Recover the actual
+        // structured result instead of leaking the raw Search Tools payload
+        // into the chat UI.
+        const firstObject = trimmed.indexOf('{');
+        const firstArray = trimmed.indexOf('[');
+        const first = firstObject >= 0 && firstArray >= 0
+          ? Math.min(firstObject, firstArray)
+          : Math.max(firstObject, firstArray);
+        const lastObject = trimmed.lastIndexOf('}');
+        const lastArray = trimmed.lastIndexOf(']');
+        const last = Math.max(lastObject, lastArray);
+        if (first >= 0 && last > first) {
+          try {
+            data = JSON.parse(trimmed.slice(first, last + 1));
+          } catch {
+            return trimmed;
+          }
+        } else {
+          return trimmed;
+        }
       }
     } else {
       return trimmed;

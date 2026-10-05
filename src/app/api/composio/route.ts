@@ -8,12 +8,6 @@ import {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const SUPPORTED_APPS = [
-  'github', 'gmail', 'google_drive', 'google_calendar', 'youtube', 'slack', 'notion',
-  'discord', 'linear', 'asana', 'jira', 'trello', 'hubspot', 'salesforce', 'shopify',
-  'reddit', 'telegram', 'whatsapp', 'microsoft365',
-];
-
 function resolveUserId(req: NextRequest): string {
   return req.cookies.get('sameer_composio_user_id')?.value || `sameer_${crypto.randomUUID()}`;
 }
@@ -60,7 +54,7 @@ export async function GET(req: NextRequest) {
 
       const response = NextResponse.json({
         configured: true, mode: 'for_you', mcpConnected: true, userId: entityId,
-        tools, connectedAccounts, supportedApps: SUPPORTED_APPS,
+        tools, connectedAccounts,
       });
 
       if (activeMcpToken && (activeMcpToken !== mcpToken || activeRefreshToken !== mcpRefreshToken)) {
@@ -75,7 +69,7 @@ export async function GET(req: NextRequest) {
     return withUserCookie(
       NextResponse.json({
         configured: false, mode: 'unconfigured', mcpConnected: false, userId: entityId,
-        tools: [], connectedAccounts: [], supportedApps: SUPPORTED_APPS,
+        tools: [], connectedAccounts: [],
         message: 'Composio "For You" is not connected yet. Click Connectors to connect your personal Composio account.',
       }),
       entityId

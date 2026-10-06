@@ -545,53 +545,78 @@ export async function listComposioActiveConnections(
   refreshToken?: string,
   availableToolNames: string[] = []
 ): Promise<any[]> {
-  // The authenticated MCP token is the source of truth for the user's
-  // Composio account. Use the live MANAGE_CONNECTIONS list operation and do
-  // not cache or infer connection state from toolkit discovery.
-  const manageTool = pickMcpToolName(
+  // Composio's Search Tools connection-status payload is the live bridge
+  // between the authenticated MCP session and the tool router. It contains
+  // toolkit_connection_statuses with real account IDs. Do not use LIST_TOOLKITS
+  // as a connection registry and do not infer connections from tool schemas.
+  const searchTool = pickMcpToolName(
     availableToolNames,
-    [/MANAGE_CONNECTIONS/i],
-    'COMPOSIO_MANAGE_CONNECTIONS'
+    [/SEARCH_TOOLS/i],
+    'COMPOSIO_SEARCH_TOOLS'
   );
 
-  // Ask the live session which toolkit slugs it can manage. These are only
-  // identifiers; connection state comes from MANAGE_CONNECTIONS below.
-  const toolkitSlugs = await listComposioToolkitSlugs(
+  const result = await executeMcpTool(
     accessToken,
-    refreshToken,
-    availableToolNames
+    searchTool,
+    {
+      queries: [{
+        use_case: 'check all active Composio connections for the authenticated user; return connected toolkit slugs and connected account IDs, not app action discovery',
+      }],
+      session: { generate_id: true },
+      search_strategy: 'tool_search',
+      model: 'gpt-5.6',
+    },
+    refreshToken
   );
+  if (!result.success) return [];
+
+  let raw: any = result.data;
+  const text = mcpContentToText(raw);
+  try { raw = JSON.parse(text); } catch {}
+
+  const root = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
+  const statuses = Array.isArray(root?.toolkit_connection_statuses)
+    ? root.toolkit_connection_statuses
+    : [];
 
   const collected: any[] = [];
-  for (const toolkit of toolkitSlugs) {
-    const result = await executeMcpTool(
-      accessToken,
-      manageTool,
-      { toolkits: [{ name: toolkit, action: 'list' }] },
-      refreshToken
-    );
-    if (!result.success) continue;
+  for (const status of statuses) {
+    if (!status || status.has_active_connection !== true) continue;
 
-    for (const account of normalizeConnectedAccounts(result.data)) {
-      const status = String(account?.status || '').toUpperCase();
-      if (status !== 'ACTIVE' && status !== 'CONNECTED') continue;
+    const toolkit = String(status.toolkit || '').trim().toLowerCase();
+    if (!toolkit) continue;
+
+    const accounts = Array.isArray(status.accounts) ? status.accounts : [];
+    for (const account of accounts) {
+      if (!account || String(account.status || '').toUpperCase() !== 'ACTIVE') continue;
+      const info = account.user_info || account.userInfo || {};
       collected.push({
         ...account,
-        app_slug: account?.app_slug || account?.appSlug || toolkit,
-        toolkit: account?.toolkit || toolkit,
+        id: account.id,
+        connected_account_id: account.id,
+        alias: account.alias,
+        app_slug: toolkit,
+        toolkit,
+        app_name: getComposioToolkitDisplayName({
+          toolkit,
+          display_name: status.display_name || status.displayName,
+          description: status.description,
+        }),
+        app_display_name: getComposioToolkitDisplayName({
+          toolkit,
+          display_name: status.display_name || status.displayName,
+          description: status.description,
+        }),
         status: 'ACTIVE',
+        email: info.email || account.email || undefined,
+        account_identifier: info.email || info.login || info.name || account.alias || account.id,
       });
     }
   }
 
   const seen = new Set<string>();
   return collected.filter((account: any) => {
-    const key = String(
-      account?.id ||
-      account?.connected_account_id ||
-      account?.app_slug + ':' + account?.account_identifier ||
-      JSON.stringify(account)
-    );
+    const key = String(account.id || account.connected_account_id || account.toolkit);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

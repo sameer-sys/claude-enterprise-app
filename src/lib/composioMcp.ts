@@ -536,137 +536,45 @@ export async function listComposioActiveConnections(
   refreshToken?: string,
   availableToolNames: string[] = []
 ): Promise<any[]> {
-  // Composio's LIST_TOOLKITS meta-tool is the correct session-scoped source
-  // for a user's toolkit names + connection state. SEARCH_TOOLS is deliberately
-  // not used here because it reports the toolkits relevant to the search, not
-  // the user's complete connected-app registry.
-  const listTool = pickMcpToolName(
+  // Connection status must come from Composio's connection-management
+  // interface, not SEARCH_TOOLS. We first discover toolkit slugs from the
+  // live session, then ask MANAGE_CONNECTIONS for each toolkit and normalize
+  // the returned account records.
+  const manageTool = pickMcpToolName(
     availableToolNames,
-    [/LIST_TOOLKITS/i],
-    'COMPOSIO_LIST_TOOLKITS'
+    [/MANAGE_CONNECTIONS/i],
+    'COMPOSIO_MANAGE_CONNECTIONS'
   );
-
+  const toolkitSlugs = await listComposioToolkitSlugs(accessToken, refreshToken, availableToolNames);
   const collected: any[] = [];
-  let cursor: string | undefined;
-  let pages = 0;
 
-  do {
-    const args = cursor ? { cursor } : {};
-    const listed = await executeMcpTool(accessToken, listTool, args, refreshToken);
-    if (!listed.success) break;
-
-    let raw: any = listed.data;
-    const asText = mcpContentToText(raw);
-    try { raw = JSON.parse(asText); } catch {}
-
-    const root = raw && typeof raw === 'object' && raw.data && typeof raw.data === 'object'
-      ? raw.data
-      : raw;
-
-    const items = Array.isArray(root?.items)
-      ? root.items
-      : Array.isArray(root?.toolkits)
-        ? root.toolkits
-        : Array.isArray(root?.results)
-          ? root.results
-          : Array.isArray(root)
-            ? root
-            : [];
-
-    for (const toolkit of items) {
-      if (!toolkit || typeof toolkit !== 'object') continue;
-
-      const connection = toolkit.connection || toolkit.connected_account || toolkit.connectedAccount || {};
-      const connectedAccount =
-        connection.connected_account ||
-        connection.connectedAccount ||
-        connection.account ||
-        toolkit.connected_account ||
-        toolkit.connectedAccount ||
-        toolkit.account ||
-        {};
-
-      const isActive =
-        connection.isActive === true ||
-        connection.is_active === true ||
-        connectedAccount.status === 'ACTIVE' ||
-        String(connection.status || '').toUpperCase() === 'ACTIVE' ||
-        String(toolkit.status || '').toUpperCase() === 'ACTIVE';
-
-      if (!isActive) continue;
-
-      const toolkitSlug = String(
-        toolkit.slug ||
-        toolkit.toolkit ||
-        toolkit.toolkit_slug ||
-        toolkit.app_slug ||
-        ''
-      ).trim();
-
-      const appDisplayName = getComposioToolkitDisplayName({
-        ...toolkit,
-        toolkit: toolkitSlug,
-        display_name: toolkit.display_name || toolkit.displayName || toolkit.name,
-      });
-
-      const accountId = String(
-        connectedAccount.id ||
-        connectedAccount.connected_account_id ||
-        connection.connected_account_id ||
-        connection.connectedAccountId ||
-        toolkit.connected_account_id ||
-        ''
-      ).trim();
-
-      const alias = String(
-        connectedAccount.alias ||
-        connection.alias ||
-        toolkit.alias ||
-        ''
-      ).trim();
-
-      const info = connectedAccount.user_info || connectedAccount.userInfo || toolkit.user_info || toolkit.userInfo || {};
-      const email = String(
-        connectedAccount.email ||
-        info.email ||
-        info.email_address ||
-        ''
-      ).trim();
-
+  for (const toolkit of toolkitSlugs) {
+    const result = await executeMcpTool(
+      accessToken,
+      manageTool,
+      { toolkits: [toolkit] },
+      refreshToken
+    );
+    if (!result.success) continue;
+    const normalized = normalizeConnectedAccounts(result.data);
+    for (const account of normalized) {
+      const status = String(account?.status || '').toUpperCase();
+      if (status && status !== 'ACTIVE' && status !== 'CONNECTED') continue;
       collected.push({
-        ...connectedAccount,
-        id: accountId || connectedAccount.id,
-        connected_account_id: accountId || undefined,
-        alias: alias || undefined,
-        app_name: appDisplayName,
-        app_display_name: appDisplayName,
-        app_slug: toolkitSlug || undefined,
-        toolkit: toolkitSlug || undefined,
+        ...account,
+        app_slug: account?.app_slug || account?.appSlug || toolkit,
+        toolkit: account?.toolkit || toolkit,
         status: 'ACTIVE',
-        email: email || undefined,
-        account_identifier: email || alias || info.login || info.name || accountId || undefined,
       });
     }
-
-    const next =
-      root?.next_cursor ||
-      root?.nextCursor ||
-      root?.cursor ||
-      root?.pagination?.next_cursor ||
-      root?.pagination?.nextCursor ||
-      undefined;
-
-    cursor = next ? String(next) : undefined;
-    pages++;
-  } while (cursor && pages < 20);
+  }
 
   const seen = new Set<string>();
   return collected.filter((account: any) => {
     const key = String(
       account?.id ||
       account?.connected_account_id ||
-      account?.app_slug ||
-      account?.app_name ||
+      account?.app_slug + ':' + account?.account_identifier ||
       JSON.stringify(account)
     );
     if (seen.has(key)) return false;

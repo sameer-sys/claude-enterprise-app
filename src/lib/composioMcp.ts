@@ -280,6 +280,49 @@ export async function listMcpTools(accessToken: string, refreshToken?: string): 
 export const DEFAULT_COMPOSIO_TOOLKITS: string[] = [];
 
 /**
+ * Resolve a human-friendly toolkit name from the live Composio payload.
+ * Prefer an explicit display name, then the live description, and finally
+ * a generic slug-to-title conversion. The toolkit slug itself is preserved
+ * separately for execution and account identity.
+ */
+export function getComposioToolkitDisplayName(value: any): string {
+  const slug = String(
+    value?.toolkit ||
+    value?.toolkit_slug ||
+    value?.toolkitSlug ||
+    value?.app_slug ||
+    value?.appSlug ||
+    ''
+  ).trim();
+
+  const explicit = [
+    value?.display_name,
+    value?.displayName,
+    value?.toolkit_name,
+    value?.toolkitName,
+    value?.app_name_display,
+    value?.appDisplayName,
+  ].map((candidate) => String(candidate || '').trim())
+    .find((candidate) => candidate && candidate.toLowerCase() !== slug.toLowerCase());
+
+  if (explicit) return explicit;
+
+  const description = String(value?.description || '').replace(/\s+/g, ' ').trim();
+  const descriptionMatch = description.match(/^(.{1,80}?)\s+is\s+/i);
+  if (descriptionMatch?.[1]) return descriptionMatch[1].trim();
+
+  if (!slug) return 'App';
+
+  return slug
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+/**
  * Flatten a COMPOSIO_MANAGE_CONNECTIONS payload into one list of accounts.
  *
  * Composio returns several shapes for this tool depending on version:
@@ -334,11 +377,14 @@ export function normalizeConnectedAccounts(raw: any): any[] {
       const info = status.current_user_info && typeof status.current_user_info === 'object' ? status.current_user_info : {};
       const account = details.connected_account || details.connectedAccount || details.account || {};
       const id = String(account?.id || details.connected_account_id || details.connectedAccountId || '').trim();
+      const appDisplayName = getComposioToolkitDisplayName(status);
       list.push({
         ...account,
         id: id || account?.id,
         connected_account_id: id || undefined,
-        app_name: status.toolkit,
+        app_name: appDisplayName,
+        app_display_name: appDisplayName,
+        app_slug: String(status.toolkit || '').trim(),
         toolkit: status.toolkit,
         status: 'ACTIVE',
         email: account?.email || info.email || info.email_address || undefined,
@@ -360,7 +406,20 @@ export function normalizeConnectedAccounts(raw: any): any[] {
               : []);
       for (const account of accounts) {
         if (!account || typeof account !== 'object') continue;
-        list.push({ ...account, app_name: account.app_name || account.appName || toolkit });
+        const appDisplayName = getComposioToolkitDisplayName({
+          ...value,
+          ...account,
+          toolkit,
+          description: value.description || entry?.description,
+          display_name: account.display_name || account.displayName || entry?.display_name || entry?.displayName,
+        });
+        list.push({
+          ...account,
+          app_name: account.app_name || account.appName || appDisplayName,
+          app_display_name: account.app_display_name || account.appDisplayName || appDisplayName,
+          app_slug: account.app_slug || account.appSlug || toolkit,
+          toolkit,
+        });
       }
     }
   }

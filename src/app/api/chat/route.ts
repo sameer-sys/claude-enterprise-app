@@ -1592,7 +1592,7 @@ export async function POST(req: NextRequest) {
     // depend on the LLM producing a tool call: directly invoke Composio Search
     // Tools and format its live toolkit_connection_statuses response.
     if (isAccountQuery && composioMcpToken) {
-      const searchTool = pickMcpToolName(mcpToolNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
+      const searchTool = 'Manage_connections';
       const accountResult = await runAgentTool(searchTool, {
         queries: [{ use_case: 'list all apps and accounts currently connected to this user in Composio' }],
         session: { generate_id: true },

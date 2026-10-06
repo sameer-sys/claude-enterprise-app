@@ -111,23 +111,29 @@ export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubCon
       }
 
       let probeData: any = null;
-      const probe = await fetch('/api/mcp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'check', connector }),
-        signal: AbortSignal.timeout(30000),
-      });
-      probeData = await probe.json().catch(() => ({}));
-
-      connector.status = probeData?.success ? 'connected' : 'ready';
-      connector.enabled = Boolean(probeData?.success);
-      if (probeData?.success) {
-        connector.config = { ...connector.config, discoveredToolCount: Number(probeData.toolCount || 0) };
-        setMessage('Plugin created, added to Connectors, and verified with ' + Number(probeData.toolCount || 0) + ' tool(s).');
-      } else if (probeData?.requiresAuth) {
-        setMessage('Plugin created and added to Connectors. Authentication is still required — use Connect on the new connector.');
+      if (providerMode === 'composio') {
+        connector.status = 'ready';
+        connector.enabled = false;
+        setMessage('Composio plugin created and added to Connectors. Sign in through Composio to activate it.');
       } else {
-        setMessage('Plugin created and added to Connectors. The server can be tested from its connector page.');
+        const probe = await fetch('/api/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check', connector }),
+          signal: AbortSignal.timeout(30000),
+        });
+        probeData = await probe.json().catch(() => ({}));
+
+        connector.status = probeData?.success ? 'connected' : 'ready';
+        connector.enabled = Boolean(probeData?.success);
+        if (probeData?.success) {
+          connector.config = { ...connector.config, discoveredToolCount: Number(probeData.toolCount || 0) };
+          setMessage('Plugin created, added to Connectors, and verified with ' + Number(probeData.toolCount || 0) + ' tool(s).');
+        } else if (probeData?.requiresAuth) {
+          setMessage('Plugin created and added to Connectors. Authentication is still required — use Connect on the new connector.');
+        } else {
+          setMessage('Plugin created and added to Connectors. The server can be tested from its connector page.');
+        }
       }
 
       const bytes = Uint8Array.from(atob(data.archiveBase64), (char) => char.charCodeAt(0));

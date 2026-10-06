@@ -1,0 +1,7 @@
+{
+  "name": "composio-workspace",
+  "version": "1.0.0",
+  "description": "Composio integration for Sameer AI Workspace with dynamic app discovery, connection management, and tool execution.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

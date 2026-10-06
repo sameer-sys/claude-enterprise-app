@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sendRealEmail } from '@/lib/mailer';
 import { fetchLatestEmails } from '@/lib/imapReader';
 import { getCredentialFromRequest, getStoredTokenFromRequest, type RemoteStoredToken, setStoredTokenCookie } from '@/lib/remoteMcpAuth';
-import { normalizeConnectedAccounts } from '@/lib/composioMcp';
+import { normalizeConnectedAccounts, getComposioToolkitDisplayName } from '@/lib/composioMcp';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;

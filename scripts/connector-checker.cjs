@@ -21,6 +21,15 @@ const checks = [
     /DEFAULT_COMPOSIO_TOOLKITS:\s*string\[\]\s*=\s*\[\]/.test(composio),
   ],
   [
+    'Composio app names are resolved from live metadata',
+    composio.includes('getComposioToolkitDisplayName') &&
+    route.includes('getComposioToolkitDisplayName'),
+  ],
+  [
+    'Obsolete hardcoded Composio dispatcher is removed',
+    !fs.existsSync(path.join(root, 'src/lib/composioActions.ts')),
+  ],
+  [
     'Connector requests use live Composio tools instead of app-specific action maps',
     route.includes('mcpToolsToOpenAI') &&
     route.includes('runAgentTool') &&

@@ -1081,6 +1081,35 @@ export default function SettingsModal({
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-xl bg-[#25231e] border border-[#38352d] flex items-center justify-center">
+                        <Zap className="w-4 h-4 text-[#cc785c]" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold">Composio Workspace</div>
+                        <div className="text-[11px] text-[#8a8579]">Dynamic app connections, tool discovery, multi-account support and real MCP execution</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] px-2 py-1 rounded-full border border-emerald-800 text-emerald-400">Built in</span>
+                  </div>
+                  <p className="text-xs text-[#8a8579] leading-relaxed">
+                    This plugin uses the workspace's existing Composio "For You" OAuth session and live MCP runtime. It does not hardcode individual apps or actions, so newly connected Composio toolkits can work without changing the app code.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onOpenConnectors?.();
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-[#cc785c] hover:bg-[#db8a6e] text-black font-semibold text-xs transition-all"
+                    >
+                      Open Composio Connectors
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl border border-[#3b352d] bg-[#141310] space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-[#25231e] border border-[#38352d] flex items-center justify-center">
                         <Github className="w-4 h-4" />
                       </div>
                       <div>

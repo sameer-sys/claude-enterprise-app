@@ -925,7 +925,6 @@ function formatConnectorResult(requestText: string, result: any): string {
       const accountLines: string[] = [];
       const appNames = new Set<string>();
       for (const row of activeRows) {
-        const toolkit = String(row?.toolkit || '').trim();
         const app = getComposioToolkitDisplayName(row);
         appNames.add(app.toLowerCase());
         const accounts = Array.isArray(row?.accounts) ? row.accounts : [];

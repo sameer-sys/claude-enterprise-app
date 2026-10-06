@@ -3,6 +3,7 @@ import {
   getMcpOAuthUrl,
   callComposioMcp,
   executeMcpTool,
+  listComposioActiveConnections,
 } from '@/lib/composioMcp';
 
 export const dynamic = 'force-dynamic';
@@ -36,9 +37,18 @@ export async function GET(req: NextRequest) {
       let activeMcpToken = mcpToken;
       let activeRefreshToken = mcpRefreshToken;
       let tools: any[] = [];
-      // App connections are managed dynamically by Composio's meta tools.
-      // Do not maintain a second hardcoded/native account registry here.
-      const connectedAccounts: any[] = [];
+      // App connections are owned by Composio. Read the live active-account
+      // state for this MCP session instead of maintaining a second registry.
+      let connectedAccounts: any[] = [];
+      try {
+        connectedAccounts = await listComposioActiveConnections(
+          activeMcpToken,
+          activeRefreshToken,
+          Array.isArray(tools) ? tools.map((tool: any) => String(tool?.name || '')).filter(Boolean) : []
+        );
+      } catch (err: any) {
+        console.error('[COMPOSIO CONNECTION LIST ERR]', err?.message || err);
+      }
 
       try {
         const toolListRes = await callComposioMcp(activeMcpToken, 'tools/list', {}, mcpRefreshToken);

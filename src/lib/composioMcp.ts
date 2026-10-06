@@ -545,18 +545,24 @@ export async function listComposioActiveConnections(
   refreshToken?: string,
   availableToolNames: string[] = []
 ): Promise<any[]> {
-  // Connection status must come from Composio's connection-management
-  // interface, not SEARCH_TOOLS. We first discover toolkit slugs from the
-  // live session, then ask MANAGE_CONNECTIONS for each toolkit and normalize
-  // the returned account records.
+  // The authenticated MCP token is the source of truth for the user's
+  // Composio account. Use the live MANAGE_CONNECTIONS list operation and do
+  // not cache or infer connection state from toolkit discovery.
   const manageTool = pickMcpToolName(
     availableToolNames,
     [/MANAGE_CONNECTIONS/i],
     'COMPOSIO_MANAGE_CONNECTIONS'
   );
-  const toolkitSlugs = await listComposioToolkitSlugs(accessToken, refreshToken, availableToolNames);
-  const collected: any[] = [];
 
+  // Ask the live session which toolkit slugs it can manage. These are only
+  // identifiers; connection state comes from MANAGE_CONNECTIONS below.
+  const toolkitSlugs = await listComposioToolkitSlugs(
+    accessToken,
+    refreshToken,
+    availableToolNames
+  );
+
+  const collected: any[] = [];
   for (const toolkit of toolkitSlugs) {
     const result = await executeMcpTool(
       accessToken,
@@ -565,10 +571,10 @@ export async function listComposioActiveConnections(
       refreshToken
     );
     if (!result.success) continue;
-    const normalized = normalizeConnectedAccounts(result.data);
-    for (const account of normalized) {
+
+    for (const account of normalizeConnectedAccounts(result.data)) {
       const status = String(account?.status || '').toUpperCase();
-      if (status && status !== 'ACTIVE' && status !== 'CONNECTED') continue;
+      if (status !== 'ACTIVE' && status !== 'CONNECTED') continue;
       collected.push({
         ...account,
         app_slug: account?.app_slug || account?.appSlug || toolkit,

@@ -440,13 +440,22 @@ export async function executeMcpTool(
 ): Promise<{ success: boolean; data?: any; error?: string; newAccessToken?: string; newRefreshToken?: string }> {
   let callArgs = args || {};
   if (/MANAGE_CONNECTIONS/i.test(toolName)) {
-    // Current Composio MCP expects toolkit slugs as strings.
-    // Keep the exact slugs returned by Composio; never invent app-specific ones.
+    // Preserve the per-toolkit action. Removing it would turn "list" into
+    // Composio's default "add" operation.
     const rawToolkits = Array.isArray(callArgs.toolkits) ? callArgs.toolkits : DEFAULT_COMPOSIO_TOOLKITS;
     const normalizedToolkits = rawToolkits
-      .map((item: any) => typeof item === 'string'
-        ? item.trim().toLowerCase()
-        : String(item?.name || item?.toolkit || item?.slug || '').trim().toLowerCase())
+      .map((item: any) => {
+        if (typeof item === 'string') {
+          return { name: item.trim().toLowerCase(), action: 'list' };
+        }
+        const name = String(item?.name || item?.toolkit || item?.slug || '').trim().toLowerCase();
+        if (!name) return null;
+        return {
+          ...item,
+          name,
+          action: item?.action || 'list',
+        };
+      })
       .filter(Boolean);
     callArgs = { ...callArgs, toolkits: normalizedToolkits };
     delete callArgs.action;
@@ -552,7 +561,7 @@ export async function listComposioActiveConnections(
     const result = await executeMcpTool(
       accessToken,
       manageTool,
-      { toolkits: [toolkit] },
+      { toolkits: [{ name: toolkit, action: 'list' }] },
       refreshToken
     );
     if (!result.success) continue;

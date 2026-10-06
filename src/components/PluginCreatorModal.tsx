@@ -14,6 +14,7 @@ interface PluginCreatorModalProps {
 type AuthMode = 'oauth' | 'api_token' | 'client_credentials' | 'none';
 
 export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubConnector, onCreatedConnector }: PluginCreatorModalProps) {
+  const [providerMode, setProviderMode] = useState<'generic' | 'composio'>('generic');
   const [name, setName] = useState('My MCP Plugin');
   const [description, setDescription] = useState('Connect this workspace to a remote MCP service.');
   const [serverUrl, setServerUrl] = useState('');
@@ -25,6 +26,16 @@ export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubCon
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState('');
   const [created, setCreated] = useState(false);
+
+  const selectComposioPreset = () => {
+    setProviderMode('composio');
+    setName('Composio Workspace');
+    setDescription('Dynamic Composio app connections, tool discovery, multi-account support, and real tool execution.');
+    setServerUrl('https://connect.composio.dev/mcp');
+    setSetupUrl('https://composio.dev');
+    setAuthMode('oauth');
+    setMessage('Composio preset selected. Create it to add Composio to Connectors and use the existing Composio For You OAuth flow.');
+  };
 
   const slug = useMemo(() => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'my-mcp-plugin', [name]);
 
@@ -62,12 +73,15 @@ export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubCon
         section: 'custom',
         isCustom: true,
         isVerified: false,
-        provider: 'mcp',
-        capabilities: ['Remote MCP', 'Tool Discovery', 'Tool Execution', authMode === 'oauth' ? 'OAuth' : authMode === 'api_token' ? 'API Token' : authMode === 'client_credentials' ? 'Client Credentials' : 'No Auth'],
+        provider: providerMode === 'composio' ? 'composio' : 'mcp',
+        capabilities: providerMode === 'composio'
+          ? ['Composio', 'Dynamic App Discovery', 'OAuth Connection Management', 'Multi-Account Support', 'Tool Discovery', 'Tool Execution']
+          : ['Remote MCP', 'Tool Discovery', 'Tool Execution', authMode === 'oauth' ? 'OAuth' : authMode === 'api_token' ? 'API Token' : authMode === 'client_credentials' ? 'Client Credentials' : 'No Auth'],
         config: {
           connectionType: 'mcp',
           providerName: name.trim(),
           mcpUrl: url,
+          ...(providerMode === 'composio' ? { provider: 'composio', composioManaged: true } : {}),
           toolAccess: 'auto',
           disabledTools: [],
           authMode,
@@ -134,6 +148,23 @@ export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubCon
       // merely because it was created.
       onCreatedConnector?.(connector);
 
+      if (providerMode === 'composio') {
+        setMessage('Composio plugin added. Opening Composio sign-in…');
+        const authResponse = await fetch('/api/composio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'get_mcp_oauth_url' }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const authData = await authResponse.json().catch(() => ({}));
+        if (!authResponse.ok || !authData?.authUrl) {
+          throw new Error(authData?.error || 'The Composio OAuth flow could not be started.');
+        }
+        const popup = window.open(authData.authUrl, 'composio_for_you_login', 'popup,width=620,height=780,resizable=yes,scrollbars=yes');
+        if (!popup) window.open(authData.authUrl, '_blank');
+        return;
+      }
+
       if (authMode === 'oauth') {
         setMessage('Plugin added. Opening the provider sign-in page…');
         const authResponse = await fetch('/api/mcp', {
@@ -168,6 +199,16 @@ export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubCon
         </div>
 
         <div className="p-6 space-y-4 overflow-y-auto">
+          <div className="p-3 rounded-xl border border-[#38352d] bg-[#141310] text-xs text-[#9f998d]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold text-[#ece9e2]">Choose connector type</div>
+                <div className="mt-1">Use the built-in Composio runtime, or create a generic remote MCP plugin for another app.</div>
+              </div>
+              <button type="button" onClick={selectComposioPreset} className="shrink-0 px-3 py-2 rounded-lg border border-[#cc785c]/60 text-[#cc785c] font-semibold hover:bg-[#25231e]">Use Composio</button>
+            </div>
+          </div>
+
           <div className="p-3 rounded-xl border border-[#38352d] bg-[#141310] text-xs text-[#9f998d]">
             Enter the provider's MCP URL. If it requires OAuth or an API key, this screen tells you exactly where to obtain it. Secrets are sent only to your app's server-side credential endpoint.
           </div>

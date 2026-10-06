@@ -142,6 +142,8 @@ function getSafeHttpUrl(raw: string): URL | null {
   }
 }
 
+const COMPOSIO_ACCOUNTS_CACHE = new Map<string, { at: number; accounts: any[] }>();
+
 /**
  * Fetch the live connected accounts from Composio "For You" and normalize them
  * so the dispatcher can resolve which account(s) to execute against. Returns
@@ -152,6 +154,10 @@ async function fetchComposioAccounts(
   mcpRefreshToken: string | undefined,
   toolContext: { mcpToolNames?: string[] }
 ): Promise<any[]> {
+  const cached = COMPOSIO_ACCOUNTS_CACHE.get(mcpToken);
+  if (cached && Date.now() - cached.at < 60000 && cached.accounts.length > 0) {
+    return cached.accounts;
+  }
   try {
     const { pickMcpToolName, executeMcpTool, mcpContentToText, normalizeConnectedAccounts } = await import('@/lib/composioMcp');
     const manageTool = pickMcpToolName(toolContext.mcpToolNames || [], [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
@@ -163,7 +169,11 @@ async function fetchComposioAccounts(
     } catch {
       // keep raw text
     }
-    return normalizeConnectedAccounts(parsed);
+    const accounts = normalizeConnectedAccounts(parsed);
+    if (accounts.length > 0) {
+      COMPOSIO_ACCOUNTS_CACHE.set(mcpToken, { at: Date.now(), accounts });
+    }
+    return accounts;
   } catch (err: any) {
     console.error('[COMPOSIO ACCOUNTS ERR]', err?.message || err);
     return [];

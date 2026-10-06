@@ -165,6 +165,7 @@ export async function callComposioMcp(
           params,
         }),
         cache: 'no-store',
+        signal: AbortSignal.timeout(12000),
       });
     };
 
@@ -330,6 +331,115 @@ export function normalizeConnectedAccounts(raw: any): any[] {
   });
 }
 
+/**
+ * Extract ALL account entries from COMPOSIO_MANAGE_CONNECTIONS (including initializing/stale ones).
+ */
+export function extractAllAccounts(raw: any): any[] {
+  if (raw == null) return [];
+  if (Array.isArray(raw) && raw.length > 0 && raw.every((b) => b && typeof b === 'object' && typeof b.text === 'string')) {
+    const text = raw.map((b) => b.text).join('\n').trim();
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try { raw = JSON.parse(text); } catch { return []; }
+    }
+  }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.data && typeof raw.data === 'object') {
+    const inner = raw.data;
+    if (inner.results || inner.connections || inner.connected_accounts || inner.accounts || inner.items) {
+      raw = inner;
+    }
+  }
+  let list: any[] = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (Array.isArray(raw.connections)) {
+    list = raw.connections;
+  } else if (Array.isArray(raw.connected_accounts)) {
+    list = raw.connected_accounts;
+  } else if (Array.isArray(raw.accounts)) {
+    list = raw.accounts;
+  } else if (Array.isArray(raw.items)) {
+    list = raw.items;
+  } else if (raw.results && typeof raw.results === 'object' && !Array.isArray(raw.results)) {
+    for (const [toolkit, entry] of Object.entries(raw.results as Record<string, any>)) {
+      const accounts = Array.isArray((entry as any)?.accounts) ? (entry as any).accounts : [];
+      for (const account of accounts) {
+        list.push({ ...(account || {}), app_name: toolkit });
+      }
+    }
+  }
+  return list;
+}
+
+/**
+ * Purge stuck/initializing accounts so toolkits never exceed the 10-account limit.
+ */
+export async function purgeStaleAccounts(
+  accessToken: string,
+  refreshToken?: string,
+  appFilter?: string
+): Promise<{ success: boolean; purgedCount: number; errors: string[]; newAccessToken?: string; newRefreshToken?: string }> {
+  let activeToken = accessToken;
+  let activeRefreshToken = refreshToken;
+
+  const connRes = await executeMcpTool(activeToken, 'COMPOSIO_MANAGE_CONNECTIONS', { action: 'list' }, activeRefreshToken);
+  if (connRes.newAccessToken) activeToken = connRes.newAccessToken;
+  if ((connRes as any).newRefreshToken) activeRefreshToken = (connRes as any).newRefreshToken;
+
+  if (!connRes.success || !connRes.data) {
+    return { success: false, purgedCount: 0, errors: [connRes.error || 'Failed to list connections'] };
+  }
+
+  const allAccounts = extractAllAccounts(connRes.data);
+  const staleAccounts = allAccounts.filter((acc) => {
+    const status = String(acc?.status || '').toUpperCase();
+    const isStale = status === 'INITIALIZING' || status === 'INITIATING' || status === 'PENDING' || status === 'FAILED';
+    if (!isStale) return false;
+    if (appFilter) {
+      const app = String(acc?.app_name || acc?.appName || acc?.app || '').toLowerCase();
+      return app === appFilter.toLowerCase();
+    }
+    return true;
+  });
+
+  let purgedCount = 0;
+  const errors: string[] = [];
+
+  for (const acc of staleAccounts) {
+    const accId = String(acc?.id || acc?.connected_account_id || '');
+    const appName = String(acc?.app_name || acc?.appName || acc?.app || '');
+    if (!accId) continue;
+
+    try {
+      const removeArgs = {
+        action: 'remove',
+        toolkits: [{ name: appName, action: 'remove', connected_account_id: accId, account_id: accId }],
+      };
+      const removeRes = await executeMcpTool(activeToken, 'COMPOSIO_MANAGE_CONNECTIONS', removeArgs, activeRefreshToken);
+      if (removeRes.newAccessToken) activeToken = removeRes.newAccessToken;
+      if ((removeRes as any).newRefreshToken) activeRefreshToken = (removeRes as any).newRefreshToken;
+
+      try {
+        await fetch(`https://backend.composio.dev/api/v1/connectedAccounts/${accId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${activeToken}` },
+        });
+      } catch {}
+
+      purgedCount++;
+    } catch (err: any) {
+      errors.push(`Failed to purge account ${accId}: ${err?.message || err}`);
+    }
+  }
+
+  return {
+    success: true,
+    purgedCount,
+    errors,
+    newAccessToken: activeToken !== accessToken ? activeToken : undefined,
+    newRefreshToken: activeRefreshToken !== refreshToken ? activeRefreshToken : undefined,
+  };
+}
+
 export async function executeMcpTool(
   accessToken: string,
   toolName: string,
@@ -355,7 +465,7 @@ export async function executeMcpTool(
     const requestedAction = String(callArgs.action || 'list').toLowerCase();
     const normalizedToolkits = rawToolkits.map((item: any) => {
       if (typeof item === 'string') {
-        return { name: item, action: requestedAction === 'add' ? 'add' : 'list' };
+        return { name: item, action: requestedAction === 'add' ? 'add' : requestedAction === 'remove' ? 'remove' : 'list' };
       }
       const name = String(item?.name || item?.toolkit || '').trim();
       if (!name) return null;

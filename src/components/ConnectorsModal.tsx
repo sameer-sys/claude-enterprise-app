@@ -85,6 +85,7 @@ export default function ConnectorsModal({
   const [pluginCreatorOpen, setPluginCreatorOpen] = useState(false);
   const [composio, setComposio] = useState<{ configured: boolean; mcpConnected: boolean; connectedAccounts: any[]; tools: any[]; error?: string } | null>(null);
   const [composioBusy, setComposioBusy] = useState(false);
+  const [staleCount, setStaleCount] = useState<number>(0);
   const [appLinked, setAppLinked] = useState<Record<string, boolean>>({});
   const [composioDiag, setComposioDiag] = useState<string | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
@@ -101,14 +102,40 @@ export default function ConnectorsModal({
       if (!res.ok) {
         setComposio({ configured: false, mcpConnected: false, connectedAccounts: [], tools: [], error: data?.error || 'Composio status check failed.' });
         setAppLinked({});
+        setStaleCount(0);
         return;
       }
       const accounts = Array.isArray(data?.connectedAccounts) ? data.connectedAccounts : [];
       const mcpConnected = Boolean(data?.mcpConnected);
+      setStaleCount(Number(data?.staleCount || 0));
       setComposio({ configured: Boolean(data?.configured), mcpConnected, connectedAccounts: accounts, tools: Array.isArray(data?.tools) ? data.tools : [] });
       setAppLinked({});
     } catch (err: any) {
       setComposio({ configured: false, mcpConnected: false, connectedAccounts: [], tools: [], error: String(err?.message || err) });
+    }
+  };
+
+  /** Purge stuck and initializing accounts to unblock Composio limits. */
+  const purgeStaleConnections = async () => {
+    setComposioBusy(true);
+    setStatusMessage('Purging stuck and initializing accounts from Composio…');
+    try {
+      const res = await fetch('/api/composio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'purge_stale' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setStatusMessage(`Cleaned up ${data?.purgedCount || 0} stuck account(s). Composio limits unblocked!`);
+        await refreshComposio();
+      } else {
+        setStatusMessage('Purge error: ' + String(data?.error || 'Failed to purge accounts.'));
+      }
+    } catch (err: any) {
+      setStatusMessage('Purge error: ' + String(err?.message || err));
+    } finally {
+      setComposioBusy(false);
     }
   };
 
@@ -473,6 +500,11 @@ export default function ConnectorsModal({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {composio?.mcpConnected && (
+                  <button onClick={purgeStaleConnections} disabled={composioBusy} title="Purge stuck/initializing accounts to unblock Composio limits" className="px-3 py-1.5 rounded-lg border border-amber-900/60 bg-amber-950/30 text-amber-300 text-xs flex items-center gap-1 hover:bg-amber-900/40">
+                    <Trash2 className="w-3.5 h-3.5"/>Purge Stale{staleCount > 0 ? ` (${staleCount})` : ''}
+                  </button>
+                )}
                 {composio?.mcpConnected
                   ? <button onClick={disconnectComposio} disabled={composioBusy} className="px-3 py-1.5 rounded-lg border border-[#38352d] text-xs">Disconnect</button>
                   : <button onClick={openComposioOAuth} disabled={composioBusy} className="px-3 py-1.5 rounded-lg bg-[#cc785c] text-white text-xs font-semibold flex items-center gap-1">
@@ -483,6 +515,12 @@ export default function ConnectorsModal({
                 </button>
               </div>
             </div>
+            {staleCount > 0 && (
+              <div className="mt-2 p-2.5 rounded-lg border border-amber-800/70 bg-amber-950/40 text-[11px] text-amber-200 flex items-center justify-between">
+                <span>⚠️ {staleCount} stuck connection(s) detected in Composio. This can cause &quot;Maximum of 10 accounts reached&quot; errors.</span>
+                <button onClick={purgeStaleConnections} disabled={composioBusy} className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-black font-semibold text-[10px] shrink-0 ml-2">Clean Now</button>
+              </div>
+            )}
             {composioDiag && <div className="mt-2 p-2.5 rounded-lg border border-[#38352d] bg-[#12110e] text-[10px] text-[#c9c4b8] font-mono whitespace-pre-wrap break-all max-h-64 overflow-auto">{composioDiag}</div>}
             {composio?.error && <div className="mt-2 p-2.5 rounded-lg border border-red-900/60 bg-[#231919] text-[11px] text-red-300">{composio.error}</div>}
           </div>

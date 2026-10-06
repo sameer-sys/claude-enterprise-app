@@ -4,6 +4,8 @@ import {
   callComposioMcp,
   executeMcpTool,
   normalizeConnectedAccounts,
+  extractAllAccounts,
+  purgeStaleAccounts,
 } from '@/lib/composioMcp';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +46,7 @@ export async function GET(req: NextRequest) {
       let activeRefreshToken = mcpRefreshToken;
       let tools: any[] = [];
       let connectedAccounts: any[] = [];
+      let staleCount = 0;
 
       try {
         const toolListRes = await callComposioMcp(activeMcpToken, 'tools/list', {}, mcpRefreshToken);
@@ -58,6 +61,11 @@ export async function GET(req: NextRequest) {
         if ((connRes as any).newRefreshToken) activeRefreshToken = (connRes as any).newRefreshToken;
         if (connRes.success && connRes.data) {
           connectedAccounts = normalizeConnectedAccounts(connRes.data);
+          const allAccs = extractAllAccounts(connRes.data);
+          staleCount = allAccs.filter((acc: any) => {
+            const status = String(acc?.status || '').toUpperCase();
+            return status === 'INITIALIZING' || status === 'INITIATING' || status === 'PENDING' || status === 'FAILED';
+          }).length;
         }
       } catch (err: any) {
         console.error('[COMPOSIO STATUS ERR]', err?.message || err);
@@ -65,7 +73,7 @@ export async function GET(req: NextRequest) {
 
       const response = NextResponse.json({
         configured: true, mode: 'for_you', mcpConnected: true, userId: entityId,
-        tools, connectedAccounts, supportedApps: SUPPORTED_APPS,
+        tools, connectedAccounts, supportedApps: SUPPORTED_APPS, staleCount,
       });
 
       if (activeMcpToken && (activeMcpToken !== mcpToken || activeRefreshToken !== mcpRefreshToken)) {
@@ -131,6 +139,19 @@ export async function POST(req: NextRequest) {
         response.cookies.set('composio_mcp_access_token', '', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 0 });
       }
       return response;
+    }
+
+    if (action === 'purge_stale') {
+      const mcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || req.headers.get('x-composio-mcp-token') || body?.mcpToken || '';
+      const mcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || req.headers.get('x-composio-mcp-refresh-token') || body?.mcpRefreshToken || '';
+      if (!mcpToken) return NextResponse.json({ success: false, error: 'Composio is not connected.' }, { status: 401 });
+      const purgeResult = await purgeStaleAccounts(mcpToken, mcpRefreshToken, body?.app);
+      const res = NextResponse.json(purgeResult);
+      if (purgeResult.newAccessToken || purgeResult.newRefreshToken) {
+        if (purgeResult.newAccessToken) res.cookies.set('composio_mcp_token', purgeResult.newAccessToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 30 * 24 * 3600 });
+        if (purgeResult.newRefreshToken) res.cookies.set('composio_mcp_refresh_token', purgeResult.newRefreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 90 * 24 * 3600 });
+      }
+      return res;
     }
 
     return NextResponse.json({ success: false, error: 'Unsupported action. All operations must connect via Composio "For You" MCP.' }, { status: 400 });

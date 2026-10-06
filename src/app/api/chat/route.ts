@@ -153,11 +153,7 @@ async function fetchComposioAccounts(
 ): Promise<any[]> {
   try {
     const { listComposioActiveConnections } = await import('@/lib/composioMcp');
-    return await listComposioActiveConnections(
-      mcpToken,
-      mcpRefreshToken,
-      toolContext.mcpToolNames || []
-    );
+    return await listComposioActiveConnections(mcpToken, mcpRefreshToken, toolContext.mcpToolNames || []);
   } catch (err: any) {
     console.error('[COMPOSIO ACCOUNTS ERR]', err?.message || err);
     return [];
@@ -1649,29 +1645,25 @@ export async function POST(req: NextRequest) {
     // depend on the LLM producing a tool call: directly invoke Composio Search
     // Tools and format its live toolkit_connection_statuses response.
     if (isAccountQuery && composioMcpToken) {
-      // IMPORTANT: account-status requests are a read-only CHAT query, but
-      // they still need one real Composio discovery call. Do NOT route this
-      // through Manage_connections without toolkit names and do NOT use
-      // LIST_TOOLKITS as a connection registry. Search Tools is the Composio
-      // Tool Router's session-aware source for toolkit_connection_statuses.
-      const searchTool = pickMcpToolName(
-        mcpToolNames,
-        [/SEARCH_TOOLS/i],
-        'COMPOSIO_SEARCH_TOOLS'
+      const accountResult = await fetchComposioAccountsDetailed(
+        composioMcpToken,
+        composioMcpRefreshToken,
+        toolContext
       );
-      const accountResult = await runAgentTool(searchTool, {
-        queries: [{
-          use_case: 'list all apps, toolkits, and accounts currently connected to this user in Composio; return live connection statuses and active account details only'
-        }],
-        session: { generate_id: true },
-        // Connection status must reflect the user's CURRENT Composio state,
-        // so bypass any cached search plan and perform a fresh tool search.
-        search_strategy: 'tool_search',
-        model: 'gpt-5.6',
-      }, toolContext);
-      const formatted = formatConnectorResult(lastText, accountResult);
+      if (!accountResult.verified) {
+        return streamTextDirectly(
+          'I could not verify the live Composio connection registry right now. Please reconnect Composio and try again.',
+          detectedSkill,
+          toolContext
+        );
+      }
+      const formatted = formatConnectorResult(
+        lastText,
+        JSON.stringify({ connections: accountResult.accounts })
+      );
       return streamTextDirectly(formatted, detectedSkill, toolContext);
     }
+
 
     // Connection/app queries use Composio Tool Router discovery.
     // A For You MCP session exposes meta-tools; it is not a guaranteed

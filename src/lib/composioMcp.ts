@@ -536,110 +536,144 @@ export async function listComposioActiveConnections(
   refreshToken?: string,
   availableToolNames: string[] = []
 ): Promise<any[]> {
-  // 1) Prefer Composio's live bulk connection checker when this MCP session
-  // exposes it. This requires no guessed toolkit catalog at all.
-  const checkTool = pickMcpToolName(
+  // Composio's LIST_TOOLKITS meta-tool is the correct session-scoped source
+  // for a user's toolkit names + connection state. SEARCH_TOOLS is deliberately
+  // not used here because it reports the toolkits relevant to the search, not
+  // the user's complete connected-app registry.
+  const listTool = pickMcpToolName(
     availableToolNames,
-    [/CHECK_ACTIVE_CONNECTIONS/i, /CHECK_ACTIVE_CONNECTION$/i],
-    ''
+    [/LIST_TOOLKITS/i],
+    'COMPOSIO_LIST_TOOLKITS'
   );
-  if (checkTool) {
-    const checked = await executeMcpTool(accessToken, checkTool, {}, refreshToken);
-    if (checked.success) {
-      const accounts = normalizeConnectedAccounts(checked.data);
-      if (accounts.length > 0) return accounts;
+
+  const collected: any[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+
+  do {
+    const args = cursor ? { cursor } : {};
+    const listed = await executeMcpTool(accessToken, listTool, args, refreshToken);
+    if (!listed.success) break;
+
+    let raw: any = listed.data;
+    const asText = mcpContentToText(raw);
+    try { raw = JSON.parse(asText); } catch {}
+
+    const root = raw && typeof raw === 'object' && raw.data && typeof raw.data === 'object'
+      ? raw.data
+      : raw;
+
+    const items = Array.isArray(root?.items)
+      ? root.items
+      : Array.isArray(root?.toolkits)
+        ? root.toolkits
+        : Array.isArray(root?.results)
+          ? root.results
+          : Array.isArray(root)
+            ? root
+            : [];
+
+    for (const toolkit of items) {
+      if (!toolkit || typeof toolkit !== 'object') continue;
+
+      const connection = toolkit.connection || toolkit.connected_account || toolkit.connectedAccount || {};
+      const connectedAccount =
+        connection.connected_account ||
+        connection.connectedAccount ||
+        connection.account ||
+        toolkit.connected_account ||
+        toolkit.connectedAccount ||
+        toolkit.account ||
+        {};
+
+      const isActive =
+        connection.isActive === true ||
+        connection.is_active === true ||
+        connectedAccount.status === 'ACTIVE' ||
+        String(connection.status || '').toUpperCase() === 'ACTIVE' ||
+        String(toolkit.status || '').toUpperCase() === 'ACTIVE';
+
+      if (!isActive) continue;
+
+      const toolkitSlug = String(
+        toolkit.slug ||
+        toolkit.toolkit ||
+        toolkit.toolkit_slug ||
+        toolkit.app_slug ||
+        ''
+      ).trim();
+
+      const appDisplayName = getComposioToolkitDisplayName({
+        ...toolkit,
+        toolkit: toolkitSlug,
+        display_name: toolkit.display_name || toolkit.displayName || toolkit.name,
+      });
+
+      const accountId = String(
+        connectedAccount.id ||
+        connectedAccount.connected_account_id ||
+        connection.connected_account_id ||
+        connection.connectedAccountId ||
+        toolkit.connected_account_id ||
+        ''
+      ).trim();
+
+      const alias = String(
+        connectedAccount.alias ||
+        connection.alias ||
+        toolkit.alias ||
+        ''
+      ).trim();
+
+      const info = connectedAccount.user_info || connectedAccount.userInfo || toolkit.user_info || toolkit.userInfo || {};
+      const email = String(
+        connectedAccount.email ||
+        info.email ||
+        info.email_address ||
+        ''
+      ).trim();
+
+      collected.push({
+        ...connectedAccount,
+        id: accountId || connectedAccount.id,
+        connected_account_id: accountId || undefined,
+        alias: alias || undefined,
+        app_name: appDisplayName,
+        app_display_name: appDisplayName,
+        app_slug: toolkitSlug || undefined,
+        toolkit: toolkitSlug || undefined,
+        status: 'ACTIVE',
+        email: email || undefined,
+        account_identifier: email || alias || info.login || info.name || accountId || undefined,
+      });
     }
-  }
 
-  // Prefer the dedicated bulk active-connection meta-tool.
-  const checkAllTool = pickMcpToolName(
-    availableToolNames,
-    [/CHECK_ACTIVE_CONNECTIONS/i],
-    'COMPOSIO_CHECK_ACTIVE_CONNECTIONS'
-  );
-  const checkedAll = await executeMcpTool(
-    accessToken,
-    checkAllTool,
-    { requests: [] },
-    refreshToken
-  );
-  if (checkedAll.success) {
-    const accounts = normalizeConnectedAccounts(checkedAll.data);
-    if (accounts.length > 0) return accounts;
-  }
+    const next =
+      root?.next_cursor ||
+      root?.nextCursor ||
+      root?.cursor ||
+      root?.pagination?.next_cursor ||
+      root?.pagination?.nextCursor ||
+      undefined;
 
-  // 2) Ask MANAGE_CONNECTIONS directly for its complete active-account list.
-  // Some Composio MCP sessions support this bulk form and do not expose a
-  // separate toolkit catalog. Do not manufacture a zero-app result when that
-  // happens.
-  const manageTool = pickMcpToolName(
-    availableToolNames,
-    [/MANAGE_CONNECTIONS/i],
-    'COMPOSIO_MANAGE_CONNECTIONS'
-  );
-  const bulk = await executeMcpTool(
-    accessToken,
-    manageTool,
-    { action: 'list' },
-    refreshToken
-  );
-  if (bulk.success) {
-    const accounts = normalizeConnectedAccounts(bulk.data);
-    if (accounts.length > 0) return accounts;
-  }
-
-  // 3) Last resort: discover the live toolkit catalog and query it in bounded
-  // chunks. This remains fully dynamic and is only needed for MCP versions
-  // that require explicit toolkit objects.
-  const toolkitSlugs = await listComposioToolkitSlugs(accessToken, refreshToken, availableToolNames);
-  if (toolkitSlugs.length === 0) {
-    throw new Error(
-      'Composio could not return active connections through its bulk connection tools or live toolkit catalog.'
-    );
-  }
-
-  const chunkSize = 40;
-  const allAccounts: any[] = [];
-  let successfulChunks = 0;
-  let lastError = '';
-
-  for (let i = 0; i < toolkitSlugs.length; i += chunkSize) {
-    const chunk = toolkitSlugs.slice(i, i + chunkSize);
-    const managed = await executeMcpTool(
-      accessToken,
-      manageTool,
-      { toolkits: chunk.map((name) => ({ name, action: 'list' })) },
-      refreshToken
-    );
-
-    if (!managed.success) {
-      lastError = String(managed.error || 'Composio connection listing failed');
-      continue;
-    }
-
-    successfulChunks++;
-    allAccounts.push(...normalizeConnectedAccounts(managed.data));
-  }
-
-  if (successfulChunks === 0) {
-    throw new Error(lastError || 'Composio could not list connected accounts.');
-  }
+    cursor = next ? String(next) : undefined;
+    pages++;
+  } while (cursor && pages < 20);
 
   const seen = new Set<string>();
-  return allAccounts.filter((account: any) => {
-    const id = String(
+  return collected.filter((account: any) => {
+    const key = String(
       account?.id ||
       account?.connected_account_id ||
-      account?.connectedAccountId ||
-      account?.alias ||
+      account?.app_slug ||
+      account?.app_name ||
       JSON.stringify(account)
     );
-    if (seen.has(id)) return false;
-    seen.add(id);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
-
 
 
 /**

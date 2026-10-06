@@ -300,6 +300,7 @@ export function getComposioToolkitDisplayName(value: any): string {
     value?.displayName,
     value?.toolkit_name,
     value?.toolkitName,
+    value?.name,
     value?.app_name_display,
     value?.appDisplayName,
   ].map((candidate) => String(candidate || '').trim())

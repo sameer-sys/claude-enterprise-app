@@ -926,9 +926,7 @@ function formatConnectorResult(requestText: string, result: any): string {
       const appNames = new Set<string>();
       for (const row of activeRows) {
         const toolkit = String(row?.toolkit || '').trim();
-        const app = toolkit
-          ? toolkit.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m: string) => m.toUpperCase())
-          : 'App';
+        const app = getComposioToolkitDisplayName(row);
         appNames.add(app.toLowerCase());
         const accounts = Array.isArray(row?.accounts) ? row.accounts : [];
         if (accounts.length === 0) {

@@ -654,6 +654,56 @@ CONNECTED APPS DIRECTIVE:
 - Deliver clear, conversational answers with real account details. Never output internal planning notes, meta-instructions, or JSON tool definitions in your final reply.`,
 };
 
+type UserIntent = 'CHAT' | 'CONNECTOR_STATUS' | 'CONNECTOR_DISCOVERY' | 'CONNECTOR_ACTION' | 'WEB_RESEARCH' | 'CLARIFICATION';
+
+type NluRoute = { intent: UserIntent; confidence: number; appHints: string[]; requiresExternalAction: boolean; reason?: string; };
+
+function deterministicIntentFallback(text: string): NluRoute {
+  const lower = String(text || '').toLowerCase().trim();
+  const connectorStatus = /\b(?:what|which|how many|list|show|tell me|check|get)\b[\s\S]{0,100}\b(?:connected|linked|authorized|active)\b[\s\S]{0,80}\b(?:apps?|services?|accounts?|connectors?|integrations?)\b|\b(?:connected|linked)\s+(?:apps?|services?|accounts?|connections?)\b|\bmy\s+(?:connections?|integrations?|linked accounts?)\b/i.test(lower);
+  if (connectorStatus) return { intent: 'CONNECTOR_STATUS', confidence: 0.99, appHints: [], requiresExternalAction: true, reason: 'connection-status language' };
+  const connectorDiscovery = /\b(?:what can i do|what can you do|what tools?|capabilities?|available actions?|supported actions?)\b[\s\S]{0,100}\b(?:with|using|in|on)\b|\b(?:how do i|can i)\b[\s\S]{0,100}\b(?:github|gmail|drive|calendar|slack|notion|youtube|composio|mcp)\b/i.test(lower);
+  if (connectorDiscovery) return { intent: 'CONNECTOR_DISCOVERY', confidence: 0.95, appHints: [], requiresExternalAction: true, reason: 'connector capability discovery' };
+  const explicitConnectorAction = /\b(?:send|create|add|update|edit|delete|remove|move|rename|upload|download|schedule|post|reply|comment|merge|close|star|archive|search|find|list|read|get|check|fetch|retrieve)\b/i.test(lower) && /\b(?:github|gmail|google drive|gdrive|google calendar|calendar|youtube|slack|notion|instagram|facebook|linkedin|discord|dropbox|onedrive|salesforce|shopify|asana|jira|trello|composio|mcp|repository|repo|pull request|issue|inbox|email|file|folder|playlist|calendar event|channel)\b/i.test(lower);
+  if (explicitConnectorAction) return { intent: 'CONNECTOR_ACTION', confidence: 0.9, appHints: [], requiresExternalAction: true, reason: 'external service action language' };
+  const webResearch = /\b(?:search the web|search online|look online|browse the web|latest news|current news|look up online|find online|google it)\b/i.test(lower);
+  if (webResearch) return { intent: 'WEB_RESEARCH', confidence: 0.98, appHints: [], requiresExternalAction: true, reason: 'explicit web research request' };
+  if (!lower) return { intent: 'CLARIFICATION', confidence: 0.99, appHints: [], requiresExternalAction: false, reason: 'empty request' };
+  return { intent: 'CHAT', confidence: 0.75, appHints: [], requiresExternalAction: false, reason: 'no clear external action' };
+}
+
+async function routeUserIntent(text: string, contextMessages: any[] = []): Promise<NluRoute> {
+  const fallback = deterministicIntentFallback(text);
+  const model = process.env.NLU_MODEL || 'openai/gpt-oss-20b';
+  const recent = Array.isArray(contextMessages) ? contextMessages.slice(-6).map((m: any) => ({ role: String(m?.role || ''), content: String(m?.content || '').slice(0, 1200) })) : [];
+  const system = 'You are the intent router for an enterprise AI assistant.\n' +
+    'Classify the CURRENT request into exactly one: CHAT, CONNECTOR_STATUS, CONNECTOR_DISCOVERY, CONNECTOR_ACTION, WEB_RESEARCH, CLARIFICATION.\n' +
+    'CHAT means normal conversation/explanation/writing/coding help with no external service.\n' +
+    'CONNECTOR_STATUS means asking which external apps/accounts/services are connected, linked, authorized, or active.\n' +
+    'CONNECTOR_DISCOVERY means asking what capabilities/tools/actions are available through a connected external service.\n' +
+    'CONNECTOR_ACTION means asking to read/search/create/update/send/delete/upload/schedule or otherwise act in an external service.\n' +
+    'WEB_RESEARCH means explicitly asking to search/browse/look up current information on the web.\n' +
+    'CLARIFICATION means too ambiguous to safely route.\n' +
+    'Do not classify as CONNECTOR_ACTION merely because an app name is mentioned. Hey, explain this, write code, and what is Python are CHAT. What apps am I connected to is CONNECTOR_STATUS. What can I do with GitHub is CONNECTOR_DISCOVERY. List my GitHub repositories and send an email are CONNECTOR_ACTION. Resolve follow-ups like do it using recent context. Never invent an app. Return ONLY JSON: {intent,confidence,appHints,requiresExternalAction,reason}.';
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + String(process.env.GROQ_API_KEY || process.env.GROQ_KEY || '') },
+      body: JSON.stringify({ model, temperature: 0, max_tokens: 300, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: system }, ...recent, { role: 'user', content: String(text || '') }] }),
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!response.ok) return fallback;
+    const data = await response.json().catch(() => ({}));
+    const raw = data?.choices?.[0]?.message?.content;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const allowed = new Set<UserIntent>(['CHAT','CONNECTOR_STATUS','CONNECTOR_DISCOVERY','CONNECTOR_ACTION','WEB_RESEARCH','CLARIFICATION']);
+    if (!parsed || !allowed.has(parsed.intent)) return fallback;
+    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
+    const appHints = Array.isArray(parsed.appHints) ? parsed.appHints.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 8) : [];
+    return { intent: parsed.intent, confidence, appHints, requiresExternalAction: Boolean(parsed.requiresExternalAction) || ['CONNECTOR_STATUS','CONNECTOR_DISCOVERY','CONNECTOR_ACTION','WEB_RESEARCH'].includes(parsed.intent), reason: String(parsed.reason || '') };
+  } catch { return fallback; }
+}
+
 function isConnectorRelatedRequest(text: string): boolean {
   const lower = String(text || '').toLowerCase();
 
@@ -1526,7 +1576,13 @@ export async function POST(req: NextRequest) {
         lastText.toLowerCase().includes(String(connector.name).trim().toLowerCase())
       );
 
-    const connectorRequest = isConnectorRelatedRequest(lastText) || remoteConnectorMention;
+    const nluRoute = await routeUserIntent(lastText, messages);
+    // NLU owns the high-level boundary. Regex detection remains only as a
+    // conservative fallback when the classifier is unavailable/uncertain.
+    const legacyConnectorSignal = isConnectorRelatedRequest(lastText);
+    const nluConnectorIntent = ['CONNECTOR_STATUS', 'CONNECTOR_DISCOVERY', 'CONNECTOR_ACTION'].includes(nluRoute.intent);
+    const nluConfidentNonConnector = nluRoute.confidence >= 0.82 && ['CHAT', 'WEB_RESEARCH', 'CLARIFICATION'].includes(nluRoute.intent);
+    const connectorRequest = nluConnectorIntent || remoteConnectorMention || (legacyConnectorSignal && !nluConfidentNonConnector);
     const hasRemoteMcpTools = remoteMcpTools.length > 0;
 
     // A request is "compound" when it asks for more than one distinct action
@@ -1584,7 +1640,8 @@ export async function POST(req: NextRequest) {
 
     const { pickMcpToolName } = await import('@/lib/composioMcp');
 
-    const isAccountQuery = /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
+    const isAccountQuery = nluRoute.intent === 'CONNECTOR_STATUS' ||
+      /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
       /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
       /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
 

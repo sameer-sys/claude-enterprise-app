@@ -88,81 +88,7 @@ const AGENT_TOOLS = [
   },
 ];
 
-const COMPOSIO_GATEWAY_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'COMPOSIO_SEARCH_TOOLS',
-      description: 'Composio gateway: dynamically discover the exact connected-app tools needed for the user request. Use this before executing a new connector workflow. Do not hardcode app names or actions.',
-      parameters: {
-        type: 'object',
-        properties: {
-          queries: { type: 'array', items: { type: 'object', properties: { use_case: { type: 'string' } }, required: ['use_case'] } },
-          session: { type: 'object', properties: { generate_id: { type: 'boolean' } } },
-        },
-        required: ['queries'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'COMPOSIO_MULTI_EXECUTE_TOOL',
-      description: 'Composio gateway: execute one or more exact tools discovered from Composio. Use the exact tool_slug and arguments returned by discovery. This can execute multiple connector actions in one request.',
-      parameters: {
-        type: 'object',
-        properties: {
-          tools: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                tool_slug: { type: 'string' },
-                arguments: { type: 'object' },
-              },
-              required: ['tool_slug', 'arguments'],
-            },
-          },
-        },
-        required: ['tools'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'COMPOSIO_MANAGE_CONNECTIONS',
-      description: 'Composio gateway: inspect or manage the user’s live connected app accounts. Use live Composio state; never invent account IDs.',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['list', 'add', 'delete'] },
-          toolkits: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, action: { type: 'string' } }, required: ['name'] } },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'COMPOSIO_GET_TOOL_SCHEMAS',
-      description: 'Composio gateway: retrieve complete input schemas for exact tools discovered from Composio before execution.',
-      parameters: {
-        type: 'object',
-        properties: { tool_slugs: { type: 'array', items: { type: 'string' } } },
-        required: ['tool_slugs'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'COMPOSIO_LIST_TOOLKITS',
-      description: 'Composio gateway: list available toolkit slugs from the live Composio catalog.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-];
+
 
 function getSafeHttpUrl(raw: string): URL | null {
   try {
@@ -328,141 +254,7 @@ async function runAgentTool(
       )).slice(0, 14000);
     }
 
-    if (connectorContext.mcpToken) {
-      try {
-        const { executeMcpTool, mcpContentToText, pickMcpToolName } = await import('@/lib/composioMcp');
-        const liveNames = connectorContext.mcpToolNames || [];
-        const clip = (text: string) => (text.length > 14000 ? text.slice(0, 14000) + '\n...[truncated]' : text);
 
-        // These five are Composio's foundational meta-tools (search, run,
-        // schema lookup, connection management) - they exist on every
-        // Composio "For You" MCP server regardless of which third-party
-        // apps are connected. Relying only on liveNames.includes(name) to
-        // decide whether to even attempt them is fragile: if the live
-        // tools/list response is briefly stale, renamed, or filters out a
-        // name with an unexpected character, the call was silently
-        // rejected locally as "Unknown tool" before ever reaching Composio
-        // - even though Composio itself would have accepted it. Always
-        // attempt these by name and let Composio's own API be the real
-        // authority on whether the call is valid.
-        const CORE_META_TOOLS = new Set([
-          'COMPOSIO_SEARCH_TOOLS',
-          'COMPOSIO_SEARCH_SKILLS',
-          'COMPOSIO_MANAGE_CONNECTIONS',
-          'COMPOSIO_MULTI_EXECUTE_TOOL',
-          'COMPOSIO_GET_TOOL_SCHEMAS',
-          'COMPOSIO_LIST_TOOLKITS',
-          'COMPOSIO_CHECK_ACTIVE_CONNECTIONS',
-          'COMPOSIO_CHECK_ACTIVE_CONNECTION',
-        ]);
-
-        if (liveNames.includes(name) || CORE_META_TOOLS.has(name)) {
-          // Normalize arguments for tools whose schema the model unreliably
-          // generates correctly (nested array-of-object shapes especially).
-          // Without this, the model's own malformed args get sent straight
-          // to Composio's API and fail with "Validation error: Required at
-          // ...", which breaks tool discovery for EVERY action that isn't
-          // one of the handful of hardcoded fast-path cases - not just one
-          // specific request.
-          let normalizedArgs: any = args || {};
-          if (name === 'COMPOSIO_SEARCH_TOOLS' || name === 'COMPOSIO_SEARCH_SKILLS') {
-            const rawQueries = (normalizedArgs as any)?.queries;
-            const alreadyValid =
-              Array.isArray(rawQueries) &&
-              rawQueries.length > 0 &&
-              rawQueries.every((q: any) => q && typeof q === 'object' && typeof q.use_case === 'string' && q.use_case.trim());
-            if (!alreadyValid) {
-              const useCase = String(
-                (normalizedArgs as any)?.use_case ||
-                (normalizedArgs as any)?.query ||
-                (normalizedArgs as any)?.search ||
-                (typeof rawQueries === 'string' ? rawQueries : '') ||
-                ''
-              ).trim() || 'find the right tool for this request';
-              normalizedArgs = { queries: [{ use_case: useCase }], session: { generate_id: true } };
-            }
-          }
-          const res = await executeMcpTool(connectorContext.mcpToken, name, normalizedArgs, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          const text = mcpContentToText(res.data);
-          return clip(res.success ? (text || JSON.stringify({ successful: true })) : (text || JSON.stringify({ successful: false, error: res.error || 'MCP tool failed' })));
-        }
-
-        // Legacy wrapper names still resolve to the real MCP tools.
-        if (name === 'Search_Composio_Tools' || name === 'COMPOSIO_SEARCH_SKILLS' || name === 'connector_search' || name === 'composio_search_tools') {
-          const query = String(args?.query || args?.search || '');
-          const searchTool = pickMcpToolName(liveNames, [/SEARCH_TOOLS/i], 'COMPOSIO_SEARCH_TOOLS');
-          const res = await executeMcpTool(connectorContext.mcpToken, searchTool, { queries: [{ use_case: query }], session: { generate_id: true } }, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-
-        if (name === 'Multi_Execute_Composio_Tools' || name === 'connector_execute' || name === 'composio_execute_action') {
-          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          // Composio's MULTI_EXECUTE schema requires tools[].tool_slug (verified
-          // against the live API: sending `name` returns 'Required at
-          // "tools[0].tool_slug"').
-          let payload = args?.action ? { tools: [{ tool_slug: args.action, arguments: args.params || args.arguments || {} }] } : args;
-          payload = await injectMissingAccountIds(payload, connectorContext);
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, payload, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-
-        if (name === 'Manage_connections' || name === 'connector_manage_connections' || name === 'COMPOSIO_MANAGE_CONNECTIONS') {
-          const hasToolkits = Array.isArray(args?.toolkits) && args.toolkits.length > 0;
-          if (!hasToolkits && String(args?.action || 'list').toLowerCase() === 'list') {
-            const accounts = await fetchComposioAccounts(
-              connectorContext.mcpToken,
-              connectorContext.mcpRefreshToken,
-              connectorContext
-            );
-            return clip(JSON.stringify({ connections: accounts }));
-          }
-          const manageTool = pickMcpToolName(liveNames, [/MANAGE_CONNECTIONS/i], 'COMPOSIO_MANAGE_CONNECTIONS');
-          const res = await executeMcpTool(
-            connectorContext.mcpToken,
-            manageTool,
-            { ...args, toolkits: args.toolkits },
-            connectorContext.mcpRefreshToken
-          );
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-
-
-        // Direct action slug dispatcher (e.g. YOUTUBE_CREATE_PLAYLIST) routed via MULTI_EXECUTE
-        if (/^[A-Z0-9]+_[A-Z0-9_]+$/.test(name) && !liveNames.includes(name)) {
-          const execTool = pickMcpToolName(liveNames, [/MULTI_EXECUTE/i], 'COMPOSIO_MULTI_EXECUTE_TOOL');
-          const { connected_account_id, ...toolArgs } = args || {};
-          const accountIds = Array.isArray(connected_account_id) ? connected_account_id : connected_account_id ? [connected_account_id] : [];
-          const tools = accountIds.length > 0
-            ? accountIds.map((id: string) => ({ tool_slug: name, arguments: { ...toolArgs, connected_account_id: id } }))
-            : [{ tool_slug: name, arguments: toolArgs }];
-          const res = await executeMcpTool(connectorContext.mcpToken, execTool, { tools }, connectorContext.mcpRefreshToken);
-          if (res.newAccessToken) connectorContext.mcpToken = res.newAccessToken;
-          if ((res as any).newRefreshToken) connectorContext.mcpRefreshToken = (res as any).newRefreshToken;
-          return clip(mcpContentToText(res.data) || JSON.stringify({ error: res.error }));
-        }
-      } catch (mcpErr: any) {
-        console.error('[MCP TOOL EXEC ERR]', mcpErr?.message || mcpErr);
-      }
-    } else {
-      // If NOT connected to Composio "For You" MCP, do not fabricate or fall back to another connector runtime.
-      const isComposioTool =
-        name.startsWith('COMPOSIO_') ||
-        name.startsWith('connector_') ||
-        ['Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections', 'composio_execute_action', 'composio_search_tools'].includes(name) ||
-        /^[A-Z0-9]+_[A-Z0-9_]+$/.test(name);
-
-      if (isComposioTool) {
-        return 'Composio "For You" is not connected yet. Click Connectors in the top right, click "+ Add", enter the MCP URL (https://connect.composio.dev/mcp), and sign in to connect.';
-      }
-    }
 
     if (name === 'web_search') {
       const queryClean = String(args?.query || '').trim();
@@ -1269,20 +1061,8 @@ export async function POST(req: NextRequest) {
     } = await req.json();
 
     const headerMcpToken = req.headers.get('x-composio-mcp-token') || '';
-    const headerMcpRefreshToken = req.headers.get('x-composio-mcp-refresh-token') || '';
-
-    const cookieMcpToken = req.cookies.get('composio_mcp_token')?.value || req.cookies.get('composio_mcp_access_token')?.value || '';
-    const cookieMcpRefreshToken = req.cookies.get('composio_mcp_refresh_token')?.value || '';
-
-    // A live Composio session is identified by its own authorization token, not
-    // only by a Composio entry in the connector list. The connector list is
-    // rebuilt per session and the Connectors UI additionally merges custom
-    // entries from localStorage, so a connected Composio user can legitimately
-    // have a valid composio_mcp_token cookie while no Composio connector is
-    // present in the payload. Keying only off the connector list silently
-    // discarded that token and reported "no active connector".
-    // Direct connector mode: never implicitly use a Composio browser session.
-    // Actions are sourced only from enabled plugins/connectors in this chat.
+    // Direct connector mode: Composio credentials are ignored for chat execution.
+    // Only enabled user-created/native MCP connectors can supply tools here.
     const explicitComposioConnector = false;
     const composioUserId = 'disabled';
     let composioMcpToken = '';
@@ -1295,18 +1075,10 @@ export async function POST(req: NextRequest) {
     const lowerText = lastText.toLowerCase();
 
     // ========================================================
-    // CONNECTOR CONTEXT
-    // Native directory connectors are independent remote MCP servers.
-    // Composio is only active when the user explicitly adds/uses its
-    // remote MCP server and supplies its MCP authorization.
+    // DIRECT CONNECTOR CONTEXT
+    // User-created/native plugins connect straight to their configured
+    // MCP server. Composio is intentionally NOT used as the runtime here.
     // ========================================================
-    // Fetch the live connected accounts once per request so the agent knows
-    // which accounts exist (and their ids) for multi-account apps.
-    let composioAccounts: any[] = [];
-    if (composioMcpToken) {
-      composioAccounts = await fetchComposioAccounts(composioMcpToken, composioMcpRefreshToken, {});
-    }
-
     let connectorContext = '';
 
     const enabledRemoteConnectors = (Array.isArray(connectors) ? connectors : [])
@@ -1314,52 +1086,24 @@ export async function POST(req: NextRequest) {
         const cfg = connector?.config || {};
         const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
         const url = String(cfg.mcpUrl || connector?.url || '').trim();
-        return connector?.enabled !== false && type === 'mcp' && /^https?:\/\//i.test(url);
+        return connector?.enabled !== false &&
+          type === 'mcp' &&
+          /^https?:\/\//i.test(url) &&
+          !/connect\.composio\.dev\/mcp/i.test(url);
       });
 
     if (enabledRemoteConnectors.length > 0) {
-      connectorContext += '\n\n[ACTIVE REMOTE MCP CONNECTORS]\n' +
+      connectorContext += '\n\n[ACTIVE DIRECT MCP CONNECTORS]\n' +
         enabledRemoteConnectors.map((connector: any) => {
           const url = String(connector?.config?.mcpUrl || connector?.url || '').trim();
           return '- ' + String(connector?.name || connector?.id || 'Connector') + ' → ' + url +
-            '. Use this connector\'s discovered tools for requests about that service.';
+            '. Use this connector\'s discovered tools directly for requests about that service.';
         }).join('\n') +
-        '\nRules: use the real discovered MCP tools; never invent data; complete the requested action and then summarize the real result.\n';
+        '\nRules: use the real discovered MCP tools; never route these actions through Composio; never invent results; complete the requested action and summarize the real result.\n';
     }
 
-    if (composioMcpToken) {
-      connectorContext += '\n\n[EXPLICIT COMPOSIO REMOTE MCP ACTIVE]\n' + [
-        'Composio is active only as an explicitly authorized remote MCP server.',
-        'Use its live MCP tools for that remote connector and do not treat Composio as the native connector directory.',
-        'Never claim a connected app or action without a real MCP result.',
-      ].join('\n') + '\n';
-
-      // Real agent protocol: the model is the user's agent over their
-      // Composio-connected apps. It must ask for missing required fields
-      // instead of calling actions with empty arguments, and it must select
-      // a connected account when an app has multiple accounts.
-      const accountLines = (Array.isArray(composioAccounts) ? composioAccounts : [])
-        .map((a: any) => `- ${String(a?.app_name || a?.appName || a?.app || a?.name || 'app')} → ${String(a?.id || a?.connected_account_id || '?')}${a?.email ? ` (${a?.email})` : ''}`)
-        .join('\n');
-      connectorContext += '\n\n[COMPOSIO AGENT PROTOCOL]\n' + [
-        'You are the user\'s agent for their connected apps through Composio.',
-        'Connected accounts:',
-        accountLines || '- (none connected)',
-        '',
-        'To run an action:',
-        '1. Find the exact tool slug with COMPOSIO_SEARCH_TOOLS if you are unsure which tool exists.',
-        '2. Execute it with COMPOSIO_MULTI_EXECUTE_TOOL using tools: [{ "tool_slug": "<SLUG>", "arguments": { ... } }].',
-        '3. When an app has multiple connected accounts, include connected_account_id in arguments (use the id listed above).',
-        '',
-        'CRITICAL RULES:',
-        '- NEVER call an action with empty required fields. If a required field is missing (e.g. playlist title, email recipient, event title), ASK the user for it in plain text and wait for their reply.',
-        '- NEVER invent or fake results. Only report what the real tool returns.',
-        '- After a successful action, confirm what was done using the real result.',
-      ].join('\n') + '\n';
-    }
-
-    if (!enabledRemoteConnectors.length && !composioMcpToken) {
-      connectorContext += '\n\n[NO ACTIVE REMOTE MCP CONNECTORS]\nNo connector is enabled for this conversation.\n';
+    if (!enabledRemoteConnectors.length) {
+      connectorContext += '\n\n[NO ACTIVE DIRECT MCP CONNECTORS]\nNo user-created/native MCP connector is enabled for this conversation.\n';
     }
 
     const developerDirective = `\nInstructions:
@@ -1410,11 +1154,10 @@ export async function POST(req: NextRequest) {
     const isCloudEnv = Boolean(process.env.VERCEL || process.env.AWS_REGION);
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');
 
-    // 1. Tool execution loop: check if request needs web search, git, email, or Composio tools
+    // 1. Tool execution loop: discover tools only from enabled direct connectors.
     const hasNativeMcp = enabledRemoteConnectors.length > 0;
     const agentDeadline = requestStartTime + (hasNativeMcp ? 200000 : 120000);
     const maxAgentTurns = hasNativeMcp ? 24 : 8;
-    // Composio tools are intentionally not loaded into chat.
     const mcpLiveTools: any[] = [];
     const mcpToolNames: string[] = [];
     const mcpListDebug = '';
@@ -1532,23 +1275,9 @@ export async function POST(req: NextRequest) {
 
     const hasFocusedRemoteTools = connectorFocusedTools.length > 0;
 
-    const mcpWrapperNames = new Set([
-      'connector_search', 'connector_manage_connections', 'connector_execute',
-      'Search_Composio_Tools', 'Multi_Execute_Composio_Tools', 'Manage_connections',
-    ]);
-
-    // These are legacy Composio wrappers. Native OAuth/MCP connectors never use them.
-    // Keep them available only when the user explicitly connected a Composio MCP session.
-    const baseTools = AGENT_TOOLS.filter((t: any) => {
-      const name = String(t?.function?.name || '');
-      return !mcpWrapperNames.has(name) || explicitComposioConnector;
-    });
-    const effectiveTools = hasFocusedRemoteTools
+    const effectiveTools = connectorFocusedTools.length
       ? connectorFocusedTools
-      : [
-          ...baseTools,
-          ...remoteMcpTools,
-        ];
+      : [...AGENT_TOOLS, ...remoteMcpTools];
     let forceConnectorTool = false;
 
 

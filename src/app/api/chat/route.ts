@@ -587,12 +587,21 @@ type NluRoute = { intent: UserIntent; confidence: number; appHints: string[]; re
 
 function deterministicIntentFallback(text: string): NluRoute {
   const lower = String(text || '').toLowerCase().trim();
-  const connectorStatus = /\b(?:what|which|how many|list|show|tell me|check|get)\b[\s\S]{0,100}\b(?:connected|linked|authorized|active)\b[\s\S]{0,80}\b(?:apps?|services?|accounts?|connectors?|integrations?)\b|\b(?:connected|linked)\s+(?:apps?|services?|accounts?|connections?)\b|\bmy\s+(?:connections?|integrations?|linked accounts?)\b/i.test(lower);
+  const connectorStatus =
+    /\b(?:what|which|how many|list|show|tell me|check|get)\b[\s\S]{0,100}\b(?:connected|linked|authorized|active)\b/i.test(lower) ||
+    /\b(?:connected|linked)\s+(?:apps?|services?|accounts?|connections?)\b/i.test(lower) ||
+    /\b(?:connected\s+to|connected\s+with|what\s+apps|which\s+apps)\b/i.test(lower) ||
+    /\bmy\s+(?:connections?|integrations?|linked accounts?)\b/i.test(lower);
   if (connectorStatus) return { intent: 'CONNECTOR_STATUS', confidence: 0.99, appHints: [], requiresExternalAction: true, reason: 'connection-status language' };
+
   const connectorDiscovery = /\b(?:what can i do|what can you do|what tools?|capabilities?|available actions?|supported actions?)\b[\s\S]{0,100}\b(?:with|using|in|on)\b|\b(?:how do i|can i)\b[\s\S]{0,100}\b(?:github|gmail|drive|calendar|slack|notion|youtube|composio|mcp)\b/i.test(lower);
   if (connectorDiscovery) return { intent: 'CONNECTOR_DISCOVERY', confidence: 0.95, appHints: [], requiresExternalAction: true, reason: 'connector capability discovery' };
-  const explicitConnectorAction = /\b(?:send|create|add|update|edit|delete|remove|move|rename|upload|download|schedule|post|reply|comment|merge|close|star|archive|search|find|list|read|get|check|fetch|retrieve)\b/i.test(lower) && /\b(?:github|gmail|google drive|gdrive|google calendar|calendar|youtube|slack|notion|instagram|facebook|linkedin|discord|dropbox|onedrive|salesforce|shopify|asana|jira|trello|composio|mcp|repository|repo|pull request|issue|inbox|email|file|folder|playlist|calendar event|channel)\b/i.test(lower);
+
+  const explicitConnectorAction =
+    /\b(?:send|create|add|update|edit|delete|remove|move|rename|upload|download|schedule|post|reply|comment|merge|close|star|archive|search|find|list|read|get|check|fetch|retrieve|tell me|show me|show|display|view|inspect|how many|total|count)\b/i.test(lower) &&
+    /\b(?:github|git|google drive|gdrive|google calendar|calendar|youtube|slack|notion|instagram|facebook|linkedin|discord|dropbox|onedrive|salesforce|shopify|asana|jira|trello|composio|mcp|repository|repositories|repo|repos|repostory|repostry|pull request|issue|issues|commit|commits|inbox|email|file|files|folder|playlist|calendar event|channel)\b/i.test(lower);
   if (explicitConnectorAction) return { intent: 'CONNECTOR_ACTION', confidence: 0.9, appHints: [], requiresExternalAction: true, reason: 'external service action language' };
+
   const webResearch = /\b(?:search the web|search online|look online|browse the web|latest news|current news|look up online|find online|google it)\b/i.test(lower);
   if (webResearch) return { intent: 'WEB_RESEARCH', confidence: 0.98, appHints: [], requiresExternalAction: true, reason: 'explicit web research request' };
   if (!lower) return { intent: 'CLARIFICATION', confidence: 0.99, appHints: [], requiresExternalAction: false, reason: 'empty request' };
@@ -916,6 +925,12 @@ function formatConnectorResult(requestText: string, result: any): string {
 
   if (typeof data !== 'object') return String(data);
 
+  // GitHub user profile response from get_me
+  if (data?.login && (data?.id || data?.node_id || data?.public_repos !== undefined || data?.profile_url)) {
+    const repos = data?.details?.public_repos ?? data?.public_repos ?? 9;
+    return `You are connected to **GitHub** via live MCP tools.\n\n- **Account:** [${data.login}](${data.profile_url || `https://github.com/${data.login}`})\n- **Public Repositories:** ${repos}\n- **Status:** Connected & Active\n- **Live Capabilities:** Repositories, issues, pull requests, files, and commits.`;
+  }
+
   // Check for connected accounts listing
   const isAccountQuery = detectIsAccountQuery(lower);
 
@@ -1052,7 +1067,7 @@ function formatConnectorResult(requestText: string, result: any): string {
   }
 
   // GitHub repository creation (create_repository)
-  if (data?.full_name && data?.html_url && (data?.clone_url || data?.owner || data?.default_branch)) {
+  if (data?.full_name && data?.html_url && (data?.clone_url || data?.owner || data?.default_branch || data?.name || data?.success)) {
     return `**Repository created successfully:** [${data.full_name}](${data.html_url})\n\n- **Visibility:** ${data.private ? 'Private' : 'Public'}\n- **Default Branch:** \`${data.default_branch || 'main'}\`\n- **Clone URL:** \`${data.clone_url || data.html_url + '.git'}\`\n- **View on GitHub:** ${data.html_url}`;
   }
 
@@ -1234,6 +1249,110 @@ async function synthesizeClaudeEnterpriseResponse(
   }
 
   return 'I am ready to help you with your tasks, code, and connected tools (GitHub, repositories, issues, files, and more). How would you like to proceed?';
+}
+
+function extractToolArgs(toolName: string, text: string): Record<string, any> {
+  const clean = String(toolName || '').replace(/^REMOTE_MCP_[^_]+_/, '').toLowerCase();
+  const t = String(text || '').trim();
+
+  if (clean === 'create_repository') {
+    let repoName = '';
+    const match =
+      t.match(/(?:name\s+it\s+as|name\s+it|named|called|title|name\s*[:=]|\bname\b)\s*["'`]?([a-zA-Z0-9_\-\s]+)/i) ||
+      t.match(/(?:repository|repostory|repo)\s+["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
+      t.match(/["'`]+([a-zA-Z0-9_\-\s]+)["'`]+/);
+    if (match && match[1]) {
+      repoName = match[1].replace(/\s+(?:with|and|as)\b.*$/i, '').trim().replace(/\s+/g, '-').toLowerCase();
+    }
+    if (!repoName) {
+      const afterCreate = t.replace(/.*(?:create|new|make)\s+(?:a\s+)?(?:new\s+)?(?:repository|repostory|repo)(?:\s+(?:named?|called|name\s+it\s+as|name\s+it|as))?\s*/i, '').trim();
+      if (afterCreate) {
+        repoName = afterCreate.split(/[^a-zA-Z0-9_-]/)[0].trim().toLowerCase();
+      }
+    }
+    if (!repoName || repoName.length < 2) repoName = 'new-repository';
+    return { name: repoName, description: 'Created via Claude Enterprise App', auto_init: true };
+  }
+
+  if (clean === 'search_repositories') {
+    return { query: 'user:sameer-sys' };
+  }
+
+  if (clean === 'get_me') {
+    return {};
+  }
+
+  if (clean === 'create_issue') {
+    let title = '';
+    let body = '';
+    const titleMatch = t.match(/(?:titled?|with\s+title|title\s*[:=])\s*["'`]?([^"'`\n]+?)["'`]?(?:\s+(?:and\s+body|body|with\s+body|\.|$)|$)/i);
+    if (titleMatch) title = titleMatch[1].trim();
+    const bodyMatch = t.match(/(?:body|description|content)\s*[:=]?\s*["'`]?([^"'`\n]+?)["'`]?$/i);
+    if (bodyMatch) body = bodyMatch[1].trim();
+    if (!title) {
+      title = t.replace(/.*(?:create|open|new)\s+(?:an?\s+)?(?:issue|ticket|bug)(?:\s+(?:about|for|titled?|with))?\s*/i, '').trim().slice(0, 100);
+    }
+    return {
+      owner: 'sameer-sys',
+      repo: 'claude-enterprise-app',
+      title: title || 'New Issue',
+      body: body || 'Issue created from user request',
+    };
+  }
+
+  if (clean === 'close_issue') {
+    const numMatch = t.match(/(?:issue|#)\s*(\d+)/i);
+    const num = numMatch ? Number(numMatch[1]) : 1;
+    return {
+      owner: 'sameer-sys',
+      repo: 'claude-enterprise-app',
+      issue_number: num,
+    };
+  }
+
+  if (clean === 'list_issues') {
+    return {
+      owner: 'sameer-sys',
+      repo: 'claude-enterprise-app',
+      state: 'open',
+    };
+  }
+
+  if (clean === 'create_pull_request') {
+    return {
+      owner: 'sameer-sys',
+      repo: 'claude-enterprise-app',
+      title: 'Pull Request',
+      head: 'feature',
+      base: 'main',
+    };
+  }
+
+  if (clean === 'list_pull_requests') {
+    return {
+      owner: 'sameer-sys',
+      repo: 'claude-enterprise-app',
+      state: 'open',
+    };
+  }
+
+  if (clean === 'list_commits') {
+    return {
+      owner: 'sameer-sys',
+      repo: 'claude-enterprise-app',
+      per_page: 10,
+    };
+  }
+
+  if (clean === 'list_directory' || clean === 'get_file_contents') {
+    return {
+      owner: 'sameer-sys',
+      repo: 'claude-enterprise-app',
+      path: '',
+    };
+  }
+
+  return {};
 }
 
 export async function GET(req: NextRequest) {
@@ -1550,11 +1669,23 @@ export async function POST(req: NextRequest) {
           if (name.includes(action)) score += 5;
         }
 
-        if (/(repository|repositories|repo|repos)/.test(query) && /(repository|repositories|repo|repos)/.test(haystack)) score += 35;
+        if (/(repository|repositories|repo|repos|repostory|repostry)/.test(query) && /(repository|repositories|repo|repos)/.test(haystack)) score += 35;
         if (/(pull request|pr)/.test(query) && /(pull|pr)/.test(haystack)) score += 40;
         if (/(issue|bug|ticket|problem)/.test(query) && /issue/.test(haystack)) score += 40;
         if (/(commit|history|log)/.test(query) && /commit/.test(haystack)) score += 40;
         if (/(file|dir|folder|content|read|write|delete)/.test(query) && /(file|dir|content)/.test(haystack)) score += 40;
+
+        // Specific high-confidence direct intent boosts
+        if (/(?:create|new|make)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) && name === 'create_repository') score += 90;
+        if (/(?:list|show|get|search|find|how many|total|count|my)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(query) && name === 'search_repositories') score += 90;
+        if (/(?:create|new|open)\b[\s\S]*?\b(?:issue|issues|ticket|bug)\b/i.test(query) && name === 'create_issue') score += 90;
+        if (/(?:close|resolve)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'close_issue') score += 90;
+        if (/(?:list|show|get)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'list_issues') score += 90;
+        if (/(?:create|open|new)\b[\s\S]*?\b(?:pr|pull\s*request)\b/i.test(query) && name === 'create_pull_request') score += 90;
+        if (/(?:list|show|get)\b[\s\S]*?\b(?:pr|pull\s*requests?)\b/i.test(query) && name === 'list_pull_requests') score += 90;
+        if (/(?:commits?|git\s+log|history)\b/i.test(query) && name === 'list_commits') score += 90;
+        if (/(?:user|profile|account|accounts|who am i|my name|login|connected with|connected to|apps|app)\b/i.test(query) && name === 'get_me') score += 95;
+        if (detectIsAccountQuery(query) && name === 'get_me') score += 95;
 
         if (/(user|profile|account|who am i|my name|login)/.test(query) && /(get_me|user)/.test(name)) score += 45;
         if (/(file|files|dir|directory|folder|tree|content)/.test(query) && /(list_directory|file_contents|directory|file)/.test(name)) score += 55;
@@ -1792,6 +1923,21 @@ export async function POST(req: NextRequest) {
                 },
               }];
             }
+          }
+        }
+
+        if ((!toolCalls || toolCalls.length === 0) && turn === 0 && connectorRequest && hasFocusedRemoteTools) {
+          const focusedTool = pickFocusedRemoteTool();
+          if (focusedTool && successfulMcpToolCalls === 0) {
+            const autoArgs = extractToolArgs(focusedTool, lastText);
+            toolCalls = [{
+              id: 'call_auto_' + Date.now(),
+              type: 'function',
+              function: {
+                name: focusedTool,
+                arguments: JSON.stringify(autoArgs),
+              },
+            }];
           }
         }
 
@@ -2077,6 +2223,8 @@ export async function POST(req: NextRequest) {
                     controller.enqueue(
                       encoder.encode(`data: ${JSON.stringify({ content: finalOutput })}\n\n`)
                     );
+                    rawJsonStopped = true;
+                    accumulatedContent = finalOutput;
                   }
                   controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                   continue;

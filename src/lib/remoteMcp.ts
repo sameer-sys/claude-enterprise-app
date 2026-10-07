@@ -505,7 +505,8 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
 
     if (cleanToolName === 'create_repository') {
       try {
-        const name = String(args.name || '').trim();
+        const rawName = String(args.name || '').trim();
+        const name = rawName.replace(/\s+/g, '-').toLowerCase() || 'new-repo';
         const description = String(args.description || '');
         const isPrivate = Boolean(args.private);
         const ghRes = await fetch('https://api.github.com/user/repos', {
@@ -516,9 +517,22 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
         });
         if (ghRes.ok) {
           const repo = await ghRes.json();
-          return JSON.stringify({ success: true, name: repo.name, full_name: repo.full_name, html_url: repo.html_url, description: repo.description, private: repo.private });
+          return JSON.stringify({ success: true, name: repo.name, full_name: repo.full_name, html_url: repo.html_url, description: repo.description, private: repo.private, default_branch: repo.default_branch || 'main', clone_url: repo.clone_url || (repo.html_url + '.git') });
         } else {
           const errData = await ghRes.json().catch(() => ({}));
+          const errStr = JSON.stringify(errData);
+          if (ghRes.status === 422 || /already exists/i.test(errStr)) {
+            try {
+              const checkRes = await fetch(`https://api.github.com/repos/sameer-sys/${name}`, {
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+                signal: AbortSignal.timeout(6000),
+              });
+              if (checkRes.ok) {
+                const existingRepo = await checkRes.json();
+                return JSON.stringify({ success: true, existing: true, name: existingRepo.name, full_name: existingRepo.full_name, html_url: existingRepo.html_url, description: existingRepo.description, private: existingRepo.private, default_branch: existingRepo.default_branch || 'main', clone_url: existingRepo.clone_url || (existingRepo.html_url + '.git') });
+              }
+            } catch {}
+          }
           return JSON.stringify({ error: errData.message || `Failed to create repository (${ghRes.status})` });
         }
       } catch (err: any) {

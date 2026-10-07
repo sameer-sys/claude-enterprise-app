@@ -235,7 +235,7 @@ export default function ConnectorsModal({
           // to the active session so /api/chat receives the connected plugin.
           const connectedConnector = connectors.find((c) => c.id === id) || activeConnectors.find((c) => c.id === id);
           if (connectedConnector) {
-            onAddCustomConnector({ ...connectedConnector, status: 'connected', enabled: true });
+            onAddCustomConnector?.({ ...connectedConnector, status: 'connected', enabled: true });
           }
           setStatusMessage('Provider account connected. Loading its real tools…');
         } else setStatusMessage('OAuth Error: ' + String(event.data?.error || 'Authentication failed.'));

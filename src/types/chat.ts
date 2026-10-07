@@ -40,7 +40,7 @@ export interface ConnectorConfig {
   subreddit?: string;
   webhookUrl?: string;
   /** Provider-neutral connector settings. */
-  connectionType?: 'direct' | 'mcp' | 'webhook' | 'zapier' | 'composio' | 'custom-api' | 'cli';
+  connectionType?: 'direct' | 'mcp' | 'webhook' | 'zapier' | 'custom-api' | 'cli';
   authUrl?: string;
   mcpUrl?: string;
   providerName?: string;
@@ -55,8 +55,6 @@ export interface ConnectorConfig {
   toolAccess?: 'auto' | 'always' | 'on_demand';
   /** Remote MCP tool names disabled for this conversation. */
   disabledTools?: string[];
-  /** Toolkit slug for a Composio-served connector. */
-  composioApp?: string;
   connectedAccountId?: string;
   [key: string]: any;
 }
@@ -69,7 +67,7 @@ export interface Connector {
   enabled: boolean;
   status: 'connected' | 'ready' | 'idle';
   category: string;
-  provider?: 'anthropic' | 'mcp' | 'community' | 'direct' | 'zapier' | 'composio' | 'custom-api' | 'cli';
+  provider?: 'anthropic' | 'mcp' | 'community' | 'direct' | 'zapier' | 'custom-api' | 'cli';
   capabilities?: string[];
   config?: ConnectorConfig;
   isVerified?: boolean;
@@ -78,8 +76,6 @@ export interface Connector {
   isCustom?: boolean;
   url?: string;
   section?: 'custom' | 'top' | 'trending';
-  /** Toolkit slug this preset maps to when served through Composio "For You". */
-  composioApp?: string;
 }
 
 export interface CustomButton {

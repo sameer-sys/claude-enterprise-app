@@ -251,7 +251,12 @@ export default function Home() {
       let changed = false;
       const cleaned = prev.map((session) => {
         const existing = Array.isArray(session.connectors) ? session.connectors : [];
-        const connectors = existing.filter((connector) => connector?.isCustom === true);
+        const connectors = existing.filter((connector) => {
+          const cfg = connector?.config || {};
+          const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+          const url = String(cfg.mcpUrl || connector?.url || '').trim();
+          return type === 'mcp' && /^https?:\\/\\//i.test(url) && !/connect\\.composio\\.dev\\/mcp/i.test(url);
+        });
         if (connectors.length !== existing.length) changed = true;
         return connectors.length === existing.length ? session : { ...session, connectors };
       });
@@ -328,10 +333,16 @@ export default function Home() {
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) || sessions[0] || DEFAULT_SESSION;
 
-  // Never let legacy native connectors reach chat/UI, even before a
-  // localStorage/cloud migration finishes.
+  // Chat must receive every enabled direct MCP connector, regardless of
+  // whether it was created by the plugin creator or restored from an older
+  // connector record. Only Composio-managed entries are excluded.
   const currentSessionConnectors =
-    (activeSession.connectors || []).filter((connector) => connector?.isCustom === true);
+    (activeSession.connectors || []).filter((connector) => {
+      const cfg = connector?.config || {};
+      const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+      const url = String(cfg.mcpUrl || connector?.url || '').trim();
+      return type === 'mcp' && /^https?:\\/\\//i.test(url) && !/connect\\.composio\\.dev\\/mcp/i.test(url);
+    });
 
   const activeConnectorsCount = currentSessionConnectors.filter((connector) => connector.enabled).length;
 

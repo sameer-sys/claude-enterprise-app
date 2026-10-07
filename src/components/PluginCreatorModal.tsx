@@ -97,7 +97,7 @@ export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubCon
       }
 
       let probeData: any = null;
-              const probe = await fetch('/api/mcp', {
+      const probe = await fetch('/api/mcp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'check', connector }),
@@ -115,7 +115,6 @@ export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubCon
         } else {
           setMessage('Plugin created and added to Connectors. The server can be tested from its connector page.');
         }
-      }
 
       const bytes = Uint8Array.from(atob(data.archiveBase64), (char) => char.charCodeAt(0));
       const blob = new Blob([bytes], { type: 'application/gzip' });

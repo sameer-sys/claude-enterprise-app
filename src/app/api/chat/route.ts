@@ -1281,47 +1281,12 @@ export async function POST(req: NextRequest) {
     // have a valid composio_mcp_token cookie while no Composio connector is
     // present in the payload. Keying only off the connector list silently
     // discarded that token and reported "no active connector".
-    const hasComposioSessionToken = Boolean(String(bodyMcpToken || headerMcpToken || cookieMcpToken || '').trim());
-    const explicitComposioConnector = hasComposioSessionToken || (Array.isArray(connectors) && connectors.some((connector: any) => {
-      const cfg = connector?.config || {};
-      const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
-      const url = String(cfg.mcpUrl || connector?.url || '').toLowerCase();
-      return type === 'composio' || url.includes('connect.composio.dev');
-    }));
-
-    // Native connectors must never inherit the legacy Composio session.
-    // Composio is isolated to an explicitly configured Composio connector or
-    // to a real Composio authorization held by this browser.
-    const composioUserId = explicitComposioConnector
-      ? (String(req.cookies.get('sameer_composio_user_id')?.value || '').trim() || 'default')
-      : 'disabled';
-    let composioMcpToken = explicitComposioConnector
-      ? String(bodyMcpToken || headerMcpToken || cookieMcpToken || '').trim()
-      : '';
-    let composioMcpRefreshToken = explicitComposioConnector
-      ? String(bodyMcpRefreshToken || headerMcpRefreshToken || cookieMcpRefreshToken || '').trim()
-      : '';
-
-    // A Composio MCP server added via "Add custom" completes OAuth through the
-    // generic remote-MCP flow, which stores the token in that connector's own
-    // cookie rather than in composio_mcp_token. Without lifting it here the
-    // connector reports Connected in the UI but chat sees no Composio tools.
-    if (explicitComposioConnector && !composioMcpToken) {
-      for (const connector of Array.isArray(connectors) ? connectors : []) {
-        const cfg = connector?.config || {};
-        const url = String(cfg.mcpUrl || connector?.url || '').trim();
-        const isComposioUrl = String(cfg.connectionType || connector?.provider || '').toLowerCase() === 'composio' || url.includes('connect.composio.dev');
-        if (!isComposioUrl || !url || !connector?.id) continue;
-        const stored = getStoredTokenFromRequest({ cookies: req.cookies }, String(connector.id), url);
-        const credential = getCredentialFromRequest({ cookies: req.cookies }, String(connector.id), url);
-        const merged = { ...(credential || {}), ...(stored || {}) };
-        if (merged.accessToken) {
-          composioMcpToken = String(merged.accessToken).trim();
-          if (merged.refreshToken) composioMcpRefreshToken = String(merged.refreshToken).trim();
-          break;
-        }
-      }
-    }
+    // Direct connector mode: never implicitly use a Composio browser session.
+    // Actions are sourced only from enabled plugins/connectors in this chat.
+    const explicitComposioConnector = false;
+    const composioUserId = 'disabled';
+    let composioMcpToken = '';
+    let composioMcpRefreshToken = '';
 
     const isOmniRouteModel = true;
 
@@ -1446,50 +1411,14 @@ export async function POST(req: NextRequest) {
     const isLocalhost = omniLocalUrl.includes('127.0.0.1') || omniLocalUrl.includes('localhost');
 
     // 1. Tool execution loop: check if request needs web search, git, email, or Composio tools
-    const hasNativeMcp = connectors.some((c: any) => c?.enabled !== false && String(c?.config?.connectionType || c?.provider || '').toLowerCase() === 'mcp');
-    const agentDeadline = requestStartTime + (composioMcpToken || hasNativeMcp ? 200000 : 120000);
-    const maxAgentTurns = composioMcpToken || hasNativeMcp ? 24 : 8;
-    let mcpLiveTools: any[] = [];
-    let mcpToolNames: string[] = [];
-    let mcpListDebug = '';
-    if (composioMcpToken) {
-      try {
-        const { listMcpToolsCachedWithAuth, mcpToolsToOpenAI } = await import('@/lib/composioMcp');
-        const listed = await listMcpToolsCachedWithAuth(composioMcpToken, composioMcpRefreshToken);
-        mcpListDebugInfo = listed.debug || '';
-        mcpListDebug = mcpListDebugInfo;
-        if (listed.accessToken && listed.accessToken !== composioMcpToken) {
-          composioMcpToken = listed.accessToken;
-        }
-        if (listed.refreshToken && listed.refreshToken !== composioMcpRefreshToken) {
-          composioMcpRefreshToken = listed.refreshToken;
-        }
-        const discoveredComposioTools = mcpToolsToOpenAI(listed.tools);
-        const discoveredNames = new Set(discoveredComposioTools.map((t: any) => String(t?.function?.name || '')));
-        // Always expose the stable Composio gateway contract to the model.
-        // Composio may omit a meta-tool from tools/list temporarily, but the
-        // gateway dispatcher can resolve the live server name at execution time.
-        const gatewayTools = COMPOSIO_GATEWAY_TOOLS.filter((t: any) => !discoveredNames.has(String(t.function.name)));
-        mcpLiveTools = [...discoveredComposioTools, ...gatewayTools];
-        mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
-      } catch (mcpListErr: any) {
-        console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);
-        mcpListDebug = `exception=${String((mcpListErr as any)?.message || mcpListErr).slice(0, 160)}`;
-      }
-    }
-    const mcpModeActive = Boolean(composioMcpToken) && mcpToolNames.length > 0;
-
-    // A Composio session token that is present but expired, with no working
-    // refresh path, must never degrade into a hallucinated fallback answer.
-    // Surface the real state so the user reconnects instead of being told
-    // "no connected account" when the account is actually still connected.
-    if (composioMcpToken && mcpToolNames.length === 0 && isJwtExpired(composioMcpToken)) {
-      const reconnectLink = `[Reconnect Composio](/api/composio/connect)`;
-      const expiredMessage = composioMcpRefreshToken
-        ? `Your Composio session expired and could not be refreshed. ${reconnectLink} to keep using your connected apps.`
-        : `Your Composio session has expired. ${reconnectLink} to keep using your connected apps.`;
-      return streamTextDirectly(expiredMessage, detectedSkill, undefined, true);
-    }
+    const hasNativeMcp = enabledRemoteConnectors.length > 0;
+    const agentDeadline = requestStartTime + (hasNativeMcp ? 200000 : 120000);
+    const maxAgentTurns = hasNativeMcp ? 24 : 8;
+    // Composio tools are intentionally not loaded into chat.
+    const mcpLiveTools: any[] = [];
+    const mcpToolNames: string[] = [];
+    const mcpListDebug = '';
+    const mcpModeActive = false;
 
     const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};
     const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};
@@ -1614,11 +1543,10 @@ export async function POST(req: NextRequest) {
       const name = String(t?.function?.name || '');
       return !mcpWrapperNames.has(name) || explicitComposioConnector;
     });
-    const effectiveTools = hasFocusedRemoteTools && !mcpModeActive
+    const effectiveTools = hasFocusedRemoteTools
       ? connectorFocusedTools
       : [
           ...baseTools,
-          ...mcpLiveTools,
           ...remoteMcpTools,
         ];
     let forceConnectorTool = false;

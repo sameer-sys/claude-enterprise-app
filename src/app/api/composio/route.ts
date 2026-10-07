@@ -36,20 +36,10 @@ export async function GET(req: NextRequest) {
     if (mcpConnected) {
       let activeMcpToken = mcpToken;
       let activeRefreshToken = mcpRefreshToken;
-      let tools: any[] = [];
       let connectedAccounts: any[] = [];
 
       try {
-        const toolListRes = await callComposioMcp(activeMcpToken, 'tools/list', {}, mcpRefreshToken);
-        if (toolListRes.newAccessToken) activeMcpToken = toolListRes.newAccessToken;
-        if ((toolListRes as any).newRefreshToken) activeRefreshToken = (toolListRes as any).newRefreshToken;
-        if (toolListRes.success && Array.isArray(toolListRes.result?.tools)) {
-          tools = toolListRes.result.tools;
-        }
-
-        // FIX: Pass an empty array instead of tool names. The listComposioActiveConnections
-        // function will query Composio's MANAGE_CONNECTIONS directly to get the real
-        // connected accounts, not filter by tool names.
+        // FIX: Query Composio for ALL active connected accounts without filtering
         connectedAccounts = await listComposioActiveConnections(
           activeMcpToken,
           activeRefreshToken,
@@ -61,7 +51,7 @@ export async function GET(req: NextRequest) {
 
       const response = NextResponse.json({
         configured: true, mode: 'for_you', mcpConnected: true, userId: entityId,
-        tools, connectedAccounts,
+        connectedAccounts,
       });
 
       if (activeMcpToken && (activeMcpToken !== mcpToken || activeRefreshToken !== mcpRefreshToken)) {
@@ -76,7 +66,7 @@ export async function GET(req: NextRequest) {
     return withUserCookie(
       NextResponse.json({
         configured: false, mode: 'unconfigured', mcpConnected: false, userId: entityId,
-        tools: [], connectedAccounts: [],
+        connectedAccounts: [],
         message: 'Composio "For You" is not connected yet. Click Connectors to connect your personal Composio account.',
       }),
       entityId

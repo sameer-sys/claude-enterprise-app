@@ -36,7 +36,14 @@ function normalizeConnectors(raw: any[]): Connector[] {
   const defaults = createDefaultConnectors();
   const byId = new Map<string, Connector>(defaults.map((connector) => [connector.id, connector]));
   const input = Array.isArray(raw)
-    ? raw.filter((connector: any) => connector && typeof connector === 'object' && connector.isCustom === true)
+    ? raw.filter((connector: any) => {
+        if (!connector || typeof connector !== 'object') return false;
+        const cfg = connector.config || {};
+        const type = String(cfg.connectionType || connector.provider || '').toLowerCase();
+        const url = String(cfg.mcpUrl || connector.url || '').trim();
+        const isDirectMcp = type === 'mcp' && /^https?:\/\//i.test(url) && !/connect\.composio\.dev\/mcp/i.test(url);
+        return connector.isCustom === true || isDirectMcp;
+      })
     : [];
 
   for (const connector of input) {

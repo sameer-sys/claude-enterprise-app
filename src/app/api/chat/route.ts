@@ -1357,77 +1357,33 @@ export async function POST(req: NextRequest) {
     })();
 
     // PRIMARY CONNECTOR PATH:
-    // Connector requests must enter the real live Composio MCP tool loop.
-    // Do not guess an app-specific action from a keyword such as "playlist" or
-    // "video": multi-step requests need the model to discover the exact tools,
-    // schemas, and result-dependent values through Composio.
-    if (connectorRequest) {
-      if (!mcpModeActive && !hasFocusedRemoteTools) {
-        const message = composioMcpToken
-          ? 'Composio "For You" is connected, but its live MCP tools are unavailable right now. [Reconnect Composio](/api/composio/connect) and try again.'
-          : 'No active Composio For You or remote MCP connector is available for this request. Open Connectors to connect one.';
-        return streamTextDirectly(message, detectedSkill);
-      }
+    // Connector requests use the user's enabled direct MCP plugin(s).
+    // Composio is not involved in this path.
+    if (connectorRequest && !hasFocusedRemoteTools) {
+      return streamTextDirectly(
+        'No active direct connector is enabled for this request. Open Connectors and enable the plugin you created.',
+        detectedSkill
+      );
+    }
 
-      // Force the first turn only when the request is for the Composio For You
-      // account. Custom remote MCP servers remain ordinary callable tools.
-      // A compound request always forces a real tool call on turn 0 too, since
-      // it's skipping the fast single-shot handlers and needs the loop to
-      // start acting immediately rather than asking a clarifying question.
-      forceConnectorTool = Boolean(hasFocusedRemoteTools) || (mcpModeActive && !remoteConnectorMention) || isCompoundMultiStepRequest;
+    if (connectorRequest) {
+      forceConnectorTool = Boolean(hasFocusedRemoteTools) || isCompoundMultiStepRequest;
     }
 
     const toolContext = {
-      mcpToken: composioMcpToken,
-      mcpRefreshToken: composioMcpRefreshToken,
-      mcpToolNames,
+      mcpToken: '',
+      mcpRefreshToken: '',
+      mcpToolNames: [],
       connectors: runtimeConnectors,
       accounts: [],
       remoteCredentials,
       remoteMcpUpdates,
-      composioUserId,
+      composioUserId: 'disabled',
       remoteMcpTools,
       remoteMcpToolRoutes,
     };
 
-    const { pickMcpToolName } = await import('@/lib/composioMcp');
-
     const isAccountQuery = detectIsAccountQuery(lastText, nluRoute.intent);
-
-    // Connection status is a read-only metadata request. Do not make it
-    // depend on the LLM producing a tool call: directly invoke Composio Search
-    // Tools and format its live toolkit_connection_statuses response.
-    if (isAccountQuery && composioMcpToken) {
-      const accountResult = await fetchComposioAccountsDetailed(
-        composioMcpToken,
-        composioMcpRefreshToken,
-        toolContext
-      );
-      if (!accountResult.verified) {
-        return streamTextDirectly(
-          'I could not verify the live Composio connection registry right now. Please reconnect Composio and try again.',
-          detectedSkill,
-          toolContext
-        );
-      }
-      const formatted = formatConnectorResult(
-        lastText,
-        JSON.stringify({ connections: accountResult.accounts })
-      );
-      return streamTextDirectly(formatted, detectedSkill, toolContext);
-    }
-
-
-    // Connection/app queries use Composio Tool Router discovery.
-    // A For You MCP session exposes meta-tools; it is not a guaranteed
-    // connection registry. Keep the request inside the normal SEARCH_TOOLS
-    // -> execute loop so Composio resolves the relevant toolkit/account.
-
-    // Do not map natural-language requests to app-specific actions here.
-    // All connector work is discovered from Composio's live tools/schemas.
-
-    // Connector actions are intentionally not hardcoded here. The live
-    // Composio search/schema/execution loop below handles every toolkit/action.
 
     let mcpToolCallsMade = 0;
     let successfulMcpToolCalls = 0;
@@ -1449,34 +1405,8 @@ export async function POST(req: NextRequest) {
             messages: fullMessages,
             tools: effectiveTools,
             tool_choice:
-              turn === 0 && connectorRequest && forceConnectorTool
-                ? (mcpModeActive
-                    ? {
-                        type: 'function',
-                        function: {
-                          // Forcing SEARCH_TOOLS for every connector request,
-                          // including "what apps am I connected to", used up
-                          // the model's first tool call before the separate
-                          // zero-tool-calls safety net ever got a chance to
-                          // run - that safety net is specifically what
-                          // guarantees a real, non-empty answer for
-                          // account/connection questions. Route account
-                          // questions to the tool actually built for them;
-                          // every other connector request still goes through
-                          // the fully dynamic SEARCH_TOOLS discovery path.
-                          name: pickMcpToolName(
-                            mcpToolNames,
-                            [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
-                            isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
-                          ),
-                        },
-                      }
-                    : ({
-                        type: 'function',
-                        function: {
-                          name: pickFocusedRemoteTool(),
-                        },
-                      }))
+              turn === 0 && connectorRequest && forceConnectorTool && pickFocusedRemoteTool()
+                ? { type: 'function', function: { name: pickFocusedRemoteTool() } }
                 : 'auto',
             max_tokens: 8192,
           }),
@@ -1622,7 +1552,7 @@ export async function POST(req: NextRequest) {
               role: 'system',
               content: isAccountQuery
                 ? 'Call COMPOSIO_SEARCH_TOOLS now with a connection-status query. Use its toolkit_connection_statuses result to answer which apps/accounts are connected.'
-                : 'Call the required Composio tool now.',
+                : 'Call the required direct MCP tool now.',
             });
             continue;
           }
@@ -1642,7 +1572,7 @@ export async function POST(req: NextRequest) {
                 content:
                   'Do NOT finish yet. The requested connector task is not complete. ' +
                   'Only ' + successfulMcpToolCalls + ' of at least ' + requiredMcpToolCalls +
-                  ' required real external action(s) have succeeded. Continue using live Composio tools until the whole task is actually completed. ' +
+                  ' required real external action(s) have succeeded. Continue using live direct MCP tools until the whole task is actually completed. ' +
                   'Do not tell the user it is done yet.'
               });
               forceConnectorTool = Boolean(mcpModeActive);
@@ -1722,14 +1652,14 @@ export async function POST(req: NextRequest) {
       } catch (e: any) {
         // Never silently abandon a connector task after a transient provider,
         // malformed-tool, or execution error. Feed the failure back into the
-        // same agent loop so it can discover/retry another live Composio tool.
+        // same agent loop so it can discover/retry another live direct MCP tool.
         const failure = String(e?.message || e || 'unknown agent error').slice(0, 2000);
         fullMessages.push({
           role: 'system',
           content:
             'The previous connector attempt failed before completion: ' +
             failure +
-            '\nContinue the task. Re-check live Composio tools/schemas and retry. Only finish after the requested external action has actually succeeded.'
+            '\nContinue the task. Re-check live direct MCP tools/schemas and retry. Only finish after the requested external action has actually succeeded.'
         });
         forceConnectorTool = Boolean(mcpModeActive);
         continue;
@@ -2129,7 +2059,7 @@ export async function POST(req: NextRequest) {
         ) {
           fullText = fullText.trim();
           // The zero-auth fallback model has no tools, so when the system
-          // prompt instructs Composio tool use it sometimes echoes a serialized
+          // prompt instructs direct MCP tool use it sometimes echoes a serialized
           // tool-call JSON as plain text. Never stream that to the UI: replace
           // it with the formatted last real tool result from the agent loop.
           const debugRawJson = looksLikeRawToolCallJson(fullText);

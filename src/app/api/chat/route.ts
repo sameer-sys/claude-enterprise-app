@@ -778,6 +778,26 @@ function isConnectorRelatedRequest(text: string): boolean {
   );
 }
 
+// Single source of truth for "is this a connection/account-status question"
+// (e.g. "what apps am I connected to"). This used to be re-implemented
+// independently in three separate places in this file, and the copies had
+// quietly drifted apart (one tested a bare mention of "composio" as enough
+// on its own, another required it to be paired with a connection/app word,
+// and only one of the three consulted the NLU intent classifier at all).
+// That drift meant the exact same user message could be classified
+// differently depending on which code path happened to run, which produced
+// inconsistent, hard-to-reproduce behavior. Every call site below now goes
+// through this one function instead.
+function detectIsAccountQuery(text: string, nluIntent?: string): boolean {
+  const t = String(text || '');
+  return (
+    nluIntent === 'CONNECTOR_STATUS' ||
+    /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(t) ||
+    /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(t) ||
+    /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(t)
+  );
+}
+
 function attachMcpSession(
   response: Response,
   context?: { mcpToken?: string; mcpRefreshToken?: string; remoteMcpUpdates?: Record<string, RemoteStoredToken>; connectors?: any[] }
@@ -947,10 +967,7 @@ function formatConnectorResult(requestText: string, result: any): string {
   if (typeof data !== 'object') return String(data);
 
   // Check for connected accounts listing
-  const isAccountQuery =
-    /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lower) ||
-    /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lower) ||
-    /\bcomposio\b/i.test(lower);
+  const isAccountQuery = detectIsAccountQuery(lower);
 
   if (isAccountQuery) {
     // COMPOSIO_SEARCH_TOOLS returns live toolkit_connection_statuses, including
@@ -1636,10 +1653,7 @@ export async function POST(req: NextRequest) {
 
     const { pickMcpToolName } = await import('@/lib/composioMcp');
 
-    const isAccountQuery = nluRoute.intent === 'CONNECTOR_STATUS' ||
-      /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-      /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-      /\bcomposio\b.*\b(?:connected|connections?|apps?|accounts?)\b/i.test(lastText);
+    const isAccountQuery = detectIsAccountQuery(lastText, nluRoute.intent);
 
     // Connection status is a read-only metadata request. Do not make it
     // depend on the LLM producing a tool call: directly invoke Composio Search
@@ -1701,10 +1715,20 @@ export async function POST(req: NextRequest) {
                     ? {
                         type: 'function',
                         function: {
+                          // Forcing SEARCH_TOOLS for every connector request,
+                          // including "what apps am I connected to", used up
+                          // the model's first tool call before the separate
+                          // zero-tool-calls safety net ever got a chance to
+                          // run - that safety net is specifically what
+                          // guarantees a real, non-empty answer for
+                          // account/connection questions. Route account
+                          // questions to the tool actually built for them;
+                          // every other connector request still goes through
+                          // the fully dynamic SEARCH_TOOLS discovery path.
                           name: pickMcpToolName(
                             mcpToolNames,
-                            [/SEARCH_TOOLS/i],
-                            'COMPOSIO_SEARCH_TOOLS'
+                            [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
+                            isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
                           ),
                         },
                       }
@@ -1797,10 +1821,7 @@ export async function POST(req: NextRequest) {
           const reasoningText = String(agentMsg?.reasoning || agentMsg?.reasoning_content || '').trim();
           const checkText = contentText || reasoningText;
 
-          const isAccountQuery =
-            /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(lastText) ||
-            /\b(?:connected|linked)\b.*\b(?:apps?|accounts?|connections?)\b/i.test(lastText) ||
-            /\bcomposio\b/i.test(lastText);
+          const isAccountQuery = detectIsAccountQuery(lastText);
 
           const isPlanningText =
             /(?:User keeps asking|we need to call|must call|produce tool call|only tool call|no prose|\{"tool":|"tool":|according to instruction)/i.test(checkText) ||

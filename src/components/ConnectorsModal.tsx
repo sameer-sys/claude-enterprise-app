@@ -49,10 +49,13 @@ function mergeConnectorState(active: Connector[], persisted: Connector[]): Conne
   const defaults = createDefaultConnectors();
   const byId = new Map<string, Connector>(defaults.map((connector) => [connector.id, connector]));
   for (const connector of [...persisted, ...active]) {
-    // Composio owns all built-in app connections. Only keep connectors
-    // explicitly created by the user in this list.
-    if (!connector || typeof connector !== 'object' || connector.isCustom !== true) continue;
-    const safe = sanitizeConnector({ ...connector, config: { ...(connector.config || {}), connectionType: 'mcp' } });
+    if (!connector || typeof connector !== 'object') continue;
+    const cfg = connector.config || {};
+    const type = String(cfg.connectionType || connector.provider || '').toLowerCase();
+    const url = String(cfg.mcpUrl || connector.url || '').trim();
+    const isDirectMcp = type === 'mcp' && /^https?:\\/\\//i.test(url) && !/connect\\.composio\\.dev\\/mcp/i.test(url);
+    if (connector.isCustom !== true && !isDirectMcp) continue;
+    const safe = sanitizeConnector({ ...connector, config: { ...cfg, connectionType: 'mcp' } });
     const base = byId.get(connector.id);
     byId.set(connector.id, base
       ? { ...base, ...safe, config: { ...(base.config || {}), ...(safe.config || {}), connectionType: 'mcp' } }

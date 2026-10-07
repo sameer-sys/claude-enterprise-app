@@ -1511,11 +1511,7 @@ export async function POST(req: NextRequest) {
             // Perform the required first Composio meta-tool directly if the model
             // failed to emit a tool call.
             if (mcpModeActive && mcpToolCallsMade === 0) {
-              const targetTool = pickMcpToolName(
-                mcpToolNames,
-                [/SEARCH_TOOLS/i],
-                'COMPOSIO_SEARCH_TOOLS'
-              );
+              const targetTool = mcpToolNames.find((name) => /SEARCH_TOOLS/i.test(name)) || mcpToolNames[0] || '';
 
               const autoArgs = {
                 queries: [{

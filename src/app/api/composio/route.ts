@@ -47,10 +47,13 @@ export async function GET(req: NextRequest) {
           tools = toolListRes.result.tools;
         }
 
+        // FIX: Pass an empty array instead of tool names. The listComposioActiveConnections
+        // function will query Composio's MANAGE_CONNECTIONS directly to get the real
+        // connected accounts, not filter by tool names.
         connectedAccounts = await listComposioActiveConnections(
           activeMcpToken,
           activeRefreshToken,
-          tools.map((tool: any) => String(tool?.name || '')).filter(Boolean)
+          [] // Empty array: let Composio return ALL connected accounts
         );
       } catch (err: any) {
         console.error('[COMPOSIO STATUS ERR]', err?.message || err);

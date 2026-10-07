@@ -53,7 +53,7 @@ function mergeConnectorState(active: Connector[], persisted: Connector[]): Conne
     const cfg = connector.config || {};
     const type = String(cfg.connectionType || connector.provider || '').toLowerCase();
     const url = String(cfg.mcpUrl || connector.url || '').trim();
-    const isDirectMcp = type === 'mcp' && /^https?:\\/\\//i.test(url) && !/connect\\.composio\\.dev\\/mcp/i.test(url);
+    const isDirectMcp = type === 'mcp' && /^https?:\/\//i.test(url) && !/connect\.composio\.dev\/mcp/i.test(url);
     if (connector.isCustom !== true && !isDirectMcp) continue;
     const safe = sanitizeConnector({ ...connector, config: { ...cfg, connectionType: 'mcp' } });
     const base = byId.get(connector.id);

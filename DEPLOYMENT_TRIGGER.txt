@@ -1,0 +1,6 @@
+Deployment triggered at 2026-10-07 21:52 UTC with environment variables:
+- GROQ_API_KEY: configured
+- GEMINI_API_KEY: configured
+- APP_URL: configured
+
+This file triggers a new Vercel deployment to use the latest environment variables.

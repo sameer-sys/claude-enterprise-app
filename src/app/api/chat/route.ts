@@ -1606,11 +1606,7 @@ export async function POST(req: NextRequest) {
             // Automatically perform a second layer of live capability
             // discovery after a real execution failure. This is intentionally
             // dynamic: no app/tool slug is hardcoded here.
-            const skillTool = pickMcpToolName(
-              mcpToolNames,
-              [/SEARCH_SKILLS/i],
-              'COMPOSIO_SEARCH_SKILLS'
-            );
+            const skillTool = mcpToolNames.find((name) => /SEARCH_SKILLS/i.test(name)) || mcpToolNames[0] || '';
             const skillResult = await runAgentTool(
               skillTool,
               {

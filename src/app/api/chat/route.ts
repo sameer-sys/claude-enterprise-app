@@ -237,10 +237,10 @@ async function runAgentTool(
     // Handle remote MCP execution (e.g. GitHub, custom MCPs)
     let remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
     if (!remoteRoute && connectorContext.remoteMcpToolRoutes) {
-      const cleanName = String(name || '').toLowerCase().replace(/^(?:mcp__github__|remote_mcp_[^_]+_)/i, '');
+      const cleanName = String(name || '').toLowerCase().replace(/^(?:github[._:]|mcp__github__|remote_mcp_[^_]+_)/i, '');
       for (const [k, r] of Object.entries(connectorContext.remoteMcpToolRoutes)) {
         const orig = String(r.originalToolName || '').toLowerCase();
-        if (orig === cleanName || k.toLowerCase().endsWith('_' + cleanName)) {
+        if (orig === cleanName || k.toLowerCase().endsWith('_' + cleanName) || k.toLowerCase().endsWith('.' + cleanName)) {
           remoteRoute = r;
           break;
         }

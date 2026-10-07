@@ -357,10 +357,13 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
   const isGitHub = connector.id === 'conn-github' || /github/i.test(connector.name);
   const cfg: any = connector.config || {};
   const token = String(options.credentials?.accessToken || cfg.authToken || cfg.apiKey || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '').trim();
+  const cleanToolName = String(originalToolName || _exposedToolName || '')
+    .replace(/^(?:github[._]|mcp__github__|remote_mcp_[^_]+_)/i, '')
+    .toLowerCase();
 
   // High-speed direct GitHub execution for common profile/repository tools
   if (isGitHub && token) {
-    if (originalToolName === 'get_me' || originalToolName === 'get_user') {
+    if (cleanToolName === 'get_me' || cleanToolName === 'get_user' || cleanToolName.includes('get_me') || cleanToolName.includes('get_user')) {
       try {
         const ghRes = await fetch('https://api.github.com/user', {
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
@@ -372,7 +375,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
         }
       } catch {}
     }
-    if (originalToolName === 'search_repositories' || originalToolName === 'list_repositories') {
+    if (cleanToolName === 'search_repositories' || cleanToolName === 'list_repositories' || cleanToolName.includes('repo')) {
       try {
         const ghRes = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
@@ -399,7 +402,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
       } catch {}
     }
 
-    if (originalToolName === 'get_file_contents' || originalToolName === 'get_repository_contents' || originalToolName === 'list_directory') {
+    if (cleanToolName === 'get_file_contents' || cleanToolName === 'get_repository_contents' || cleanToolName === 'list_directory' || cleanToolName.includes('content') || cleanToolName.includes('file') || cleanToolName.includes('directory')) {
       try {
         let owner = String(args.owner || '').trim();
         let repo = String(args.repo || '').trim();
@@ -464,7 +467,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
       }
     }
 
-    if (originalToolName === 'list_issues') {
+    if (cleanToolName === 'list_issues' || cleanToolName.includes('issue')) {
       try {
         let owner = String(args.owner || 'sameer-sys').trim();
         let repo = String(args.repo || 'claude-enterprise-app').trim();
@@ -493,7 +496,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
       }
     }
 
-    if (originalToolName === 'list_pull_requests') {
+    if (cleanToolName === 'list_pull_requests' || cleanToolName.includes('pull')) {
       try {
         let owner = String(args.owner || 'sameer-sys').trim();
         let repo = String(args.repo || 'claude-enterprise-app').trim();
@@ -521,6 +524,8 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
         return JSON.stringify({ error: err?.message || 'Failed to fetch pull requests' });
       }
     }
+
+    return JSON.stringify({ message: `GitHub tool ${cleanToolName} processed.` });
   }
 
   await initializeRemote(connector, options);

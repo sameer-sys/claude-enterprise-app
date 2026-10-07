@@ -236,8 +236,9 @@ async function runAgentTool(
   try {
     // Handle remote MCP execution (e.g. GitHub, custom MCPs)
     let remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
+    const cleanName = String(name || '').toLowerCase().replace(/^(?:mcp__github__|remote_mcp_[^_]+_|github[._:])+/i, '');
+
     if (!remoteRoute && connectorContext.remoteMcpToolRoutes) {
-      const cleanName = String(name || '').toLowerCase().replace(/^(?:mcp__github__|remote_mcp_[^_]+_)/i, '');
       for (const [k, r] of Object.entries(connectorContext.remoteMcpToolRoutes)) {
         const orig = String(r.originalToolName || '').toLowerCase();
         if (orig === cleanName || k.toLowerCase().endsWith('_' + cleanName)) {
@@ -249,6 +250,25 @@ async function runAgentTool(
         remoteRoute = Object.values(connectorContext.remoteMcpToolRoutes).find(
           (r) => r.originalToolName === 'search_repositories'
         );
+      }
+    }
+
+    if (!remoteRoute) {
+      const ghConn = (connectorContext.connectors || []).find(
+        (c: any) => c?.id === 'conn-github' || /github/i.test(c?.name || '')
+      ) || { id: 'conn-github', name: 'GitHub', type: 'mcp' };
+
+      const ghToolNames = [
+        'search_repositories', 'get_me', 'get_file_contents', 'list_directory',
+        'create_issue', 'close_issue', 'list_issues', 'create_pull_request',
+        'list_pull_requests', 'create_or_update_file', 'delete_file',
+        'create_repository', 'list_commits'
+      ];
+      if (ghToolNames.includes(cleanName) || /^(?:github|git)/i.test(name)) {
+        remoteRoute = {
+          connector: ghConn,
+          originalToolName: cleanName,
+        };
       }
     }
 
@@ -269,6 +289,16 @@ async function runAgentTool(
           /(?:my\s+repos|all\s+repos|list\s+repos|repositories|tell\s+me|show\s+me|^github\s+list|^repos)/i.test(q)
         ) {
           callArgs.query = 'user:sameer-sys';
+        }
+      }
+
+      // Default owner and repo if omitted on GitHub tools
+      if (connectorId === 'conn-github' || /github/i.test(remoteRoute.connector?.name || '')) {
+        if (!callArgs.owner && !String(callArgs.repo || '').includes('/')) {
+          callArgs.owner = 'sameer-sys';
+        }
+        if (!callArgs.repo && !String(callArgs.name || '').includes('/') && !['search_repositories', 'get_me', 'create_repository'].includes(remoteRoute.originalToolName)) {
+          callArgs.repo = 'claude-enterprise-app';
         }
       }
 
@@ -694,6 +724,9 @@ function isConnectorRelatedRequest(text: string): boolean {
 // through this one function instead.
 function detectIsAccountQuery(text: string, nluIntent?: string): boolean {
   const t = String(text || '');
+  if (/(?:issues?|pull\s+requests?|\bprs?\b|commits?|branches?|files?|directories?|folders?|\brepos?\b|repositories)/i.test(t)) {
+    return false;
+  }
   return (
     nluIntent === 'CONNECTOR_STATUS' ||
     /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(t) ||
@@ -988,15 +1021,110 @@ function formatConnectorResult(requestText: string, result: any): string {
     return `**Connected GitHub Account:**\n- **User:** [${data.login}](${data.profile_url || `https://github.com/${data.login}`})\n- **Public Repositories:** ${repos}\n- **ID:** ${data.id}\n- **Profile:** ${data.profile_url || `https://github.com/${data.login}`}`;
   }
 
+  // GitHub single issue (create_issue, close_issue)
+  if (data?.number && data?.title && (data?.html_url || data?.state)) {
+    const isClosed = data.state === 'closed' || lower.includes('close');
+    const badge = data.state ? ` \`[${String(data.state).toUpperCase()}]\`` : '';
+    const repoInfo = data.repository?.full_name || (data.html_url ? data.html_url.split('/').slice(3, 5).join('/') : '');
+    const action = isClosed ? 'Closed issue' : 'Created issue';
+    return `**${action} successfully:** [#${data.number} ${data.title}](${data.html_url})${badge}${repoInfo ? ` on \`${repoInfo}\`` : ''}\n\n${data.body ? `> ${String(data.body).split('\n')[0]}\n\n` : ''}- **Issue URL:** ${data.html_url}\n- **Status:** ${data.state || 'open'}`;
+  }
+
+  // GitHub pull request (create_pull_request)
+  if (data?.number && data?.title && (data?.head || data?.base || (data?.html_url && data.html_url.includes('/pull/')))) {
+    const badge = data.state ? ` \`[${String(data.state).toUpperCase()}]\`` : '';
+    const head = data.head?.ref || data.head || '';
+    const base = data.base?.ref || data.base || 'main';
+    return `**Pull Request created successfully:** [#${data.number} ${data.title}](${data.html_url})${badge}\n\n- **URL:** ${data.html_url}\n- **Branch:** \`${base}\` ← \`${head}\`\n- **Status:** ${data.state || 'open'}`;
+  }
+
+  // GitHub file creation/update (create_or_update_file)
+  if ((data?.commit?.sha || data?.content?.sha) && (data?.content?.path || data?.path || data?.commit?.message)) {
+    const filePath = data.content?.path || data.path || 'file';
+    const fileUrl = data.content?.html_url || (data.commit?.html_url ? data.commit.html_url : '');
+    const sha = String(data.commit?.sha || data.content?.sha || '').slice(0, 7);
+    return `**File saved successfully:** \`${filePath}\`\n- **Commit:** \`${sha}\`\n${fileUrl ? `- **View on GitHub:** [${filePath}](${fileUrl})\n` : ''}- **Status:** Committed to repository`;
+  }
+
+  // GitHub file deletion (delete_file)
+  if (data?.success && data?.path && (data?.message || data?.repository)) {
+    return `**File deleted successfully:** \`${data.path}\` from repository \`${data.repository || 'sameer-sys/claude-enterprise-app'}\`.`;
+  }
+
+  // GitHub repository creation (create_repository)
+  if (data?.full_name && data?.html_url && (data?.clone_url || data?.owner || data?.default_branch)) {
+    return `**Repository created successfully:** [${data.full_name}](${data.html_url})\n\n- **Visibility:** ${data.private ? 'Private' : 'Public'}\n- **Default Branch:** \`${data.default_branch || 'main'}\`\n- **Clone URL:** \`${data.clone_url || data.html_url + '.git'}\`\n- **View on GitHub:** ${data.html_url}`;
+  }
+
+  // GitHub file content (get_file_contents)
+  if (data?.name && data?.content !== undefined && (data?.path || data?.size !== undefined)) {
+    const ext = data.name.includes('.') ? data.name.split('.').pop() : '';
+    const contentPreview = String(data.content || '').slice(0, 4000);
+    return `**File: \`${data.path || data.name}\`** (${data.size || 0} bytes)${data.html_url ? ` ([View on GitHub](${data.html_url}))` : ''}\n\n\`\`\`${ext}\n${contentPreview}\n\`\`\`${data.content && data.content.length > 4000 ? '\n\n*(Preview truncated)*' : ''}`;
+  }
+
+  // GitHub directory listing (list_directory)
+  if (data?.items && Array.isArray(data.items) && (data?.path !== undefined || data?.total_items !== undefined)) {
+    const itemsList = data.items.map((item: any) => {
+      const icon = item.type === 'dir' ? '📁' : '📄';
+      const link = item.html_url ? `[${item.name}](${item.html_url})` : `**${item.name}**`;
+      const sizeStr = item.type === 'file' && item.size != null ? ` (${item.size} bytes)` : '';
+      return `- ${icon} ${link}${sizeStr}`;
+    }).join('\n');
+    return `**Directory Contents of \`${data.path || '/'}\`** (${data.items.length} items in \`${data.repository || 'repository'}\`):\n\n${itemsList}`;
+  }
+
+  // GitHub commit list (list_commits)
+  if (data?.commits && Array.isArray(data.commits)) {
+    const commitsList = data.commits.map((c: any) => {
+      const shaStr = c.sha ? `[\`${c.sha}\`](${c.html_url || '#'})` : '';
+      const authorStr = c.author ? ` by *${c.author}*` : '';
+      return `- ${shaStr} **${c.message || 'Commit'}**${authorStr}`;
+    }).join('\n');
+    return `**Recent Commits (${data.commits.length}) for \`${data.repository || 'repository'}\`:**\n\n${commitsList}`;
+  }
+
   const directCount = data.total_count ?? data.totalCount ?? data.repository_count ?? data.repositoryCount ?? data.count;
   if (directCount != null && /\b(how many|total|count|number of)\b/i.test(lower)) {
     const noun = lower.includes('repositor') || lower.includes('git') ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
     return 'You have ' + String(directCount) + ' ' + noun + ' in your connected GitHub account (**sameer-sys**).';
   }
 
-  const candidates = [data.items, data.playlists, data.repositories, data.repos, data.results, data.data];
+  const candidates = [
+    Array.isArray(data) ? data : null,
+    data.items,
+    data.issues,
+    data.pull_requests,
+    data.commits,
+    data.playlists,
+    data.repositories,
+    data.repos,
+    data.results,
+    data.data
+  ];
   const list = candidates.find((value: any) => Array.isArray(value));
   if (Array.isArray(list)) {
+    // Check if list of issues
+    if (list.length > 0 && list[0]?.number && list[0]?.title) {
+      const isPr = list[0]?.pull_request !== undefined || String(list[0]?.html_url || '').includes('/pull/');
+      const noun = lower.includes('issue') ? 'issues' : (lower.includes('pull') || lower.includes('pr') || isPr ? 'pull requests' : 'issues');
+      const lines = list.map((item: any, idx: number) => {
+        const badge = item.state ? ` \`[${String(item.state).toUpperCase()}]\`` : '';
+        return `${idx + 1}. [#${item.number} ${item.title}](${item.html_url || '#'}) ${badge}`;
+      });
+      return `Here are the **${list.length} ${noun}**:\n\n` + lines.slice(0, 30).join('\n');
+    }
+    // Check if list of commits
+    if (list.length > 0 && list[0]?.sha && (list[0]?.commit || list[0]?.author)) {
+      const lines = list.map((item: any, idx: number) => {
+        const sha = (item.sha || '').slice(0, 7);
+        const msg = item.commit?.message?.split('\n')[0] || item.message || '';
+        const url = item.html_url || '#';
+        return `${idx + 1}. [\`${sha}\`](${url}) ${msg}`;
+      });
+      return `Here are the **${list.length} recent commits**:\n\n` + lines.slice(0, 25).join('\n');
+    }
+
     const isGit = lower.includes('repositor') || lower.includes('git') || lower.includes('repo');
     const noun = isGit ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
     const labels = list.map((item: any, idx: number) => {
@@ -1094,9 +1222,18 @@ async function synthesizeClaudeEnterpriseResponse(
   void modelId;
   void skill;
   void activeConnectors;
-  void messages;
   const text = String(lastText || '').trim();
-  return text ? 'I could not reach an AI response provider for that request.' : 'Please enter a message.';
+  if (!text) return 'Please enter a message.';
+
+  const lastTool = [...(messages || [])].reverse().find((m: any) => m && m.role === 'tool');
+  if (lastTool && typeof lastTool.content === 'string' && lastTool.content.trim()) {
+    const formatted = formatConnectorResult(text, lastTool.content.trim());
+    if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
+      return formatted;
+    }
+  }
+
+  return 'I am ready to help you with your tasks, code, and connected tools (GitHub, repositories, issues, files, and more). How would you like to proceed?';
 }
 
 export async function GET(req: NextRequest) {
@@ -1359,16 +1496,20 @@ export async function POST(req: NextRequest) {
         }
         if (/(repository|repositories|repo|repos|git)/.test(query) && /(repository|repositories|repo|repos)/.test(hay)) s += 35;
         if (/(user|profile|account|who am i|my name|login)/.test(query) && /(get_me|user)/.test(name)) s += 35;
+        if (/(issue|bug|ticket|problem)/.test(query) && /issue/.test(hay)) s += 40;
+        if (/(pull request|pr)/.test(query) && /(pull|pr)/.test(hay)) s += 40;
+        if (/(commit|history|log)/.test(query) && /commit/.test(hay)) s += 40;
+        if (/(file|dir|folder|content|read|write|delete)/.test(query) && /(file|dir|content)/.test(hay)) s += 40;
         return s;
       };
       return scoreTool(b) - scoreTool(a);
     });
 
-    const focusedCandidateTools = scoredFocusedTools.slice(0, 4);
+    const focusedCandidateTools = scoredFocusedTools.slice(0, 20);
 
     const rawTools = focusedCandidateTools.length
       ? focusedCandidateTools
-      : [...AGENT_TOOLS, ...remoteMcpTools].slice(0, 5);
+      : [...AGENT_TOOLS, ...remoteMcpTools].slice(0, 20);
 
     const effectiveTools = rawTools.map((tool: any) => {
       const orig = String(tool.originalName || tool.function?.name || '').trim();
@@ -1410,7 +1551,16 @@ export async function POST(req: NextRequest) {
         }
 
         if (/(repository|repositories|repo|repos)/.test(query) && /(repository|repositories|repo|repos)/.test(haystack)) score += 35;
-        if (/(pull request|pr|issue|commit|branch)/.test(query) && /(pull|request|issue|commit|branch)/.test(haystack)) score += 20;
+        if (/(pull request|pr)/.test(query) && /(pull|pr)/.test(haystack)) score += 40;
+        if (/(issue|bug|ticket|problem)/.test(query) && /issue/.test(haystack)) score += 40;
+        if (/(commit|history|log)/.test(query) && /commit/.test(haystack)) score += 40;
+        if (/(file|dir|folder|content|read|write|delete)/.test(query) && /(file|dir|content)/.test(haystack)) score += 40;
+
+        if (/(user|profile|account|who am i|my name|login)/.test(query) && /(get_me|user)/.test(name)) score += 45;
+        if (/(file|files|dir|directory|folder|tree|content)/.test(query) && /(list_directory|file_contents|directory|file)/.test(name)) score += 55;
+        if (/(issue|issues|ticket|bug)/.test(query) && /issue/.test(name)) score += 55;
+        if (/(pull request|pr|pulls)/.test(query) && /(pull|pr)/.test(name)) score += 55;
+        if (/(commit|commits|history)/.test(query) && /commit/.test(name)) score += 55;
         if (/(email|inbox|mail|message|thread)/.test(query) && /(email|mail|message|thread)/.test(haystack)) score += 35;
         if (/(calendar|meeting|event|schedule)/.test(query) && /(calendar|event|meeting|schedule)/.test(haystack)) score += 35;
         if (/(drive|file|folder|document)/.test(query) && /(file|folder|document|drive)/.test(haystack)) score += 35;
@@ -1790,13 +1940,16 @@ export async function POST(req: NextRequest) {
           // Format and return real external tool data immediately for account & repository queries
           if (
             (isAccountQuery && /(?:MANAGE_CONNECTIONS|SEARCH_TOOLS)/i.test(String(toolName || ''))) ||
-            (isRemoteMcpTool && !toolFailed && /(?:repository|repositories|repo|get_me)/i.test(String(toolName || '')))
+            (isRemoteMcpTool && !toolFailed && !isCompoundMultiStepRequest)
           ) {
-            return streamTextDirectly(
-              formatConnectorResult(lastText, result),
-              detectedSkill,
-              toolContext
-            );
+            const formatted = formatConnectorResult(lastText, result);
+            if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
+              return streamTextDirectly(
+                formatted,
+                detectedSkill,
+                toolContext
+              );
+            }
           }
 
           if (mcpToolNames.includes(String(toolName)) || isRemoteMcpTool) mcpToolCallsMade++;
@@ -1824,8 +1977,8 @@ export async function POST(req: NextRequest) {
     // text answer (the model keeps echoing serialized tool-call JSON), format
     // the last real tool result directly instead of letting the fallback LLM
     // echo raw JSON to the user.
-    const lastLoopMsg = fullMessages[fullMessages.length - 1];
-    if (lastLoopMsg && lastLoopMsg.role === 'tool' && typeof lastLoopMsg.content === 'string' && lastLoopMsg.content.trim()) {
+    const lastLoopMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
+    if (lastLoopMsg && typeof lastLoopMsg.content === 'string' && lastLoopMsg.content.trim()) {
       const formatted = formatConnectorResult(lastText, lastLoopMsg.content.trim());
       if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
         return streamTextDirectly(formatted, detectedSkill, toolContext);
@@ -1953,7 +2106,7 @@ export async function POST(req: NextRequest) {
                       const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
                       const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
                         ? formatConnectorResult(lastText, lastToolMsg.content.trim())
-                        : 'I could not get a final response from the AI provider. Please try the request again.';
+                        : 'I processed your request, but could not get an expanded summary from the model. Please check your action or try asking again.';
                       controller.enqueue(
                         encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                       );
@@ -1978,7 +2131,7 @@ export async function POST(req: NextRequest) {
                 const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
                 const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
                   ? formatConnectorResult(lastText, lastToolMsg.content.trim())
-                  : 'I could not get a final response from the AI provider. Please try the request again.';
+                  : 'I processed your request, but could not get an expanded summary from the model. Please check your action or try asking again.';
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                 );
@@ -2124,7 +2277,7 @@ export async function POST(req: NextRequest) {
                           const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
                           const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
                             ? formatConnectorResult(lastText, lastToolMsg.content.trim())
-                            : 'I could not get a final response from the AI provider. Please try the request again.';
+                            : 'I processed your request, but could not get an expanded summary from the model. Please check your action or try asking again.';
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                           );

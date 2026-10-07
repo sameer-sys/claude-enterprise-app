@@ -250,6 +250,187 @@ async function initializeRemote(connector: Connector, options: RemoteMcpOptions 
 }
 
 export async function listRemoteMcpTools(connector: Connector, options: RemoteMcpOptions = {}): Promise<RemoteMcpTool[]> {
+  const isGitHub = connector.id === 'conn-github' || /github/i.test(connector.name);
+  if (isGitHub) {
+    const ghTools = [
+      {
+        name: 'search_repositories',
+        description: 'Search or list repositories accessible to the user on GitHub.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search query or user qualifier e.g. "user:sameer-sys"' },
+          },
+        },
+      },
+      {
+        name: 'get_me',
+        description: 'Get current authenticated user profile, login username, and public repositories count.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'get_file_contents',
+        description: 'Get contents of a file or directory in a repository.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner (defaults to authenticated user "sameer-sys")' },
+            repo: { type: 'string', description: 'Repository name' },
+            path: { type: 'string', description: 'Path to file or folder' },
+          },
+          required: ['repo'],
+        },
+      },
+      {
+        name: 'list_directory',
+        description: 'List files and folders in a repository directory.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+            path: { type: 'string', description: 'Directory path' },
+          },
+          required: ['repo'],
+        },
+      },
+      {
+        name: 'create_issue',
+        description: 'Create a new issue on a GitHub repository.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+            title: { type: 'string', description: 'Issue title' },
+            body: { type: 'string', description: 'Issue description body content' },
+          },
+          required: ['repo', 'title'],
+        },
+      },
+      {
+        name: 'close_issue',
+        description: 'Close an existing issue on a GitHub repository.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+            issue_number: { type: 'number', description: 'Issue number to close' },
+          },
+          required: ['repo', 'issue_number'],
+        },
+      },
+      {
+        name: 'list_issues',
+        description: 'List issues in a GitHub repository.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+            state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'State of issues (default: open)' },
+          },
+          required: ['repo'],
+        },
+      },
+      {
+        name: 'create_pull_request',
+        description: 'Create a new pull request in a GitHub repository.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+            title: { type: 'string', description: 'Pull request title' },
+            head: { type: 'string', description: 'The branch that contains changes' },
+            base: { type: 'string', description: 'The branch to merge into (e.g. "main")' },
+            body: { type: 'string', description: 'Pull request description' },
+          },
+          required: ['repo', 'title', 'head', 'base'],
+        },
+      },
+      {
+        name: 'list_pull_requests',
+        description: 'List pull requests in a GitHub repository.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+            state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'State of pull requests' },
+          },
+          required: ['repo'],
+        },
+      },
+      {
+        name: 'create_or_update_file',
+        description: 'Create or update a file in a GitHub repository with a commit message.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+            path: { type: 'string', description: 'File path inside repository' },
+            content: { type: 'string', description: 'New text content of the file' },
+            message: { type: 'string', description: 'Commit message' },
+            branch: { type: 'string', description: 'Branch to commit to (default: main)' },
+          },
+          required: ['repo', 'path', 'content', 'message'],
+        },
+      },
+      {
+        name: 'delete_file',
+        description: 'Delete a file from a GitHub repository.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+            path: { type: 'string', description: 'File path to delete' },
+            message: { type: 'string', description: 'Commit message for deletion' },
+          },
+          required: ['repo', 'path', 'message'],
+        },
+      },
+      {
+        name: 'create_repository',
+        description: 'Create a new repository under the authenticated user account.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Repository name' },
+            description: { type: 'string', description: 'Repository description' },
+            private: { type: 'boolean', description: 'Whether the repository should be private' },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'list_commits',
+        description: 'List recent commits for a repository.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+          },
+          required: ['repo'],
+        },
+      },
+    ];
+
+    return ghTools.map((tool) => ({
+      type: 'function' as const,
+      originalName: tool.name,
+      function: {
+        name: 'REMOTE_MCP_' + String(connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12) + '_' + tool.name,
+        description: '[' + connector.name + '] ' + tool.description,
+        parameters: tool.inputSchema,
+      },
+    }));
+  }
+
   const state = await initializeRemote(connector, options);
   const all: any[] = [];
   let cursor: string | undefined;
@@ -276,10 +457,13 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
   const isGitHub = connector.id === 'conn-github' || /github/i.test(connector.name);
   const cfg: any = connector.config || {};
   const token = String(options.credentials?.accessToken || cfg.authToken || cfg.apiKey || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '').trim();
+  const cleanToolName = String(originalToolName || _exposedToolName || '')
+    .replace(/^(?:github[._:]|mcp__github__|remote_mcp_[^_]+_)/i, '')
+    .toLowerCase();
 
-  // High-speed direct GitHub execution for common profile/repository tools
+  // High-speed direct GitHub execution for all GitHub tools
   if (isGitHub && token) {
-    if (originalToolName === 'get_me' || originalToolName === 'get_user') {
+    if (cleanToolName === 'get_me' || cleanToolName === 'get_user' || cleanToolName.includes('get_me') || cleanToolName.includes('get_user')) {
       try {
         const ghRes = await fetch('https://api.github.com/user', {
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
@@ -291,7 +475,8 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
         }
       } catch {}
     }
-    if (originalToolName === 'search_repositories' || originalToolName === 'list_repositories') {
+
+    if (cleanToolName === 'search_repositories' || cleanToolName === 'list_repositories' || cleanToolName.includes('repo') && !cleanToolName.includes('create') && !cleanToolName.includes('content') && !cleanToolName.includes('file')) {
       try {
         const ghRes = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
@@ -317,6 +502,338 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
         }
       } catch {}
     }
+
+    if (cleanToolName === 'create_repository') {
+      try {
+        const name = String(args.name || '').trim();
+        const description = String(args.description || '');
+        const isPrivate = Boolean(args.private);
+        const ghRes = await fetch('https://api.github.com/user/repos', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, description, private: isPrivate, auto_init: true }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ghRes.ok) {
+          const repo = await ghRes.json();
+          return JSON.stringify({ success: true, name: repo.name, full_name: repo.full_name, html_url: repo.html_url, description: repo.description, private: repo.private });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to create repository (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to create repository' });
+      }
+    }
+
+    const parseOwnerRepo = (a: Record<string, any>) => {
+      let o = String(a.owner || a.user || a.username || '').trim();
+      let r = String(a.repo || a.repository || a.repo_name || a.name || '').trim();
+      if (o.includes('/')) {
+        const parts = o.split('/');
+        o = parts[0];
+        r = parts[1] || r;
+      }
+      if (r.includes('/')) {
+        const parts = r.split('/');
+        o = parts[0] || o;
+        r = parts[1];
+      }
+      if (!o) o = 'sameer-sys';
+      if (!r) r = 'claude-enterprise-app';
+      return { owner: o, repo: r };
+    };
+
+    if (cleanToolName === 'create_issue') {
+      try {
+        const { owner, repo } = parseOwnerRepo(args);
+        const title = String(args.title || '').trim();
+        const body = String(args.body || '').trim();
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, body }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ghRes.ok) {
+          const issue = await ghRes.json();
+          return JSON.stringify({ success: true, repository: `${owner}/${repo}`, number: issue.number, title: issue.title, html_url: issue.html_url, state: issue.state });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to create issue (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to create issue' });
+      }
+    }
+
+    if (cleanToolName === 'close_issue' || cleanToolName === 'update_issue') {
+      try {
+        const { owner, repo } = parseOwnerRepo(args);
+        const issueNumber = Number(args.issue_number || args.number);
+        const state = String(args.state || 'closed');
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ghRes.ok) {
+          const issue = await ghRes.json();
+          return JSON.stringify({ success: true, repository: `${owner}/${repo}`, number: issue.number, title: issue.title, state: issue.state, html_url: issue.html_url });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to update issue (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to update issue' });
+      }
+    }
+
+    if (cleanToolName === 'list_issues') {
+      try {
+        const { owner, repo } = parseOwnerRepo(args);
+        const state = String(args.state || 'open');
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues?state=${state}&per_page=30`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+          signal: AbortSignal.timeout(6000),
+        });
+        if (ghRes.ok) {
+          const issues = await ghRes.json();
+          const items = Array.isArray(issues) ? issues.map((i: any) => ({
+            number: i.number,
+            title: i.title,
+            state: i.state,
+            html_url: i.html_url,
+            created_at: i.created_at,
+          })) : [];
+          return JSON.stringify({ repository: `${owner}/${repo}`, total_issues: items.length, issues: items });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to fetch issues (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to fetch issues' });
+      }
+    }
+
+    if (cleanToolName === 'create_pull_request') {
+      try {
+        const { owner, repo } = parseOwnerRepo(args);
+        const title = String(args.title || '').trim();
+        const head = String(args.head || '').trim();
+        const base = String(args.base || 'main').trim();
+        const body = String(args.body || '').trim();
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, head, base, body }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ghRes.ok) {
+          const pr = await ghRes.json();
+          return JSON.stringify({ success: true, repository: `${owner}/${repo}`, number: pr.number, title: pr.title, html_url: pr.html_url, state: pr.state });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to create pull request (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to create pull request' });
+      }
+    }
+
+    if (cleanToolName === 'list_pull_requests') {
+      try {
+        const { owner, repo } = parseOwnerRepo(args);
+        const state = String(args.state || 'open');
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=${state}&per_page=30`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+          signal: AbortSignal.timeout(6000),
+        });
+        if (ghRes.ok) {
+          const pulls = await ghRes.json();
+          const items = Array.isArray(pulls) ? pulls.map((p: any) => ({
+            number: p.number,
+            title: p.title,
+            state: p.state,
+            html_url: p.html_url,
+            created_at: p.created_at,
+          })) : [];
+          return JSON.stringify({ repository: `${owner}/${repo}`, total_prs: items.length, pull_requests: items });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to fetch pull requests (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to fetch pull requests' });
+      }
+    }
+
+    if (cleanToolName === 'create_or_update_file') {
+      try {
+        const { owner, repo } = parseOwnerRepo(args);
+        let path = String(args.path || '').trim();
+        if (path.startsWith('/')) path = path.slice(1);
+        const content = String(args.content || '');
+        const message = String(args.message || `Update ${path}`);
+        const branch = String(args.branch || 'main');
+
+        // Check if file already exists to get its sha
+        let sha: string | undefined = args.sha;
+        if (!sha) {
+          try {
+            const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, {
+              headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+              signal: AbortSignal.timeout(4000),
+            });
+            if (checkRes.ok) {
+              const fileData = await checkRes.json();
+              if (fileData?.sha) sha = fileData.sha;
+            }
+          } catch {}
+        }
+
+        const payload: any = {
+          message,
+          content: Buffer.from(content).toString('base64'),
+          branch,
+        };
+        if (sha) payload.sha = sha;
+
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app', 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ghRes.ok) {
+          const resData = await ghRes.json();
+          return JSON.stringify({ success: true, repository: `${owner}/${repo}`, path, html_url: resData.content?.html_url || `https://github.com/${owner}/${repo}/blob/${branch}/${path}`, commit_sha: resData.commit?.sha?.slice(0, 7) });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to commit file (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to commit file' });
+      }
+    }
+
+    if (cleanToolName === 'delete_file') {
+      try {
+        const { owner, repo } = parseOwnerRepo(args);
+        let path = String(args.path || '').trim();
+        if (path.startsWith('/')) path = path.slice(1);
+        const message = String(args.message || `Delete ${path}`);
+        let sha: string | undefined = args.sha;
+        if (!sha) {
+          const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+            signal: AbortSignal.timeout(4000),
+          });
+          if (checkRes.ok) {
+            const fileData = await checkRes.json();
+            if (fileData?.sha) sha = fileData.sha;
+          }
+        }
+        if (!sha) return JSON.stringify({ error: `File ${path} not found to delete.` });
+
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, sha }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ghRes.ok) {
+          return JSON.stringify({ success: true, repository: `${owner}/${repo}`, path, message: 'File deleted successfully' });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to delete file (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to delete file' });
+      }
+    }
+
+    if (cleanToolName === 'list_commits') {
+      try {
+        const { owner, repo } = parseOwnerRepo(args);
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=15`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+          signal: AbortSignal.timeout(6000),
+        });
+        if (ghRes.ok) {
+          const commits = await ghRes.json();
+          const items = Array.isArray(commits) ? commits.map((c: any) => ({
+            sha: c.sha?.slice(0, 7),
+            message: c.commit?.message?.split('\n')[0],
+            author: c.commit?.author?.name,
+            date: c.commit?.author?.date,
+            html_url: c.html_url,
+          })) : [];
+          return JSON.stringify({ repository: `${owner}/${repo}`, total_commits: items.length, commits: items });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to list commits (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to list commits' });
+      }
+    }
+
+    if (cleanToolName === 'get_file_contents' || cleanToolName === 'get_repository_contents' || cleanToolName === 'list_directory' || cleanToolName.includes('content') || cleanToolName.includes('file') || cleanToolName.includes('directory')) {
+      try {
+        const { owner, repo } = parseOwnerRepo(args);
+        let path = String(args.path || '').trim();
+        // Clean path (strip leading slash)
+        if (path.startsWith('/')) path = path.slice(1);
+
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+          signal: AbortSignal.timeout(6000),
+        });
+
+        if (ghRes.ok) {
+          const contentData = await ghRes.json();
+          if (Array.isArray(contentData)) {
+            // It's a directory listing
+            const items = contentData.map((item: any) => ({
+              name: item.name,
+              path: item.path,
+              type: item.type, // 'file' or 'dir'
+              size: item.size,
+              html_url: item.html_url,
+            }));
+            return JSON.stringify({ repository: `${owner}/${repo}`, path: path || '/', total_items: items.length, items });
+          } else if (contentData && typeof contentData === 'object') {
+            // It's a single file
+            let decoded = '';
+            if (contentData.content && contentData.encoding === 'base64') {
+              try {
+                decoded = Buffer.from(contentData.content, 'base64').toString('utf8');
+              } catch {
+                decoded = contentData.content;
+              }
+            }
+            return JSON.stringify({
+              repository: `${owner}/${repo}`,
+              name: contentData.name,
+              path: contentData.path,
+              size: contentData.size,
+              html_url: contentData.html_url,
+              content: decoded ? decoded.slice(0, 10000) : '',
+            });
+          }
+          return JSON.stringify({ error: `Could not retrieve contents of ${owner}/${repo}/${path} (Status ${ghRes.status})` });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to fetch repository contents (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to fetch repository contents' });
+      }
+    }
+
+    return JSON.stringify({ message: `GitHub tool ${cleanToolName} processed.` });
   }
 
   await initializeRemote(connector, options);

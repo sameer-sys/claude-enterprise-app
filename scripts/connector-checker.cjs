@@ -30,9 +30,11 @@ const checks = [
     !fs.existsSync(path.join(root, 'src/lib/composioActions.ts')),
   ],
   [
-    'Connector requests use live Composio tools instead of app-specific action maps',
-    route.includes('mcpToolsToOpenAI') &&
-    route.includes('runAgentTool') &&
+    'Connector requests use enabled direct MCP plugin tools',
+    route.includes('hasFocusedRemoteTools') &&
+    route.includes('pickFocusedRemoteTool') &&
+    route.includes('callRemoteMcpTool') &&
+    route.includes('remoteMcpToolRoutes') &&
     !route.includes('const builtInToMcpAction: Record<string, string>') &&
     !route.includes('detectComposioAction(lastText)'),
   ],

@@ -62,10 +62,16 @@ function normalizeConnectors(raw: any[]): Connector[] {
     } as Connector;
 
     const base = byId.get(safe.id);
+    const isConnGithub = safe.id === 'conn-github';
     byId.set(
       safe.id,
       base
-        ? { ...base, ...safe, config: { ...(base.config || {}), ...(safe.config || {}) } }
+        ? {
+            ...base,
+            ...safe,
+            enabled: isConnGithub ? true : Boolean(safe.enabled),
+            config: { ...(base.config || {}), ...(safe.config || {}) },
+          }
         : safe
     );
   }

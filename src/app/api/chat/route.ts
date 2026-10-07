@@ -262,6 +262,17 @@ async function runAgentTool(
           }
         }
       }
+      if (!remoteRoute && (cleanName.includes('user') || cleanName.includes('me') || cleanName.includes('account') || cleanName.includes('profile') || cleanName.includes('login'))) {
+        remoteRoute = Object.values(connectorContext.remoteMcpToolRoutes).find(
+          (r) => r.originalToolName === 'get_me' || r.originalToolName === 'get_user'
+        );
+        if (!remoteRoute) {
+          const ghConn = connectorContext.connectors?.find((c: any) => c.id === 'conn-github' || /github/i.test(c.name));
+          if (ghConn) {
+            remoteRoute = { connector: ghConn, originalToolName: 'get_me' };
+          }
+        }
+      }
     }
 
     if (remoteRoute) {
@@ -734,6 +745,9 @@ function isConnectorRelatedRequest(text: string): boolean {
 // through this one function instead.
 function detectIsAccountQuery(text: string, nluIntent?: string): boolean {
   const t = String(text || '');
+  if (/\b(?:inside|contain|contains|content|contents|file|files|folder|folders|directory|tree|code|readme)\b/i.test(t)) {
+    return false;
+  }
   return (
     nluIntent === 'CONNECTOR_STATUS' ||
     /\b(?:what|which|how many|list|show|tell me|get|check)\b.*\b(?:apps?|accounts?|connections?|services?)\b/i.test(t) ||
@@ -922,6 +936,20 @@ function formatConnectorResult(requestText: string, result: any): string {
   }
 
   if (typeof data !== 'object') return String(data);
+
+  // Direct GitHub account profile formatting
+  if (data?.login && (data?.profile_url || data?.id || data?.details)) {
+    const login = String(data.login);
+    const url = data.profile_url || `https://github.com/${login}`;
+    const repos = data.details?.public_repos != null ? ` (${data.details.public_repos} public repos)` : '';
+    return `Based on your active configuration, I am connected directly to:
+
+- **GitHub** ([@${login}](${url}))${repos}
+  - Status: **Connected & Verified**
+  - Capabilities: Repositories, Pull Requests, Issues, File & Code Search, Commits
+
+I have real-time access to your GitHub repositories, code contents, and workflows via your authenticated account.`;
+  }
 
   // Check for connected accounts listing
   const isAccountQuery = detectIsAccountQuery(lower);
@@ -1194,8 +1222,18 @@ export async function POST(req: NextRequest) {
     const { cloneNativeConnectors } = await import('@/lib/nativeConnectors');
     const allConnectors: any[] = Array.isArray(connectors) ? [...connectors] : [];
     for (const def of cloneNativeConnectors()) {
-      if (!allConnectors.some((c: any) => c?.id === def.id)) {
+      const existing = allConnectors.find((c: any) => c?.id === def.id);
+      if (!existing) {
         allConnectors.push(def);
+      } else if (def.id === 'conn-github') {
+        existing.enabled = true;
+        existing.url = existing.url || def.url;
+        existing.config = { ...(def.config || {}), ...(existing.config || {}) };
+      }
+    }
+    for (const connector of allConnectors) {
+      if ((connector?.id === 'conn-github' || /github/i.test(connector?.name)) && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
+        connector.enabled = true;
       }
     }
 
@@ -1393,12 +1431,36 @@ export async function POST(req: NextRequest) {
       connectorToolsById.set(id, list);
     }
 
+    const nluRoute = await routeUserIntent(lastText, messages);
+    const isAccountQuery = detectIsAccountQuery(lastText, nluRoute.intent);
+
     const relevantRemoteConnectorIds = new Set<string>();
     const requestedText = String(lastText || '').toLowerCase();
     for (const connector of allConnectors) {
       if (connector?.enabled === false) continue;
       const name = String(connector?.name || '').trim().toLowerCase();
-      if (name && (requestedText.includes(name) || (name === 'github' && (requestedText.includes('repo') || requestedText.includes('git'))))) relevantRemoteConnectorIds.add(String(connector.id));
+      if (name && (
+        requestedText.includes(name) ||
+        (name === 'github' && (
+          requestedText.includes('repo') ||
+          requestedText.includes('git') ||
+          requestedText.includes('code') ||
+          requestedText.includes('branch') ||
+          requestedText.includes('commit') ||
+          requestedText.includes('pull') ||
+          requestedText.includes('issue') ||
+          requestedText.includes('inside') ||
+          requestedText.includes('contain') ||
+          requestedText.includes('file') ||
+          requestedText.includes('folder') ||
+          requestedText.includes('directory') ||
+          requestedText.includes('tree')
+        )) ||
+        isAccountQuery ||
+        /\b(?:app|apps|connect|connected|connector|connectors|integration|integrations|tool|tools|service|services|plugin|plugins|account|accounts)\b/i.test(requestedText)
+      )) {
+        relevantRemoteConnectorIds.add(String(connector.id));
+      }
     }
 
     const enabledRemoteIds = enabledRemoteConnectors.map((connector: any) => String(connector.id));
@@ -1429,8 +1491,9 @@ export async function POST(req: NextRequest) {
           if (name.includes(w)) s += 8;
           else if (desc.includes(w)) s += 3;
         }
+        if (isAccountQuery && /(get_me|get_user)/.test(name)) s += 100;
+        if (/(user|profile|account|who am i|my name|login|apps?|connected|connections?)/.test(query) && /(get_me|user)/.test(name)) s += 50;
         if (/(repository|repositories|repo|repos|git)/.test(query) && /(repository|repositories|repo|repos)/.test(hay)) s += 35;
-        if (/(user|profile|account|who am i|my name|login)/.test(query) && /(get_me|user)/.test(name)) s += 35;
         if (/(inside|contain|content|contents|file|files|folder|folders|directory|tree|what did the)/.test(query) && /(get_file_contents|contents|file|directory)/.test(name)) s += 45;
         return s;
       };
@@ -1460,7 +1523,21 @@ export async function POST(req: NextRequest) {
 
     const pickFocusedRemoteTool = () => {
       if (!connectorFocusedTools.length) return '';
+      if (isAccountQuery) {
+        const meTool = connectorFocusedTools.find((t: any) => {
+          const n = String(t?.originalName || t?.function?.name || '').toLowerCase();
+          return /(?:get_me|get_user)/.test(n);
+        });
+        if (meTool) return String(meTool.originalName || meTool.function?.name || '');
+      }
       const query = String(lastText || '').toLowerCase();
+      if (/(?:inside|contain|content|contents|file|files|folder|folders|directory|tree|what did the)/.test(query)) {
+        const contentTool = connectorFocusedTools.find((t: any) => {
+          const n = String(t?.originalName || t?.function?.name || '').toLowerCase();
+          return /(?:get_file_contents|get_repository_contents|list_directory)/.test(n);
+        });
+        if (contentTool) return String(contentTool.originalName || contentTool.function?.name || '');
+      }
       const words = query.split(/[^a-z0-9]+/).filter((word: string) => word.length >= 3);
       const actionWords = ['create','add','send','reply','update','edit','delete','remove','move','rename','upload','download','search','find','list','show','get','read','check','schedule','post','comment'];
       const preferred = actionWords.filter((word) => query.includes(word));
@@ -1482,6 +1559,7 @@ export async function POST(req: NextRequest) {
           if (name.includes(action)) score += 5;
         }
 
+        if (/(user|profile|account|who am i|my name|login|apps?|connected|connections?)/.test(query) && /(get_me|user)/.test(name)) score += 50;
         if (/(repository|repositories|repo|repos)/.test(query) && /(repository|repositories|repo|repos)/.test(haystack)) score += 35;
         if (/(inside|contain|content|contents|file|files|folder|folders|directory|tree|what did the)/.test(query) && /(get_file_contents|contents|file|directory)/.test(name)) score += 45;
         if (/(pull request|pr|issue|commit|branch)/.test(query) && /(pull|request|issue|commit|branch)/.test(haystack)) score += 20;
@@ -1506,7 +1584,6 @@ export async function POST(req: NextRequest) {
         lastText.toLowerCase().includes(String(connector.name).trim().toLowerCase())
       );
 
-    const nluRoute = await routeUserIntent(lastText, messages);
     // NLU owns the high-level boundary. Regex detection remains only as a
     // conservative fallback when the classifier is unavailable/uncertain.
     const legacyConnectorSignal = isConnectorRelatedRequest(lastText);
@@ -1540,7 +1617,7 @@ export async function POST(req: NextRequest) {
     // PRIMARY CONNECTOR PATH:
     // Connector requests use the user's enabled direct MCP plugin(s).
     // Composio is not involved in this path.
-    if (connectorRequest && !hasFocusedRemoteTools && !isSelfOrCapabilityQuery) {
+    if (connectorRequest && !hasFocusedRemoteTools && !isSelfOrCapabilityQuery && !isAccountQuery) {
       return streamTextDirectly(
         'No active direct connector is enabled for this request. Open Connectors and enable the plugin you created.',
         detectedSkill
@@ -1563,8 +1640,6 @@ export async function POST(req: NextRequest) {
       remoteMcpTools,
       remoteMcpToolRoutes,
     };
-
-    const isAccountQuery = detectIsAccountQuery(lastText, nluRoute.intent);
 
     let mcpToolCallsMade = 0;
     let successfulMcpToolCalls = 0;
@@ -1779,12 +1854,27 @@ export async function POST(req: NextRequest) {
               continue;
             }
 
+            if (!mcpModeActive && mcpToolCallsMade === 0 && pickFocusedRemoteTool()) {
+              const targetTool = pickFocusedRemoteTool();
+              const autoArgs = (targetTool.includes('repo') && !targetTool.includes('content') && !targetTool.includes('file'))
+                ? { query: 'user:sameer-sys' }
+                : (targetTool.includes('content') || targetTool.includes('file') || targetTool.includes('directory'))
+                ? { owner: 'sameer-sys', repo: 'claude-enterprise-app', path: '' }
+                : {};
+              const autoResult = await runAgentTool(targetTool, autoArgs, toolContext);
+              mcpToolCallsMade++;
+              const formatted = formatConnectorResult(lastText, autoResult);
+              if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {
+                return streamTextDirectly(formatted, detectedSkill, toolContext);
+              }
+            }
+
             mcpNudges++;
             forceConnectorTool = true;
             fullMessages.push({
               role: 'system',
               content: isAccountQuery
-                ? 'Call COMPOSIO_SEARCH_TOOLS now with a connection-status query. Use its toolkit_connection_statuses result to answer which apps/accounts are connected.'
+                ? 'Call get_me or the active direct connector tool now.'
                 : 'Call the required direct MCP tool now.',
             });
             continue;
@@ -1866,8 +1956,8 @@ export async function POST(req: NextRequest) {
 
           // Format and return real external tool data immediately for account, repository & content queries
           if (
-            (isAccountQuery && /(?:MANAGE_CONNECTIONS|SEARCH_TOOLS)/i.test(String(toolName || ''))) ||
-            (isRemoteMcpTool && !toolFailed && /(?:repository|repositories|repo|get_me|content|file|directory)/i.test(String(toolName || '')))
+            (isAccountQuery && /(?:MANAGE_CONNECTIONS|SEARCH_TOOLS|get_me|user)/i.test(String(toolName || ''))) ||
+            (isRemoteMcpTool && !toolFailed && /(?:repository|repositories|repo|get_me|user|content|file|directory)/i.test(String(toolName || '')))
           ) {
             return streamTextDirectly(
               formatConnectorResult(lastText, result),

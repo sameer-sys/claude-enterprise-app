@@ -171,7 +171,8 @@ export async function POST(req: NextRequest) {
         const connector = connectorFromInput(item);
         if (!connector.name || !connector.url) return { id: String(item?.id || ''), connected: false };
         const credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
-        return { id: connector.id, connected: Boolean(credentials?.accessToken) };
+        const hasEnvToken = (connector.id === 'conn-github' || /github/i.test(connector.name)) && Boolean(process.env.GITHUB_PERSONAL_ACCESS_TOKEN);
+        return { id: connector.id, connected: Boolean(credentials?.accessToken || hasEnvToken) };
       });
       return NextResponse.json({ success: true, connectors: results });
     }
@@ -181,6 +182,9 @@ export async function POST(req: NextRequest) {
     const connector = connectorFromInput(body?.connector);
     if (!connector.name || !connector.url) return NextResponse.json({ success: false, error: 'Connector name and remote MCP URL are required.' }, { status: 400 });
     let credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
+    if (!credentials?.accessToken && (connector.id === 'conn-github' || /github/i.test(connector.name)) && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
+      credentials = { accessToken: process.env.GITHUB_PERSONAL_ACCESS_TOKEN.trim() };
+    }
     let rotated: RemoteStoredToken | undefined;
     const tools = await listRemoteMcpTools(connector, { credentials, onCredentialsUpdated: (next) => { rotated = next; credentials = next; } });
 

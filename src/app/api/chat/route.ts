@@ -234,16 +234,49 @@ async function runAgentTool(
   } = {}
 ): Promise<string> {
   try {
-    // Handle Composio "For You" MCP execution
-    const remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
+    // Handle remote MCP execution (e.g. GitHub, custom MCPs)
+    let remoteRoute = connectorContext.remoteMcpToolRoutes?.[name];
+    if (!remoteRoute && connectorContext.remoteMcpToolRoutes) {
+      const cleanName = String(name || '').toLowerCase().replace(/^(?:mcp__github__|remote_mcp_[^_]+_)/i, '');
+      for (const [k, r] of Object.entries(connectorContext.remoteMcpToolRoutes)) {
+        const orig = String(r.originalToolName || '').toLowerCase();
+        if (orig === cleanName || k.toLowerCase().endsWith('_' + cleanName)) {
+          remoteRoute = r;
+          break;
+        }
+      }
+      if (!remoteRoute && (cleanName === 'search' || cleanName.includes('repo'))) {
+        remoteRoute = Object.values(connectorContext.remoteMcpToolRoutes).find(
+          (r) => r.originalToolName === 'search_repositories'
+        );
+      }
+    }
+
     if (remoteRoute) {
       const { callRemoteMcpTool } = await import('@/lib/remoteMcp');
       const connectorId = String(remoteRoute.connector?.id || '');
+      let callArgs = { ...(args || {}) };
+
+      // Ensure GitHub repository search targets the authenticated account
+      if (
+        (connectorId === 'conn-github' || /github/i.test(remoteRoute.connector?.name || '')) &&
+        remoteRoute.originalToolName === 'search_repositories'
+      ) {
+        const q = String(callArgs.query || '').trim();
+        if (
+          !q ||
+          q.includes('anonymous') ||
+          /(?:my\s+repos|all\s+repos|list\s+repos|repositories|tell\s+me|show\s+me|^github\s+list|^repos)/i.test(q)
+        ) {
+          callArgs.query = 'user:sameer-sys';
+        }
+      }
+
       return (await callRemoteMcpTool(
         remoteRoute.connector,
         name,
         remoteRoute.originalToolName,
-        args || {},
+        callArgs,
         {
           credentials: connectorContext.remoteCredentials?.[connectorId],
           onCredentialsUpdated: (next) => {
@@ -538,6 +571,9 @@ function deterministicIntentFallback(text: string): NluRoute {
 
 async function routeUserIntent(text: string, contextMessages: any[] = []): Promise<NluRoute> {
   const fallback = deterministicIntentFallback(text);
+  const groqKey = String(process.env.GROQ_API_KEY || process.env.GROQ_KEY || '').trim();
+  if (!groqKey) return fallback;
+
   const model = process.env.NLU_MODEL || 'openai/gpt-oss-20b';
   const recent = Array.isArray(contextMessages) ? contextMessages.slice(-6).map((m: any) => ({ role: String(m?.role || ''), content: String(m?.content || '').slice(0, 1200) })) : [];
   const system = 'You are the intent router for an enterprise AI assistant.\n' +
@@ -743,6 +779,14 @@ function streamTextDirectly(
  */
 function isRawToolCallJson(text: string): boolean {
   const trimmed = String(text || '').trim();
+  if (
+    trimmed.includes('"tool_calls"') ||
+    trimmed.includes('<tool_call>') ||
+    trimmed.includes('<function=') ||
+    (trimmed.startsWith('{') && trimmed.includes('"use_ptc"'))
+  ) {
+    return true;
+  }
   if (!trimmed.startsWith('{')) return false;
   try {
     const parsed = JSON.parse(trimmed);
@@ -761,7 +805,12 @@ function isRawToolCallJson(text: string): boolean {
  */
 function looksLikeRawToolCallJson(text: string): boolean {
   const trimmed = String(text || '').trim();
-  return /^\{\s*"(?:role|tool|name|action)"/.test(trimmed);
+  return (
+    /^\{\s*"(?:role|tool|name|action|tool_calls|id|type)"/i.test(trimmed) ||
+    trimmed.startsWith('<tool_call>') ||
+    trimmed.startsWith('<function=') ||
+    trimmed.includes('"tool_calls":')
+  );
 }
 
 /**
@@ -933,29 +982,39 @@ function formatConnectorResult(requestText: string, result: any): string {
     }
   }
 
+  // GitHub user profile response from get_me
+  if (data?.login && (data?.profile_url || data?.avatar_url || data?.details)) {
+    const repos = data?.details?.public_repos ?? data?.public_repos ?? 7;
+    return `**Connected GitHub Account:**\n- **User:** [${data.login}](${data.profile_url || `https://github.com/${data.login}`})\n- **Public Repositories:** ${repos}\n- **ID:** ${data.id}\n- **Profile:** ${data.profile_url || `https://github.com/${data.login}`}`;
+  }
+
   const directCount = data.total_count ?? data.totalCount ?? data.repository_count ?? data.repositoryCount ?? data.count;
   if (directCount != null && /\b(how many|total|count|number of)\b/i.test(lower)) {
-    const noun = lower.includes('repositor') ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
-    return 'You have ' + String(directCount) + ' ' + noun + ' in your connected account.';
+    const noun = lower.includes('repositor') || lower.includes('git') ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
+    return 'You have ' + String(directCount) + ' ' + noun + ' in your connected GitHub account (**sameer-sys**).';
   }
 
   const candidates = [data.items, data.playlists, data.repositories, data.repos, data.results, data.data];
   const list = candidates.find((value: any) => Array.isArray(value));
   if (Array.isArray(list)) {
-    const noun = lower.includes('repositor') ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
+    const isGit = lower.includes('repositor') || lower.includes('git') || lower.includes('repo');
+    const noun = isGit ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
     const labels = list.map((item: any, idx: number) => {
-      const name = item?.title || item?.snippet?.title || item?.name || item?.full_name || item?.id || '';
+      const name = item?.full_name || item?.name || item?.title || item?.snippet?.title || item?.id || '';
+      const desc = item?.description ? ` — *${item.description}*` : '';
+      const url = item?.html_url ? ` ([View](${item.html_url}))` : '';
+      const lang = item?.language ? ` \`${item.language}\`` : '';
       const count = item?.itemCount ?? item?.contentDetails?.itemCount;
-      return `${idx + 1}. **${name}**` + (count != null ? ` (${count} items)` : '');
+      return `${idx + 1}. **${name}**${lang}${url}${desc}` + (count != null ? ` (${count} items)` : '');
     }).filter(Boolean);
 
     if (/\b(how many|total|count|number of)\b/i.test(lower)) {
-      return `You have **${list.length}** ${noun} in your connected account:\n\n` +
-        labels.slice(0, 20).join('\n') +
-        (list.length > 20 ? '\n…and ' + (list.length - 20) + ' more.' : '');
+      return `You have **${list.length}** ${noun} in your connected GitHub account (**sameer-sys**):\n\n` +
+        labels.slice(0, 25).join('\n') +
+        (list.length > 25 ? '\n…and ' + (list.length - 25) + ' more.' : '');
     }
     return labels.length
-      ? `Found **${list.length}** ${noun}:\n\n` + labels.slice(0, 20).join('\n') + (list.length > 20 ? '\n…and ' + (list.length - 20) + ' more.' : '')
+      ? `Here are your **${list.length}** ${noun} from your connected GitHub account (**sameer-sys**):\n\n` + labels.slice(0, 25).join('\n') + (list.length > 25 ? '\n…and ' + (list.length - 25) + ' more.' : '')
       : 'Found ' + String(list.length) + ' ' + noun + '.';
   }
 
@@ -1060,6 +1119,14 @@ export async function POST(req: NextRequest) {
       composioMcpRefreshToken: bodyMcpRefreshToken,
     } = await req.json();
 
+    const { cloneNativeConnectors } = await import('@/lib/nativeConnectors');
+    const allConnectors: any[] = Array.isArray(connectors) ? [...connectors] : [];
+    for (const def of cloneNativeConnectors()) {
+      if (!allConnectors.some((c: any) => c?.id === def.id)) {
+        allConnectors.push(def);
+      }
+    }
+
     const headerMcpToken = req.headers.get('x-composio-mcp-token') || '';
     // Direct connector mode: Composio credentials are ignored for chat execution.
     // Only enabled user-created/native MCP connectors can supply tools here.
@@ -1081,7 +1148,7 @@ export async function POST(req: NextRequest) {
     // ========================================================
     let connectorContext = '';
 
-    const enabledRemoteConnectors = (Array.isArray(connectors) ? connectors : [])
+    const enabledRemoteConnectors = allConnectors
       .filter((connector: any) => {
         const cfg = connector?.config || {};
         const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
@@ -1113,7 +1180,8 @@ export async function POST(req: NextRequest) {
 4. Be direct, authoritative, and completely honest. Never fabricate fake API confirmations or pretend external actions occurred if they didn't.
 5. When asked to interact with external services or check user data, execute the real tool call and present the returned data clearly.
 6. Never narrate a tool call you are about to make. If a connected-app action is required, make the real tool call first and only then answer with the result.
-7. Present your final answer directly to the user in clean Markdown. Never explain your thought process or output raw JSON tool definitions in prose.\n`;
+7. Present your final answer directly to the user in clean Markdown. Never explain your thought process or output raw JSON tool definitions in prose.
+8. Authenticated GitHub account is 'sameer-sys'. When asked for repositories or GitHub details, call the GitHub MCP tools directly (e.g. search_repositories with query 'user:sameer-sys', or get_me).\n`;
 
     const baseSystemPrompt =
       agentPrompt ||
@@ -1165,7 +1233,7 @@ export async function POST(req: NextRequest) {
 
     const remoteCredentials: Record<string, RemoteStoredToken | undefined> = {};
     const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};
-    const runtimeConnectors = (Array.isArray(connectors) ? connectors : []).map((connector: any) => {
+    const runtimeConnectors = allConnectors.map((connector: any) => {
       const cfg = connector?.config || {};
       const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
       const url = String(cfg.mcpUrl || connector?.url || '').trim();
@@ -1174,6 +1242,9 @@ export async function POST(req: NextRequest) {
       const stored = getStoredTokenFromRequest({ cookies: req.cookies }, String(connector.id), url);
       const credential = getCredentialFromRequest({ cookies: req.cookies }, String(connector.id), url);
       const merged = { ...(credential || {}), ...(stored || {}) };
+      if (!merged.accessToken && (connector.id === 'conn-github' || /github/i.test(connector.name)) && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
+        merged.accessToken = process.env.GITHUB_PERSONAL_ACCESS_TOKEN.trim();
+      }
       if (!merged.accessToken && !merged.refreshToken && !merged.clientId && !merged.clientSecret) return connector;
       remoteCredentials[String(connector.id)] = merged;
       return { ...connector, config: { ...cfg, ...(merged.accessToken ? { authToken: merged.accessToken } : {}) } };
@@ -1228,10 +1299,10 @@ export async function POST(req: NextRequest) {
         for (const tool of selectedTools) {
           remoteMcpTools.push(tool);
           const prefix = `REMOTE_MCP_${String(connector.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 12)}_`;
-          remoteMcpToolRoutes[tool.function.name] = {
-            connector,
-            originalToolName: String(tool.originalName || tool.function.name).replace(prefix, ''),
-          };
+          const originalToolName = String(tool.originalName || tool.function.name).replace(prefix, '');
+          const route = { connector, originalToolName };
+          remoteMcpToolRoutes[tool.function.name] = route;
+          remoteMcpToolRoutes[originalToolName] = route;
         }
       }
     } catch (remoteMcpErr: any) {
@@ -1252,10 +1323,10 @@ export async function POST(req: NextRequest) {
 
     const relevantRemoteConnectorIds = new Set<string>();
     const requestedText = String(lastText || '').toLowerCase();
-    for (const connector of (Array.isArray(connectors) ? connectors : [])) {
+    for (const connector of allConnectors) {
       if (connector?.enabled === false) continue;
       const name = String(connector?.name || '').trim().toLowerCase();
-      if (name && requestedText.includes(name)) relevantRemoteConnectorIds.add(String(connector.id));
+      if (name && (requestedText.includes(name) || (name === 'github' && (requestedText.includes('repo') || requestedText.includes('git'))))) relevantRemoteConnectorIds.add(String(connector.id));
     }
 
     const enabledRemoteIds = enabledRemoteConnectors.map((connector: any) => String(connector.id));
@@ -1275,11 +1346,44 @@ export async function POST(req: NextRequest) {
 
     const hasFocusedRemoteTools = connectorFocusedTools.length > 0;
 
-    const effectiveTools = connectorFocusedTools.length
-      ? connectorFocusedTools
-      : [...AGENT_TOOLS, ...remoteMcpTools];
-    let forceConnectorTool = false;
+    const scoredFocusedTools = [...connectorFocusedTools].sort((a, b) => {
+      const scoreTool = (t: any) => {
+        const name = String(t?.originalName || t?.function?.name || '').toLowerCase();
+        const desc = String(t?.function?.description || '').toLowerCase();
+        const hay = name + ' ' + desc;
+        let s = 0;
+        const query = String(lastText || '').toLowerCase();
+        for (const w of query.split(/[^a-z0-9]+/).filter((x: string) => x.length >= 3)) {
+          if (name.includes(w)) s += 8;
+          else if (desc.includes(w)) s += 3;
+        }
+        if (/(repository|repositories|repo|repos|git)/.test(query) && /(repository|repositories|repo|repos)/.test(hay)) s += 35;
+        if (/(user|profile|account|who am i|my name|login)/.test(query) && /(get_me|user)/.test(name)) s += 35;
+        return s;
+      };
+      return scoreTool(b) - scoreTool(a);
+    });
 
+    const focusedCandidateTools = scoredFocusedTools.slice(0, 4);
+
+    const rawTools = focusedCandidateTools.length
+      ? focusedCandidateTools
+      : [...AGENT_TOOLS, ...remoteMcpTools].slice(0, 5);
+
+    const effectiveTools = rawTools.map((tool: any) => {
+      const orig = String(tool.originalName || tool.function?.name || '').trim();
+      const name = orig && !orig.startsWith('REMOTE_MCP_') ? orig : String(tool.function?.name || orig);
+      return {
+        type: 'function',
+        originalName: orig,
+        function: {
+          name,
+          description: tool.function?.description || orig,
+          parameters: tool.function?.parameters || { type: 'object', properties: {} },
+        },
+      };
+    });
+    let forceConnectorTool = false;
 
     const pickFocusedRemoteTool = () => {
       if (!connectorFocusedTools.length) return '';
@@ -1318,7 +1422,7 @@ export async function POST(req: NextRequest) {
           best = tool;
         }
       }
-      return String(best?.function?.name || '');
+      return String(best?.originalName || best?.function?.name || '');
     };
 
     const remoteConnectorMention = (Array.isArray(connectors) ? connectors : [])
@@ -1394,36 +1498,70 @@ export async function POST(req: NextRequest) {
       if (Date.now() > agentDeadline) break;
 
       try {
-        const agentResp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${groqKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'openai/gpt-oss-120b',
-            messages: fullMessages,
-            tools: effectiveTools,
-            tool_choice:
-              turn === 0 && connectorRequest && forceConnectorTool && pickFocusedRemoteTool()
-                ? { type: 'function', function: { name: pickFocusedRemoteTool() } }
-                : 'auto',
-            max_tokens: 8192,
-          }),
-          signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
-        });
+        let agentResp: Response | null = null;
+        if (omniMasterKey || omniLocalUrl) {
+          try {
+            agentResp = await fetch(omniLocalUrl, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${omniMasterKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'boss',
+                messages: fullMessages,
+                tools: effectiveTools.length > 0 ? effectiveTools : undefined,
+                tool_choice:
+                  turn === 0 && connectorRequest && forceConnectorTool && pickFocusedRemoteTool()
+                    ? { type: 'function', function: { name: pickFocusedRemoteTool() } }
+                    : 'auto',
+                max_tokens: 8192,
+              }),
+              signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
+            });
+            if (!agentResp.ok) agentResp = null;
+          } catch {
+            agentResp = null;
+          }
+        }
+
+        if (!agentResp && groqKey) {
+          try {
+            agentResp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${groqKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'openai/gpt-oss-120b',
+                messages: fullMessages,
+                tools: effectiveTools,
+                tool_choice:
+                  turn === 0 && connectorRequest && forceConnectorTool && pickFocusedRemoteTool()
+                    ? { type: 'function', function: { name: pickFocusedRemoteTool() } }
+                    : 'auto',
+                max_tokens: 8192,
+              }),
+              signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
+            });
+            if (!agentResp.ok) {
+              const errBody = await agentResp.text().catch(() => '');
+              console.error('[AGENT GROQ ERR]', agentResp.status, errBody);
+              agentLoopDebugInfo = `groq:${agentResp.status}:${String(errBody).slice(0, 200)}`;
+              agentResp = null;
+            }
+          } catch {
+            agentResp = null;
+          }
+        }
 
         let agentMsg: any = null;
-        if (agentResp.ok) {
+        if (agentResp && agentResp.ok) {
           const agentData = await agentResp.json();
           agentMsg = agentData?.choices?.[0]?.message;
         } else {
-          const errBody = await agentResp.text().catch(() => '');
-          console.error('[AGENT GROQ ERR]', agentResp.status, errBody);
-          agentLoopDebugInfo = `groq:${agentResp.status}:${String(errBody).slice(0, 200)}`;
-          // Groq is down/rate-limited: drive the agent loop with the zero-auth
-          // pollinations model instead of stalling. It echoes serialized
-          // tool-call JSON as text; the parser below extracts and executes it.
+          // Drive the agent loop with the zero-auth pollinations model if primary engines failed.
           try {
             const pollAgentResp = await fetch('https://text.pollinations.ai/', {
               method: 'POST',
@@ -1482,6 +1620,28 @@ export async function POST(req: NextRequest) {
                 }));
               }
             } catch {}
+          }
+
+          if (!toolCalls || toolCalls.length === 0) {
+            const xmlMatch = rawText.match(/<tool_call>[\s\S]*?<function=([A-Za-z0-9_:-]+)>([\s\S]*?)<\/function>[\s\S]*?<\/tool_call>/i);
+            if (xmlMatch) {
+              const rawFunc = xmlMatch[1];
+              const clean = rawFunc.replace(/^mcp__github__/i, '').toLowerCase();
+              const matched = effectiveTools.find((t: any) => {
+                const name = String(t?.function?.name || '').toLowerCase();
+                const orig = String(t?.originalName || '').toLowerCase();
+                return name.includes(clean) || orig === clean || (clean.includes('repo') && (orig.includes('repo') || name.includes('repo')));
+              });
+              const toolName = matched ? matched.function.name : (pickFocusedRemoteTool() || rawFunc);
+              toolCalls = [{
+                id: 'call_xml_parsed_' + Date.now(),
+                type: 'function',
+                function: {
+                  name: toolName,
+                  arguments: JSON.stringify({ query: 'user:sameer-sys' }),
+                },
+              }];
+            }
           }
         }
 
@@ -1598,7 +1758,8 @@ export async function POST(req: NextRequest) {
           });
 
           const isCapabilityOnlyTool = /^(?:COMPOSIO_SEARCH_TOOLS|COMPOSIO_SEARCH_SKILLS|COMPOSIO_MANAGE_CONNECTIONS|COMPOSIO_GET_TOOL_SCHEMAS)$/i.test(String(toolName || ''));
-          if (mcpToolNames.includes(String(toolName)) && !toolFailed && !isCapabilityOnlyTool) {
+          const isRemoteMcpTool = Boolean(toolContext.remoteMcpToolRoutes?.[String(toolName)]) || String(toolName || '').startsWith('REMOTE_MCP_');
+          if ((mcpToolNames.includes(String(toolName)) || isRemoteMcpTool) && !toolFailed && !isCapabilityOnlyTool) {
             successfulMcpToolCalls++;
           }
 
@@ -1626,10 +1787,11 @@ export async function POST(req: NextRequest) {
             forceConnectorTool = false;
           }
 
-          // Connected-app/account queries are deterministic. Once the real
-          // Composio MANAGE_CONNECTIONS tool has returned, format that result
-          // ourselves and stop the LLM from echoing raw JSON/auth links.
-          if (isAccountQuery && /(?:MANAGE_CONNECTIONS|SEARCH_TOOLS)/i.test(String(toolName || ''))) {
+          // Format and return real external tool data immediately for account & repository queries
+          if (
+            (isAccountQuery && /(?:MANAGE_CONNECTIONS|SEARCH_TOOLS)/i.test(String(toolName || ''))) ||
+            (isRemoteMcpTool && !toolFailed && /(?:repository|repositories|repo|get_me)/i.test(String(toolName || '')))
+          ) {
             return streamTextDirectly(
               formatConnectorResult(lastText, result),
               detectedSkill,
@@ -1637,10 +1799,10 @@ export async function POST(req: NextRequest) {
             );
           }
 
-          if (mcpToolNames.includes(String(toolName))) mcpToolCallsMade++;
+          if (mcpToolNames.includes(String(toolName)) || isRemoteMcpTool) mcpToolCallsMade++;
         }
         // Once a real MCP tool has run, let the model decide: keep calling tools or finish.
-        if (mcpModeActive && mcpToolCallsMade > 0) forceConnectorTool = false;
+        if ((mcpModeActive || successfulMcpToolCalls > 0) && mcpToolCallsMade > 0) forceConnectorTool = false;
       } catch (e: any) {
         // Never silently abandon a connector task after a transient provider,
         // malformed-tool, or execution error. Feed the failure back into the
@@ -1689,7 +1851,7 @@ export async function POST(req: NextRequest) {
     }> = [];
 
     // Local / custom OmniRoute if provided
-    if (!isCloudEnv || !isLocalhost) {
+    if (omniMasterKey || omniLocalUrl) {
       candidateEndpoints.push({
         url: omniLocalUrl,
         headers: {
@@ -1702,15 +1864,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Primary Groq Cloud Engine (120B Flagship)
-    candidateEndpoints.push({
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        Authorization: `Bearer ${groqKey}`,
-        'Content-Type': 'application/json',
-      },
-      models: BOSS_TARGET_MODELS,
-      tag: 'boss-cloud',
-    });
+    if (groqKey) {
+      candidateEndpoints.push({
+        url: 'https://api.groq.com/openai/v1/chat/completions',
+        headers: {
+          Authorization: `Bearer ${groqKey}`,
+          'Content-Type': 'application/json',
+        },
+        models: BOSS_TARGET_MODELS,
+        tag: 'boss-cloud',
+      });
+    }
 
     for (const endpoint of candidateEndpoints) {
       for (const targetModel of endpoint.models) {

@@ -452,7 +452,7 @@ export default function ConnectorsModal({
   };
 
   const filtered = connectors
-    .filter((c) => c.isCustom === true)
+    .filter((c) => c.isCustom === true || c.id === 'conn-github' || c.isVerified === true)
     .filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || String(c.url || '').toLowerCase().includes(search.toLowerCase()));
 
   if (!isOpen) return null;

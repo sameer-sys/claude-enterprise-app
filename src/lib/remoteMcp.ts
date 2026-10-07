@@ -44,7 +44,10 @@ export function safeRemoteMcpUrl(raw: string): URL {
 function baseHeaders(connector: Connector, credentials?: RemoteStoredToken, state?: RemoteState, method?: string, params?: any): Record<string, string> {
   const headers: Record<string, string> = { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' };
   const cfg: any = connector.config || {};
-  const token = String(credentials?.accessToken || cfg.authToken || cfg.apiKey || '').trim();
+  let token = String(credentials?.accessToken || cfg.authToken || cfg.apiKey || '').trim();
+  if (!token && (connector.id === 'conn-github' || /github/i.test(connector.name)) && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
+    token = process.env.GITHUB_PERSONAL_ACCESS_TOKEN.trim();
+  }
   if (token) headers.Authorization = (credentials?.tokenType || 'Bearer') + ' ' + token;
   if (cfg.headers && typeof cfg.headers === 'object') {
     for (const [key, value] of Object.entries(cfg.headers)) {
@@ -230,6 +233,11 @@ async function initializeRemote(connector: Connector, options: RemoteMcpOptions 
   const existing = REMOTE_STATE.get(key);
   if (existing?.initialized) return existing;
 
+  const isGitHub = connector.id === 'conn-github' || /githubcopilot\.com\/mcp/i.test(endpoint.toString());
+  if (isGitHub) {
+    return initializeLegacy(connector, options);
+  }
+
   try {
     const discovered = await probeModern(connector, options);
     const state: RemoteState = { era: 'modern', protocolVersion: '2026-07-28', initialized: true };
@@ -237,8 +245,6 @@ async function initializeRemote(connector: Connector, options: RemoteMcpOptions 
     return state;
   } catch (err: any) {
     if (err?.status === 401 || err?.status === 403) throw err;
-    const status = Number(err?.status);
-    if (![-32601, -32600, 400, 404, 405].includes(status)) throw err;
     return initializeLegacy(connector, options);
   }
 }
@@ -267,6 +273,53 @@ export async function listRemoteMcpTools(connector: Connector, options: RemoteMc
 }
 
 export async function callRemoteMcpTool(connector: Connector, _exposedToolName: string, originalToolName: string, args: Record<string, any> = {}, options: RemoteMcpOptions = {}): Promise<string> {
+  const isGitHub = connector.id === 'conn-github' || /github/i.test(connector.name);
+  const cfg: any = connector.config || {};
+  const token = String(options.credentials?.accessToken || cfg.authToken || cfg.apiKey || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '').trim();
+
+  // High-speed direct GitHub execution for common profile/repository tools
+  if (isGitHub && token) {
+    if (originalToolName === 'get_me' || originalToolName === 'get_user') {
+      try {
+        const ghRes = await fetch('https://api.github.com/user', {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+          signal: AbortSignal.timeout(6000),
+        });
+        if (ghRes.ok) {
+          const u = await ghRes.json();
+          return JSON.stringify({ login: u.login, id: u.id, profile_url: u.html_url, avatar_url: u.avatar_url, details: { public_repos: u.public_repos, followers: u.followers } });
+        }
+      } catch {}
+    }
+    if (originalToolName === 'search_repositories' || originalToolName === 'list_repositories') {
+      try {
+        const ghRes = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+          signal: AbortSignal.timeout(6000),
+        });
+        if (ghRes.ok) {
+          const repos = await ghRes.json();
+          const items = Array.isArray(repos) ? repos.map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            full_name: r.full_name,
+            description: r.description || '',
+            html_url: r.html_url,
+            language: r.language || '',
+            stargazers_count: r.stargazers_count || 0,
+            forks_count: r.forks_count || 0,
+            open_issues_count: r.open_issues_count || 0,
+            private: r.private,
+            fork: r.fork,
+            updated_at: r.updated_at,
+          })) : [];
+          return JSON.stringify({ total_count: items.length, items });
+        }
+      } catch {}
+    }
+  }
+
+  await initializeRemote(connector, options);
   const envelope = await rpc(connector, 'tools/call', { name: originalToolName, arguments: args }, options);
   const result = envelope.payload?.result;
   if (result?.isError) throw new Error(contentToText(result?.content) || 'Remote MCP tool failed.');

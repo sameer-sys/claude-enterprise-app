@@ -395,7 +395,7 @@ export default function ConnectorsModal({
           setConnectors((prev) => prev.map((c) => c.id === connector.id ? connector : c));
           setSelected(connector);
           setStatusMessage('Connected — verified against the real MCP server.');
-          onAddCustomConnector({ ...connector, status: 'connected', enabled: true });
+          onAddCustomConnector?.({ ...connector, status: 'connected', enabled: true });
         } else if (customAuthMode !== 'oauth') {
           setStatusMessage(data?.requiresAuth ? 'Added. Authentication is required.' : 'Added. The server will be checked when used.');
         }

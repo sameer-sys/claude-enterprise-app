@@ -255,7 +255,7 @@ export default function Home() {
           const cfg = connector?.config || {};
           const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
           const url = String(cfg.mcpUrl || connector?.url || '').trim();
-          return type === 'mcp' && /^https?:\\/\\//i.test(url) && !/connect\\.composio\\.dev\\/mcp/i.test(url);
+          return type === 'mcp' && /^https?:\/\//i.test(url) && !/connect\.composio\.dev\/mcp/i.test(url);
         });
         if (connectors.length !== existing.length) changed = true;
         return connectors.length === existing.length ? session : { ...session, connectors };
@@ -341,7 +341,7 @@ export default function Home() {
       const cfg = connector?.config || {};
       const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
       const url = String(cfg.mcpUrl || connector?.url || '').trim();
-      return type === 'mcp' && /^https?:\\/\\//i.test(url) && !/connect\\.composio\\.dev\\/mcp/i.test(url);
+      return type === 'mcp' && /^https?:\/\//i.test(url) && !/connect\.composio\.dev\/mcp/i.test(url);
     });
 
   const activeConnectorsCount = currentSessionConnectors.filter((connector) => connector.enabled).length;

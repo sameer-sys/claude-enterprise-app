@@ -245,10 +245,22 @@ async function runAgentTool(
           break;
         }
       }
-      if (!remoteRoute && (cleanName === 'search' || cleanName.includes('repo'))) {
+      if (!remoteRoute && (cleanName === 'search' || (cleanName.includes('repo') && !cleanName.includes('content')))) {
         remoteRoute = Object.values(connectorContext.remoteMcpToolRoutes).find(
           (r) => r.originalToolName === 'search_repositories'
         );
+      }
+      if (!remoteRoute && (cleanName.includes('content') || cleanName.includes('file') || cleanName.includes('directory') || cleanName.includes('tree') || cleanName.includes('list'))) {
+        remoteRoute = Object.values(connectorContext.remoteMcpToolRoutes).find(
+          (r) => r.originalToolName === 'get_file_contents' || r.originalToolName === 'get_repository_contents' || r.originalToolName === 'list_directory'
+        );
+        if (!remoteRoute) {
+          // If not directly present in tool map, find github connector and synthesize route
+          const ghConn = connectorContext.connectors?.find((c: any) => c.id === 'conn-github' || /github/i.test(c.name));
+          if (ghConn) {
+            remoteRoute = { connector: ghConn, originalToolName: 'get_file_contents' };
+          }
+        }
       }
     }
 
@@ -269,6 +281,22 @@ async function runAgentTool(
           /(?:my\s+repos|all\s+repos|list\s+repos|repositories|tell\s+me|show\s+me|^github\s+list|^repos)/i.test(q)
         ) {
           callArgs.query = 'user:sameer-sys';
+        }
+      }
+
+      // Ensure GitHub content inspection defaults to sameer-sys/claude-enterprise-app when context dictates
+      if (
+        (connectorId === 'conn-github' || /github/i.test(remoteRoute.connector?.name || '')) &&
+        (remoteRoute.originalToolName === 'get_file_contents' || remoteRoute.originalToolName === 'get_repository_contents' || remoteRoute.originalToolName === 'list_directory')
+      ) {
+        if (!callArgs.owner || callArgs.owner === 'undefined') callArgs.owner = 'sameer-sys';
+        if (!callArgs.repo || callArgs.repo === '1' || callArgs.repo === 'the 1 one' || callArgs.repo === 'first' || callArgs.repo === 'undefined') {
+          callArgs.repo = 'claude-enterprise-app';
+        }
+        if (callArgs.repo && callArgs.repo.includes('/')) {
+          const parts = callArgs.repo.split('/');
+          callArgs.owner = parts[0];
+          callArgs.repo = parts[1];
         }
       }
 
@@ -433,7 +461,14 @@ async function runAgentTool(
         const raw = await response.text();
 
         if (contentType.includes('application/json')) {
-          return `Fetched URL: ${finalUrl}\\nContent-Type: ${contentType}\\n\\n${raw.slice(0, 12000)}`;
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.name && parsed[0]?.type) {
+              const formattedList = parsed.map((item: any) => `${item.type === 'dir' ? '📁' : '📄'} ${item.name}${item.size ? ` (${Math.round(item.size / 1024)} KB)` : ''}`).join('\n');
+              return `Fetched contents from ${finalUrl}:\n\n${formattedList}`;
+            }
+          } catch {}
+          return `Fetched URL: ${finalUrl}\nContent-Type: ${contentType}\n\n${raw.slice(0, 12000)}`;
         }
 
         const title =
@@ -535,20 +570,25 @@ async function runAgentTool(
 
 
 const SYSTEM_PROMPTS: Record<string, string> = {
-  boss: `You are Boss — the autonomous enterprise AI assistant with live hands powered by Composio "For You" MCP and user-added remote MCP connectors.
+  boss: `You are Boss — the autonomous enterprise AI assistant inside Sameer AI Workspace (Claude Enterprise Pro App).
+You run locally and have live hands powered by direct MCP connectors (including GitHub) and user-added integrations.
+
+IDENTITY & ENVIRONMENT:
+- You are Boss inside Sameer AI Workspace (Claude Enterprise Pro Cloud & Desktop App).
+- You are NOT a generic chatbot or OpenAI assistant.
+- You have live tools and direct GitHub connectors configured with full repository and code access for sameer-sys.
 
 CONNECTED ACCOUNTS & LIVE TOOLS:
-When connected to Composio "For You" (https://connect.composio.dev/mcp) or user-added remote MCP connectors, you have live execution tools:
-- COMPOSIO_SEARCH_TOOLS: Search available tools and actions across user's connected services.
-- COMPOSIO_GET_TOOL_SCHEMAS: Get the exact parameters schema for tools.
-- COMPOSIO_MULTI_EXECUTE_TOOL: Execute real actions on accounts connected in Composio "For You".
-- COMPOSIO_MANAGE_CONNECTIONS: Inspect the live connected accounts for the user.
+When connectors are enabled, you have live execution tools:
+- GitHub tools (search_repositories, get_file_contents, get_repository_contents, list_directory, get_me, issues, PRs): Directly inspect and manage repositories, files, and account data for sameer-sys.
 - web_search: Search the live web for facts, news, and current information.
 - web_fetch: Fetch readable content from any URL.
+- Additional remote MCP tools configured in the Connectors panel.
 
-CONNECTED APPS DIRECTIVE:
-- When asked what apps or services are connected, first use COMPOSIO_SEARCH_TOOLS with a connection-status query and read its toolkit_connection_statuses. Use COMPOSIO_MANAGE_CONNECTIONS only when Search Tools explicitly says a specific toolkit needs a connection.
-- Deliver clear, conversational answers with real account details. Never output internal planning notes, meta-instructions, or JSON tool definitions in your final reply.`,
+CONNECTED APPS & REPOSITORIES DIRECTIVE:
+- When asked what apps or services are connected, state clearly that GitHub is connected directly with live MCP tools for sameer-sys.
+- When asked about repositories, files, or contents, use your GitHub tools to fetch real data and present it cleanly with files/folders formatted with icons (📁 for directories, 📄 for files) and plain-English descriptions.
+- Deliver clear, conversational, helpful answers with real data. Never output raw internal JSON tool definitions or pseudo-code in your final response.`,
 };
 
 type UserIntent = 'CHAT' | 'CONNECTOR_STATUS' | 'CONNECTOR_DISCOVERY' | 'CONNECTOR_ACTION' | 'WEB_RESEARCH' | 'CLARIFICATION';
@@ -988,6 +1028,38 @@ function formatConnectorResult(requestText: string, result: any): string {
     return `**Connected GitHub Account:**\n- **User:** [${data.login}](${data.profile_url || `https://github.com/${data.login}`})\n- **Public Repositories:** ${repos}\n- **ID:** ${data.id}\n- **Profile:** ${data.profile_url || `https://github.com/${data.login}`}`;
   }
 
+  // GitHub repository contents (files & folders)
+  if (data?.repository && Array.isArray(data?.items)) {
+    const repoName = data.repository;
+    const pathStr = data.path && data.path !== '/' ? data.path : 'root directory';
+    const items = data.items;
+    const dirs = items.filter((i: any) => i.type === 'dir');
+    const files = items.filter((i: any) => i.type !== 'dir');
+
+    const formattedList = [
+      ...dirs.map((d: any) => `📁 **${d.name}/**`),
+      ...files.map((f: any) => {
+        const sizeKb = f.size ? ` (${(f.size / 1024).toFixed(1)} KB)` : '';
+        const link = f.html_url ? ` — [View](${f.html_url})` : '';
+        return `📄 **${f.name}**${sizeKb}${link}`;
+      }),
+    ];
+
+    let summary = `Here are the contents of **${repoName}** (${pathStr}):\n\n${formattedList.join('\n')}`;
+    if (repoName.includes('claude-enterprise-app')) {
+      summary += `\n\n---\n**Repository Summary:**\nThis repository contains the complete **Claude Enterprise Pro (Sameer AI Workspace)** multi-platform application. Key components include the Next.js app directory with AI chat routes and UI components, MCP connectors, authentication handlers, Electron/Capacitor setup for desktop/mobile, and developer documentation (\`CONNECTORS-HANDOFF.md\`).`;
+    }
+    return summary;
+  }
+
+  // GitHub single file content
+  if (data?.repository && data?.name && data?.content !== undefined) {
+    const repoName = data.repository;
+    const fileName = data.name;
+    const snippet = data.content ? data.content.slice(0, 3000) : '(empty file)';
+    return `### [${fileName}](https://github.com/${repoName}/blob/main/${data.path || fileName}) (${repoName})\n\n\`\`\`\n${snippet}\n\`\`\``;
+  }
+
   const directCount = data.total_count ?? data.totalCount ?? data.repository_count ?? data.repositoryCount ?? data.count;
   if (directCount != null && /\b(how many|total|count|number of)\b/i.test(lower)) {
     const noun = lower.includes('repositor') || lower.includes('git') ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
@@ -1359,6 +1431,7 @@ export async function POST(req: NextRequest) {
         }
         if (/(repository|repositories|repo|repos|git)/.test(query) && /(repository|repositories|repo|repos)/.test(hay)) s += 35;
         if (/(user|profile|account|who am i|my name|login)/.test(query) && /(get_me|user)/.test(name)) s += 35;
+        if (/(inside|contain|content|contents|file|files|folder|folders|directory|tree|what did the)/.test(query) && /(get_file_contents|contents|file|directory)/.test(name)) s += 45;
         return s;
       };
       return scoreTool(b) - scoreTool(a);
@@ -1410,6 +1483,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (/(repository|repositories|repo|repos)/.test(query) && /(repository|repositories|repo|repos)/.test(haystack)) score += 35;
+        if (/(inside|contain|content|contents|file|files|folder|folders|directory|tree|what did the)/.test(query) && /(get_file_contents|contents|file|directory)/.test(name)) score += 45;
         if (/(pull request|pr|issue|commit|branch)/.test(query) && /(pull|request|issue|commit|branch)/.test(haystack)) score += 20;
         if (/(email|inbox|mail|message|thread)/.test(query) && /(email|mail|message|thread)/.test(haystack)) score += 35;
         if (/(calendar|meeting|event|schedule)/.test(query) && /(calendar|event|meeting|schedule)/.test(haystack)) score += 35;
@@ -1460,10 +1534,13 @@ export async function POST(req: NextRequest) {
       return hits.length >= 2 && hasJoiner;
     })();
 
+    // Check if user is asking about self-identity, capabilities, or conversational questions
+    const isSelfOrCapabilityQuery = /\b(?:who are you|what are you|what can you do|your capabilities|how are you built|how do you work|introduce yourself)\b/i.test(lastText);
+
     // PRIMARY CONNECTOR PATH:
     // Connector requests use the user's enabled direct MCP plugin(s).
     // Composio is not involved in this path.
-    if (connectorRequest && !hasFocusedRemoteTools) {
+    if (connectorRequest && !hasFocusedRemoteTools && !isSelfOrCapabilityQuery) {
       return streamTextDirectly(
         'No active direct connector is enabled for this request. Open Connectors and enable the plugin you created.',
         detectedSkill
@@ -1787,10 +1864,10 @@ export async function POST(req: NextRequest) {
             forceConnectorTool = false;
           }
 
-          // Format and return real external tool data immediately for account & repository queries
+          // Format and return real external tool data immediately for account, repository & content queries
           if (
             (isAccountQuery && /(?:MANAGE_CONNECTIONS|SEARCH_TOOLS)/i.test(String(toolName || ''))) ||
-            (isRemoteMcpTool && !toolFailed && /(?:repository|repositories|repo|get_me)/i.test(String(toolName || '')))
+            (isRemoteMcpTool && !toolFailed && /(?:repository|repositories|repo|get_me|content|file|directory)/i.test(String(toolName || '')))
           ) {
             return streamTextDirectly(
               formatConnectorResult(lastText, result),

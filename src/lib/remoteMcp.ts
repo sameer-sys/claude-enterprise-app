@@ -317,6 +317,73 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
         }
       } catch {}
     }
+
+    if (originalToolName === 'get_file_contents' || originalToolName === 'get_repository_contents' || originalToolName === 'list_directory') {
+      try {
+        let owner = String(args.owner || '').trim();
+        let repo = String(args.repo || '').trim();
+        let path = String(args.path || '').trim();
+
+        if (!repo && owner.includes('/')) {
+          const parts = owner.split('/');
+          owner = parts[0];
+          repo = parts[1];
+        } else if (!owner && repo.includes('/')) {
+          const parts = repo.split('/');
+          owner = parts[0];
+          repo = parts[1];
+        }
+
+        if (!owner) owner = 'sameer-sys';
+        if (!repo) repo = 'claude-enterprise-app';
+
+        // Clean path (strip leading slash)
+        if (path.startsWith('/')) path = path.slice(1);
+
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
+          signal: AbortSignal.timeout(6000),
+        });
+
+        if (ghRes.ok) {
+          const contentData = await ghRes.json();
+          if (Array.isArray(contentData)) {
+            // It's a directory listing
+            const items = contentData.map((item: any) => ({
+              name: item.name,
+              path: item.path,
+              type: item.type, // 'file' or 'dir'
+              size: item.size,
+              html_url: item.html_url,
+            }));
+            return JSON.stringify({ repository: `${owner}/${repo}`, path: path || '/', total_items: items.length, items });
+          } else if (contentData && typeof contentData === 'object') {
+            // It's a single file
+            let decoded = '';
+            if (contentData.content && contentData.encoding === 'base64') {
+              try {
+                decoded = Buffer.from(contentData.content, 'base64').toString('utf8');
+              } catch {
+                decoded = contentData.content;
+              }
+            }
+            return JSON.stringify({
+              repository: `${owner}/${repo}`,
+              name: contentData.name,
+              path: contentData.path,
+              size: contentData.size,
+              html_url: contentData.html_url,
+              content: decoded ? decoded.slice(0, 10000) : '',
+            });
+          }
+        } else {
+          // If 404 on specific file/dir, attempt to return list of root or helpful message
+          return JSON.stringify({ error: `Could not retrieve contents of ${owner}/${repo}/${path} (Status ${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to fetch repository contents' });
+      }
+    }
   }
 
   await initializeRemote(connector, options);

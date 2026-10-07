@@ -673,12 +673,9 @@ function isConnectorRelatedRequest(text: string): boolean {
     'file','files','folder','folders','document','documents','spreadsheet','spreadsheets',
     'playlist','playlists','video','videos','channel','channels',
     'page','pages','post','posts','task','tasks','contact','contacts',
-    'comment','comments','app','apps','service','services','account','accounts',
+    'comment','comments','account','accounts',
     'connection','connections','integration','integrations',
-    'component','components','layout','layouts','sidebar','navbar','header','footer',
-    'ui','screen','screens','function','functions','class','classes','module','modules',
-    'endpoint','endpoints','route','routes','code','script','scripts','codebase',
-    'my app','my project','my repo','my repository'
+    'my repo','my repository'
   ];
   const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|retrieve|fetch|load|pull|view|display|browse|access|how many|total|count|number of|what|which)\b/i.test(lower);
   const mentionsGitHub = /\b(?:github|git|repo|repos|repository|repositories|pull request|pull requests|commit|commits|branch|branches)\b/i.test(lower);
@@ -1589,52 +1586,82 @@ export async function POST(req: NextRequest) {
       if (Date.now() > agentDeadline) break;
 
       try {
-        const agentResp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${groqKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'openai/gpt-oss-120b',
-            messages: fullMessages,
-            tools: effectiveTools,
-            tool_choice:
-              turn === 0 && connectorRequest && forceConnectorTool
-                ? (mcpModeActive
-                    ? {
-                        type: 'function',
-                        function: {
-                          name: pickMcpToolName(
-                            mcpToolNames,
-                            [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
-                            isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
-                          ),
-                        },
-                      }
-                    : ({
-                        type: 'function',
-                        function: {
-                          name: pickFocusedRemoteTool(),
-                        },
-                      }))
-                : 'auto',
-            max_tokens: 8192,
-          }),
-          signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
-        });
+        let agentResp: Response | null = null;
+        if (omniMasterKey || omniLocalUrl) {
+          try {
+            agentResp = await fetch(omniLocalUrl, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${omniMasterKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'boss',
+                messages: fullMessages,
+                tools: effectiveTools.length > 0 ? effectiveTools : undefined,
+                max_tokens: 8192,
+              }),
+              signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
+            });
+            if (!agentResp.ok) agentResp = null;
+          } catch {
+            agentResp = null;
+          }
+        }
+
+        if (!agentResp && groqKey) {
+          try {
+            agentResp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${groqKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'openai/gpt-oss-120b',
+                messages: fullMessages,
+                tools: effectiveTools.length > 0 ? effectiveTools : undefined,
+                tool_choice:
+                  turn === 0 && connectorRequest && forceConnectorTool
+                    ? (mcpModeActive
+                        ? {
+                            type: 'function',
+                            function: {
+                              name: pickMcpToolName(
+                                mcpToolNames,
+                                [isAccountQuery ? /MANAGE_CONNECTIONS/i : /SEARCH_TOOLS/i],
+                                isAccountQuery ? 'COMPOSIO_MANAGE_CONNECTIONS' : 'COMPOSIO_SEARCH_TOOLS'
+                              ),
+                            },
+                          }
+                        : ({
+                            type: 'function',
+                            function: {
+                              name: pickFocusedRemoteTool(),
+                            },
+                          }))
+                    : 'auto',
+                max_tokens: 8192,
+              }),
+              signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
+            });
+            if (!agentResp.ok) {
+              const errBody = await agentResp.text().catch(() => '');
+              console.error('[AGENT GROQ ERR]', agentResp.status, errBody);
+              agentLoopDebugInfo = `groq:${agentResp.status}:${String(errBody).slice(0, 200)}`;
+              agentResp = null;
+            }
+          } catch {
+            agentResp = null;
+          }
+        }
 
         let agentMsg: any = null;
-        if (agentResp.ok) {
+        if (agentResp && agentResp.ok) {
           const agentData = await agentResp.json();
           agentMsg = agentData?.choices?.[0]?.message;
         } else {
-          const errBody = await agentResp.text().catch(() => '');
-          console.error('[AGENT GROQ ERR]', agentResp.status, errBody);
-          agentLoopDebugInfo = `groq:${agentResp.status}:${String(errBody).slice(0, 200)}`;
-          // Groq is down/rate-limited: drive the agent loop with the zero-auth
-          // pollinations model instead of stalling. It echoes serialized
-          // tool-call JSON as text; the parser below extracts and executes it.
+          // Drive the agent loop with the zero-auth pollinations model if primary engines failed.
           try {
             const pollAgentResp = await fetch('https://text.pollinations.ai/', {
               method: 'POST',
@@ -1843,7 +1870,7 @@ export async function POST(req: NextRequest) {
     }> = [];
 
     // Local / custom OmniRoute if provided
-    if (!isCloudEnv || !isLocalhost) {
+    if (omniMasterKey || omniLocalUrl) {
       candidateEndpoints.push({
         url: omniLocalUrl,
         headers: {
@@ -1856,15 +1883,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Primary Groq Cloud Engine (120B Flagship)
-    candidateEndpoints.push({
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        Authorization: `Bearer ${groqKey}`,
-        'Content-Type': 'application/json',
-      },
-      models: BOSS_TARGET_MODELS,
-      tag: 'boss-cloud',
-    });
+    if (groqKey) {
+      candidateEndpoints.push({
+        url: 'https://api.groq.com/openai/v1/chat/completions',
+        headers: {
+          Authorization: `Bearer ${groqKey}`,
+          'Content-Type': 'application/json',
+        },
+        models: BOSS_TARGET_MODELS,
+        tag: 'boss-cloud',
+      });
+    }
 
     for (const endpoint of candidateEndpoints) {
       for (const targetModel of endpoint.models) {

@@ -97,12 +97,7 @@ export default function PluginCreatorModal({ isOpen, onClose, onInstallGitHubCon
       }
 
       let probeData: any = null;
-      if (directMcpMode === 'directMcp') {
-        connector.status = 'ready';
-        connector.enabled = false;
-        setMessage('direct MCP plugin created and added to Connectors. Sign in through direct MCP to activate it.');
-      } else {
-        const probe = await fetch('/api/mcp', {
+              const probe = await fetch('/api/mcp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'check', connector }),

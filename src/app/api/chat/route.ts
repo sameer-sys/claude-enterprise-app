@@ -88,6 +88,82 @@ const AGENT_TOOLS = [
   },
 ];
 
+const COMPOSIO_GATEWAY_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'COMPOSIO_SEARCH_TOOLS',
+      description: 'Composio gateway: dynamically discover the exact connected-app tools needed for the user request. Use this before executing a new connector workflow. Do not hardcode app names or actions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          queries: { type: 'array', items: { type: 'object', properties: { use_case: { type: 'string' } }, required: ['use_case'] } },
+          session: { type: 'object', properties: { generate_id: { type: 'boolean' } } },
+        },
+        required: ['queries'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'COMPOSIO_MULTI_EXECUTE_TOOL',
+      description: 'Composio gateway: execute one or more exact tools discovered from Composio. Use the exact tool_slug and arguments returned by discovery. This can execute multiple connector actions in one request.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tools: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                tool_slug: { type: 'string' },
+                arguments: { type: 'object' },
+              },
+              required: ['tool_slug', 'arguments'],
+            },
+          },
+        },
+        required: ['tools'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'COMPOSIO_MANAGE_CONNECTIONS',
+      description: 'Composio gateway: inspect or manage the user’s live connected app accounts. Use live Composio state; never invent account IDs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'add', 'delete'] },
+          toolkits: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, action: { type: 'string' } }, required: ['name'] } },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'COMPOSIO_GET_TOOL_SCHEMAS',
+      description: 'Composio gateway: retrieve complete input schemas for exact tools discovered from Composio before execution.',
+      parameters: {
+        type: 'object',
+        properties: { tool_slugs: { type: 'array', items: { type: 'string' } } },
+        required: ['tool_slugs'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'COMPOSIO_LIST_TOOLKITS',
+      description: 'Composio gateway: list available toolkit slugs from the live Composio catalog.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+];
+
 function getSafeHttpUrl(raw: string): URL | null {
   try {
     const url = new URL(String(raw || '').trim());
@@ -1388,7 +1464,13 @@ export async function POST(req: NextRequest) {
         if (listed.refreshToken && listed.refreshToken !== composioMcpRefreshToken) {
           composioMcpRefreshToken = listed.refreshToken;
         }
-        mcpLiveTools = mcpToolsToOpenAI(listed.tools);
+        const discoveredComposioTools = mcpToolsToOpenAI(listed.tools);
+        const discoveredNames = new Set(discoveredComposioTools.map((t: any) => String(t?.function?.name || '')));
+        // Always expose the stable Composio gateway contract to the model.
+        // Composio may omit a meta-tool from tools/list temporarily, but the
+        // gateway dispatcher can resolve the live server name at execution time.
+        const gatewayTools = COMPOSIO_GATEWAY_TOOLS.filter((t: any) => !discoveredNames.has(String(t.function.name)));
+        mcpLiveTools = [...discoveredComposioTools, ...gatewayTools];
         mcpToolNames = mcpLiveTools.map((t: any) => String(t?.function?.name || '')).filter(Boolean);
       } catch (mcpListErr: any) {
         console.error('[MCP TOOL LIST ERR]', mcpListErr?.message || mcpListErr);

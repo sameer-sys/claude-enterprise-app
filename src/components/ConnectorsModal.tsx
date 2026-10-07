@@ -227,8 +227,11 @@ export default function ConnectorsModal({
         if (event.data?.status === 'success') {
           setConnectors((prev) => prev.map((c) => c.id === id ? { ...c, status: 'connected', enabled: true } : c));
           setSelected((prev) => prev?.id === id ? { ...prev, status: 'connected', enabled: true } : prev);
-          const connectedConnector = connectors.find((c) => c.id === id);
-          if (connectedConnector && !connectedConnector.enabled) onToggleConnector(id);
+          // OAuth success updates this modal's local state, but chat uses
+          // the parent session's connector list. Sync the enabled state back
+          // to the active session so /api/chat receives the connected plugin.
+          const connectedConnector = activeConnectors.find((c) => c.id === id);
+          if (!connectedConnector?.enabled) onToggleConnector(id);
           setStatusMessage('Provider account connected. Loading its real tools…');
         } else setStatusMessage('OAuth Error: ' + String(event.data?.error || 'Authentication failed.'));
         setAuthenticating(false);

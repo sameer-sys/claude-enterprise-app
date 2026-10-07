@@ -233,8 +233,10 @@ export default function ConnectorsModal({
           // OAuth success updates this modal's local state, but chat uses
           // the parent session's connector list. Sync the enabled state back
           // to the active session so /api/chat receives the connected plugin.
-          const connectedConnector = activeConnectors.find((c) => c.id === id);
-          if (!connectedConnector?.enabled) onToggleConnector(id);
+          const connectedConnector = connectors.find((c) => c.id === id) || activeConnectors.find((c) => c.id === id);
+          if (connectedConnector) {
+            onAddCustomConnector({ ...connectedConnector, status: 'connected', enabled: true });
+          }
           setStatusMessage('Provider account connected. Loading its real tools…');
         } else setStatusMessage('OAuth Error: ' + String(event.data?.error || 'Authentication failed.'));
         setAuthenticating(false);
@@ -393,7 +395,7 @@ export default function ConnectorsModal({
           setConnectors((prev) => prev.map((c) => c.id === connector.id ? connector : c));
           setSelected(connector);
           setStatusMessage('Connected — verified against the real MCP server.');
-          if (!connector.enabled) onToggleConnector(connector.id);
+          onAddCustomConnector({ ...connector, status: 'connected', enabled: true });
         } else if (customAuthMode !== 'oauth') {
           setStatusMessage(data?.requiresAuth ? 'Added. Authentication is required.' : 'Added. The server will be checked when used.');
         }

@@ -42,6 +42,7 @@ export function safeRemoteMcpUrl(raw: string): URL {
 }
 
 export function getGitHubToken(): string {
+  const sanitize = (raw: string) => String(raw || '').replace(/^Bearer\s+/i, '').replace(/^[.\s"']+|[.\s"']+$/g, '').trim();
   try {
     const fs = require('fs');
     const path = require('path');
@@ -50,11 +51,13 @@ export function getGitHubToken(): string {
       const content = fs.readFileSync(envPath, 'utf8');
       const match = content.match(/GITHUB_PERSONAL_ACCESS_TOKEN=([^\r\n]+)/);
       if (match && match[1]?.trim()) {
-        return match[1].trim();
+        const cleaned = sanitize(match[1]);
+        if (cleaned) return cleaned;
       }
     }
   } catch {}
-  return String(process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '').trim();
+  const envVal = sanitize(process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '');
+  return envVal;
 }
 
 function baseHeaders(connector: Connector, credentials?: RemoteStoredToken, state?: RemoteState, method?: string, params?: any): Record<string, string> {
@@ -508,10 +511,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
     getGitHubToken() ||
     process.env.GITHUB_PERSONAL_ACCESS_TOKEN ||
     ''
-  ).trim();
-  if (token.startsWith('Bearer ')) {
-    token = token.slice(7).trim();
-  }
+  ).replace(/^Bearer\s+/i, '').replace(/^[.\s"']+|[.\s"']+$/g, '').trim();
 
   // High-speed direct GitHub execution for all GitHub tools
   if (isGitHub) {
@@ -572,8 +572,8 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
       try {
         if (!token) token = getGitHubToken();
         const rawName = String(args.name || '').trim();
-        const name = rawName.replace(/\s+/g, '-').toLowerCase() || 'new-repo';
-        const description = String(args.description || '');
+        const name = rawName.replace(/[^a-zA-Z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'sam-bot-' + Math.floor(100 + Math.random() * 900);
+        const description = String(args.description || 'Created via Claude Enterprise App');
         const isPrivate = Boolean(args.private);
         let ghRes: Response;
         try {
@@ -608,6 +608,9 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
                 return JSON.stringify({ success: true, existing: true, name: existingRepo.name, full_name: existingRepo.full_name, html_url: existingRepo.html_url, description: existingRepo.description, private: existingRepo.private, default_branch: existingRepo.default_branch || 'main', clone_url: existingRepo.clone_url || (existingRepo.html_url + '.git') });
               }
             } catch {}
+          }
+          if (ghRes.status === 404) {
+            return JSON.stringify({ error: 'GitHub repository creation endpoint returned 404. Please verify the Personal Access Token has the repo scope enabled.' });
           }
           return JSON.stringify({ error: errData.message || `Failed to create repository (${ghRes.status})` });
         }

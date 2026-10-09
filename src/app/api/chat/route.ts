@@ -1079,8 +1079,15 @@ function formatConnectorResult(requestText: string, result: any): string {
   }
 
   if (data?.error) {
-    if (String(data.error).includes('admin rights') || String(data.error).includes('403') || String(data.error).includes('delete_repo')) {
+    const errStr = String(data.error);
+    if (errStr.includes('admin rights') || errStr.includes('403') || errStr.includes('delete_repo')) {
       return `⚠️ **GitHub Permission Error:** ${data.error}\n\nTo delete repositories via GitHub API, your GitHub Personal Access Token needs the **\`delete_repo\`** scope enabled in [GitHub Personal Access Tokens Settings](https://github.com/settings/tokens).`;
+    }
+    if (errStr.includes('secondary rate limit') || errStr.includes('temporarily blocked')) {
+      return `⏳ **GitHub Rate Limit:** GitHub has temporarily paused new repository creation on your account due to multiple rapid requests in a short time. Please wait 2–3 minutes and try again. Your GitHub account and token remain connected and active.`;
+    }
+    if (errStr.trim().toLowerCase() === 'not found') {
+      return `⚠️ **GitHub Error:** The requested repository or resource was not found on your GitHub account. Please verify the repository name or try again.`;
     }
     return `⚠️ **Error:** ${data.error}`;
   }

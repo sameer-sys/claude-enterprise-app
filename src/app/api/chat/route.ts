@@ -1670,7 +1670,7 @@ export async function POST(req: NextRequest) {
       if (connector.id === 'conn-github' || /github/i.test(connector.name)) {
         const { getGitHubToken } = require('@/lib/remoteMcp');
         const ghTok = getGitHubToken();
-        if (ghTok && !merged.accessToken) merged.accessToken = ghTok;
+        if (ghTok) merged.accessToken = ghTok;
       }
       if (!merged.accessToken && !merged.refreshToken && !merged.clientId && !merged.clientSecret) return connector;
       remoteCredentials[String(connector.id)] = merged;

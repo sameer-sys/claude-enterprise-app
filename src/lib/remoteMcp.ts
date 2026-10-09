@@ -65,8 +65,7 @@ function baseHeaders(connector: Connector, credentials?: RemoteStoredToken, stat
   const cfg: any = connector.config || {};
   let token = String(credentials?.accessToken || cfg.authToken || cfg.apiKey || '').trim();
   if (connector.id === 'conn-github' || /github/i.test(connector.name)) {
-    // Do not let a stale server environment token override connector-supplied credentials.
-    token = token || getGitHubToken();
+    token = getGitHubToken() || token;
   }
   if (token) headers.Authorization = (credentials?.tokenType || 'Bearer') + ' ' + token;
   if (cfg.headers && typeof cfg.headers === 'object') {

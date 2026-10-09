@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import type { Connector } from '@/types/chat';
-import { listRemoteMcpTools } from '@/lib/remoteMcp';
+import { listRemoteMcpTools, getGitHubToken } from '@/lib/remoteMcp';
 import {
   OAUTH_STATE_COOKIE,
   MAX_COOKIE_AGE,
@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
         const connector = connectorFromInput(item);
         if (!connector.name || !connector.url) return { id: String(item?.id || ''), connected: false };
         const credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
-        const hasEnvToken = (connector.id === 'conn-github' || /github/i.test(connector.name)) && Boolean(process.env.GITHUB_PERSONAL_ACCESS_TOKEN);
+        const hasEnvToken = (connector.id === 'conn-github' || /github/i.test(connector.name)) && Boolean(getGitHubToken());
         return { id: connector.id, connected: Boolean(credentials?.accessToken || hasEnvToken) };
       });
       return NextResponse.json({ success: true, connectors: results });
@@ -182,8 +182,9 @@ export async function POST(req: NextRequest) {
     const connector = connectorFromInput(body?.connector);
     if (!connector.name || !connector.url) return NextResponse.json({ success: false, error: 'Connector name and remote MCP URL are required.' }, { status: 400 });
     let credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
-    if (!credentials?.accessToken && (connector.id === 'conn-github' || /github/i.test(connector.name)) && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
-      credentials = { accessToken: process.env.GITHUB_PERSONAL_ACCESS_TOKEN.trim() };
+    if (!credentials?.accessToken && (connector.id === 'conn-github' || /github/i.test(connector.name))) {
+      const ghTok = getGitHubToken();
+      if (ghTok) credentials = { accessToken: ghTok };
     }
     let rotated: RemoteStoredToken | undefined;
     const tools = await listRemoteMcpTools(connector, { credentials, onCredentialsUpdated: (next) => { rotated = next; credentials = next; } });

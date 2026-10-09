@@ -1231,7 +1231,7 @@ function formatConnectorResult(requestText: string, result: any): string {
       return `Here are the **${list.length} recent commits**:\n\n` + lines.slice(0, 25).join('\n');
     }
 
-    const isGit = lower.includes('repositor') || lower.includes('git') || lower.includes('repo');
+    const isGit = lower.includes('repositor') || lower.includes('git') || lower.includes('repo') || Boolean(list[0]?.html_url?.includes('github.com')) || Boolean(list[0]?.full_name);
     const noun = isGit ? 'repositories' : lower.includes('email') ? 'emails' : lower.includes('playlist') ? 'playlists' : 'items';
     const labels = list.map((item: any, idx: number) => {
       const name = item?.full_name || item?.name || item?.title || item?.snippet?.title || item?.id || '';
@@ -1370,22 +1370,34 @@ function extractToolArgs(toolName: string, text: string, contextText = ''): Reco
   if (clean === 'delete_repository') {
     let repoName = '';
     let owner = 'sameer-sys';
-    const fullMatch = combined.match(/([a-zA-Z0-9_\-]+)\/([a-zA-Z0-9_\-]+)/);
-    if (fullMatch) {
-      owner = fullMatch[1];
-      repoName = fullMatch[2];
+    const directFullMatch = t.match(/([a-zA-Z0-9_\-]+)\/([a-zA-Z0-9_\-]+)/);
+    if (directFullMatch && directFullMatch[1] !== 'github' && directFullMatch[1] !== 'http' && directFullMatch[1] !== 'https') {
+      owner = directFullMatch[1];
+      repoName = directFullMatch[2];
     }
     if (!repoName) {
       const match =
-        combined.match(/(?:repository|repostory|repo)\s+(?:named\s+as\s+|called\s+|named\s+|name\s+it\s+as\s+|name\s*[:=]\s*)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
-        combined.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?:repository|repostory|repo)?\s*["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
-        combined.match(/([a-zA-Z0-9_\-]+)\s+(?:delete\b|remove\b)/i);
-      if (match && match[1] && !/^(?:the|this|that|a|an|it|one|repository|repo)$/i.test(match[1])) {
-        repoName = match[1].trim().toLowerCase();
+        t.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?!(?:the|this|that|a|an|it|repository|repostory|repo)\b)(["'`]?[a-zA-Z0-9_\-]+["'`]?)\s+(?:repository|repostory|repo)\b/i) ||
+        t.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?:repository|repostory|repo)\s+(?:named\s+as\s+|called\s+|named\s+|name\s+it\s+as\s+|name\s*[:=]\s*)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
+        t.match(/(?:delete|remove|destroy)\s+(?:the\s+)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
+        t.match(/([a-zA-Z0-9_\-]+)\s+(?:delete\b|remove\b)/i) ||
+        combined.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?!(?:the|this|that|a|an|it|repository|repostory|repo)\b)(["'`]?[a-zA-Z0-9_\-]+["'`]?)\s+(?:repository|repostory|repo)\b/i) ||
+        combined.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?:repository|repostory|repo)\s+(?:named\s+as\s+|called\s+|named\s+|name\s+it\s+as\s+|name\s*[:=]\s*)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i);
+      if (match && match[1]) {
+        const cleanName = match[1].replace(/["'`]/g, '').trim().toLowerCase();
+        if (!/^(?:the|this|that|a|an|it|one|repository|repo)$/i.test(cleanName)) {
+          repoName = cleanName;
+        }
       }
     }
-    if (!repoName) repoName = 'test-demo-repo';
-    return { owner, repo: repoName };
+    if (!repoName) {
+      const fullMatch = combined.match(/(?:github\.com\/)?([a-zA-Z0-9_\-]+)\/([a-zA-Z0-9_\-]+)/);
+      if (fullMatch && fullMatch[1] !== 'github' && fullMatch[1] !== 'http' && fullMatch[1] !== 'https') {
+        owner = fullMatch[1];
+        repoName = fullMatch[2];
+      }
+    }
+    return { owner, repo: repoName || 'test-demo-repo' };
   }
 
   if (clean === 'search_repositories') {
@@ -1815,6 +1827,9 @@ export async function POST(req: NextRequest) {
       let best = connectorFocusedTools[0];
       let bestScore = -Infinity;
 
+      const isCurrentAccountQuery = detectIsAccountQuery(lastText, nluRoute?.intent);
+      const currentMentionsAction = /(?:repo|repos|repository|repositories|issue|issues|pull|pr|commit|commits|file|files|branch|delete|remove|create|make|new|list|show|get|search|find|names?)\b/i.test(lastText);
+
       for (const tool of connectorFocusedTools) {
         const name = String(tool?.originalName || tool?.function?.name || '').replace(/^(?:mcp__github__|remote_mcp_[^_]+_|github[._:])+/i, '').toLowerCase();
         const description = String(tool?.function?.description || '').toLowerCase();
@@ -1830,28 +1845,35 @@ export async function POST(req: NextRequest) {
           if (name.includes(action)) score += 5;
         }
 
-        if (/(repository|repositories|repo|repos|repostory|repostry)/.test(query) && /(repository|repositories|repo|repos)/.test(haystack)) score += 35;
-        if (/(pull request|pr)/.test(query) && /(pull|pr)/.test(haystack)) score += 40;
-        if (/(issue|bug|ticket|problem)/.test(query) && /issue/.test(haystack)) score += 40;
-        if (/(commit|history|log)/.test(query) && /commit/.test(haystack)) score += 40;
-        if (/(file|dir|folder|content|read|write)/.test(query) && /(file|dir|content)/.test(haystack)) score += 40;
+        if (/(repository|repositories|repo|repos|repostory|repostry)/.test(query) && /(repository|repositories|repo|repos)/.test(name)) score += 35;
+        if (/(pull request|pr)/.test(query) && /(pull|pr)/.test(name)) score += 40;
+        if (/(issue|bug|ticket|problem)/.test(query) && /issue/.test(name)) score += 40;
+        if (/(commit|history|log)/.test(query) && /commit/.test(name)) score += 40;
+        if (/(file|dir|folder|content|read|write)/.test(query) && /(file|dir|content)/.test(name)) score += 40;
 
         // Specific high-confidence direct intent boosts
-        if (
+        const wantsRepoDelete =
           (/(?:delete|remove|destroy)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) ||
            /(?:repo|repos|repository)\b[\s\S]*?\b(?:delete|remove)\b/i.test(query) ||
            /(?:delete\s+this\s+one|delete\s+this|delete\s+it|remove\s+this)\b/i.test(query) ||
-           /[a-zA-Z0-9_\-]+\/[a-zA-Z0-9_\-]+\s+(?:delete|remove)/i.test(query)) &&
-          name === 'delete_repository'
-        ) score += 200;
+           /[a-zA-Z0-9_\-]+\/[a-zA-Z0-9_\-]+\s+(?:delete|remove)/i.test(query) ||
+           /(?:delete|remove|destroy)\s+(?:the\s+)?(?!(?:the|this|that|a|an|it|repository|repostory|repo)\b)[a-zA-Z0-9_\-]+\s+(?:repository|repo)/i.test(lastText));
+
+        if (wantsRepoDelete && name === 'delete_repository') score += 260;
 
         if (
           (/(?:create|new|make)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) ||
            /(?:name\s+it\s+as|name\s+it)\b/i.test(query)) &&
           name === 'create_repository'
-        ) score += 180;
+        ) score += 220;
 
-        if (/(?:list|show|get|search|find|how many|total|count|my|names of (?:the )?)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(query) && name === 'search_repositories') score += 150;
+        const wantsRepoList =
+          /(?:there\s+names?|their\s+names?|the\s+names?|what\s+are\s+they|what\s+are\s+their\s+names|all\s+repositories\s+names?|repositories\s+names?|tell\s+me\s+(?:the\s+)?names?|list\s+(?:all\s+)?(?:the\s+)?repos?|list\s+repositories|show\s+repositories|search\s+repositories)/i.test(lastText) ||
+          /(?:list|show|get|search|find|how many|total|count|my|names?\s+of|all|tell\s+me)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(query) ||
+          /(?:repo|repos|repository|repositories)\b[\s\S]*?\b(?:names?|list|all|show)\b/i.test(query);
+
+        if (wantsRepoList && name === 'search_repositories') score += 250;
+
         if (/(?:create|new|open)\b[\s\S]*?\b(?:issue|issues|ticket|bug)\b/i.test(query) && name === 'create_issue') score += 120;
         if (/(?:close|resolve)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'close_issue') score += 120;
         if (/(?:list|show|get)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'list_issues') score += 120;
@@ -1866,11 +1888,15 @@ export async function POST(req: NextRequest) {
         ) score += 120;
         if (/(?:directory|folders?|tree|list files)\b/i.test(query) && name === 'list_directory') score += 120;
         if (/(?:read|cat|view|content)\b[\s\S]*?\b(?:file|readme)\b/i.test(query) && name === 'get_file_contents') score += 120;
-        if (/(?:user|profile|account|accounts|who am i|my name|login|connected with|connected to|connected apps)\b/i.test(query) && name === 'get_me') score += 110;
-        if (detectIsAccountQuery(query) && name === 'get_me') score += 110;
 
-        if (/(user|profile|account|who am i|my name|login)/.test(query) && /(get_me|user)/.test(name)) score += 45;
-        if (/(file|files|dir|directory|folder|tree|content)/.test(query) && /(list_directory|file_contents|directory|file)/.test(name)) score += 55;
+        if (name === 'get_me') {
+          if (isCurrentAccountQuery && !currentMentionsAction) {
+            score += 220;
+          } else if (currentMentionsAction) {
+            score -= 200;
+          }
+        }
+
         if (/(issue|issues|ticket|bug)/.test(query) && /issue/.test(name)) score += 55;
         if (/(pull request|pr|pulls)/.test(query) && /(pull|pr)/.test(name)) score += 55;
         if (/(commit|commits|history)/.test(query) && /commit/.test(name)) score += 55;

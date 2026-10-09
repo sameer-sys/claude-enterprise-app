@@ -493,7 +493,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
     /github/i.test(String(connector.url || '')) ||
     /github/i.test(String(cfg.mcpUrl || '')) ||
     [
-      'search_repositories', 'get_me', 'get_user', 'create_repository',
+      'search_repositories', 'get_me', 'get_user', 'create_repository', 'delete_repository', 'delete_repo', 'deleterepository',
       'create_issue', 'close_issue', 'list_issues', 'create_pull_request',
       'list_pull_requests', 'list_commits', 'create_or_update_file',
       'delete_file', 'get_file_contents', 'list_directory'
@@ -501,6 +501,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
 
   let token = String(
     (isGitHub ? getGitHubToken() : '') ||
+    getGitHubToken() ||
     options.credentials?.accessToken ||
     process.env.GITHUB_PERSONAL_ACCESS_TOKEN ||
     cfg.authToken ||
@@ -613,8 +614,9 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
       }
     }
 
-    if (cleanToolName === 'delete_repository') {
+    if (cleanToolName === 'delete_repository' || cleanToolName === 'delete_repo' || cleanToolName === 'deleterepository') {
       try {
+        if (!token) token = getGitHubToken();
         let repoToDelete = String(args.repo || args.name || args.repository || '').trim();
         let owner = String(args.owner || 'sameer-sys').trim();
         if (repoToDelete.includes('/')) {

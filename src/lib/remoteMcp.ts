@@ -500,12 +500,12 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
     ].includes(cleanToolName);
 
   let token = String(
-    (isGitHub ? getGitHubToken() : '') ||
-    getGitHubToken() ||
     options.credentials?.accessToken ||
-    process.env.GITHUB_PERSONAL_ACCESS_TOKEN ||
     cfg.authToken ||
     cfg.apiKey ||
+    (isGitHub ? getGitHubToken() : '') ||
+    getGitHubToken() ||
+    process.env.GITHUB_PERSONAL_ACCESS_TOKEN ||
     ''
   ).trim();
   if (token.startsWith('Bearer ')) {

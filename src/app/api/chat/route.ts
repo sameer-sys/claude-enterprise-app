@@ -1378,14 +1378,14 @@ function extractToolArgs(toolName: string, text: string, contextText = ''): Reco
     if (!repoName) {
       const match =
         t.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?!(?:the|this|that|a|an|it|repository|repostory|repo)\b)(["'`]?[a-zA-Z0-9_\-]+["'`]?)\s+(?:repository|repostory|repo)\b/i) ||
-        t.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?:repository|repostory|repo)\s+(?:named\s+as\s+|called\s+|named\s+|name\s+it\s+as\s+|name\s*[:=]\s*)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
+        t.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?:repository|repostory|repo)\s+(?:named\s+as\s+|called\s+|named\s+|name\s+as\s+|name\s+it\s+as\s+|name\s*[:=]\s*)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
         t.match(/(?:delete|remove|destroy)\s+(?:the\s+)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
         t.match(/([a-zA-Z0-9_\-]+)\s+(?:delete\b|remove\b)/i) ||
         combined.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?!(?:the|this|that|a|an|it|repository|repostory|repo)\b)(["'`]?[a-zA-Z0-9_\-]+["'`]?)\s+(?:repository|repostory|repo)\b/i) ||
-        combined.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?:repository|repostory|repo)\s+(?:named\s+as\s+|called\s+|named\s+|name\s+it\s+as\s+|name\s*[:=]\s*)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i);
+        combined.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?:repository|repostory|repo)\s+(?:named\s+as\s+|called\s+|named\s+|name\s+as\s+|name\s+it\s+as\s+|name\s*[:=]\s*)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i);
       if (match && match[1]) {
         const cleanName = match[1].replace(/["'`]/g, '').trim().toLowerCase();
-        if (!/^(?:the|this|that|a|an|it|one|repository|repo)$/i.test(cleanName)) {
+        if (!/^(?:the|this|that|a|an|it|one|repository|repo|name|names|named)$/i.test(cleanName)) {
           repoName = cleanName;
         }
       }
@@ -1663,7 +1663,7 @@ export async function POST(req: NextRequest) {
       if (connector.id === 'conn-github' || /github/i.test(connector.name)) {
         const { getGitHubToken } = require('@/lib/remoteMcp');
         const ghTok = getGitHubToken();
-        if (ghTok) merged.accessToken = ghTok;
+        if (ghTok && !merged.accessToken) merged.accessToken = ghTok;
       }
       if (!merged.accessToken && !merged.refreshToken && !merged.clientId && !merged.clientSecret) return connector;
       remoteCredentials[String(connector.id)] = merged;

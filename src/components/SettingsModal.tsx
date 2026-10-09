@@ -143,6 +143,7 @@ export default function SettingsModal({
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [editingConnector, setEditingConnector] = useState<Connector | null>(null);
   const [customRepo, setCustomRepo] = useState('');
+  const [customPat, setCustomPat] = useState('');
   const [customEmail, setCustomEmail] = useState('');
   const [customMcpCommand, setCustomMcpCommand] = useState('');
   const [customServerUrl, setCustomServerUrl] = useState('');
@@ -193,6 +194,7 @@ export default function SettingsModal({
   const handleOpenConfig = (conn: Connector) => {
     setEditingConnector(conn);
     setCustomRepo(conn.config?.repo || 'sameer-sys/claude-enterprise-app');
+    setCustomPat(conn.config?.authToken || conn.config?.apiKey || '');
     setCustomEmail(conn.config?.email || '');
     setCustomMcpCommand(conn.config?.command || 'npx -y @modelcontextprotocol/server-everything');
     setCustomServerUrl(conn.config?.serverUrl || 'http://127.0.0.1:20128/v1');
@@ -207,8 +209,23 @@ export default function SettingsModal({
       email: customEmail,
       command: customMcpCommand,
       serverUrl: customServerUrl,
+      ...(editingConnector.id === 'conn-github' ? { authToken: customPat.trim() || undefined } : {}),
     };
     onUpdateConnectorConfig(editingConnector.id, newConfig);
+
+    if (editingConnector.id === 'conn-github' && customPat.trim()) {
+      fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_credentials',
+          connectorId: editingConnector.id,
+          serverUrl: editingConnector.url || 'https://api.githubcopilot.com/mcp/',
+          apiToken: customPat.trim(),
+        }),
+      }).catch(() => {});
+    }
+
     setEditingConnector(null);
   };
 
@@ -218,10 +235,14 @@ export default function SettingsModal({
     try {
       if (editingConnector?.id === 'conn-github') {
         const target = customRepo || 'sameer-sys/claude-enterprise-app';
-        const res = await fetch(`https://api.github.com/repos/${target}`);
+        const headers: Record<string, string> = { 'User-Agent': 'claude-enterprise-app' };
+        if (customPat.trim()) {
+          headers.Authorization = `Bearer ${customPat.trim()}`;
+        }
+        const res = await fetch(`https://api.github.com/repos/${target}`, { headers });
         if (res.ok) {
           const data = await res.json();
-          setTestResult(`Connected! Repository "${data.full_name}" is active (${data.stargazers_count} stars, branch ${data.default_branch}).`);
+          setTestResult(`Connected! Repository "${data.full_name}" is active (${data.stargazers_count} stars, branch ${data.default_branch}). PAT authenticated.`);
         } else {
           setTestResult(`Repository "${target}" returned HTTP ${res.status}. If private, configure PAT token.`);
         }
@@ -1661,13 +1682,18 @@ export default function SettingsModal({
 
                     <div>
                       <label className="block text-xs font-semibold text-[#dcd8ce] mb-1">
-                        Optional Personal Access Token (PAT)
+                        Personal Access Token (PAT)
                       </label>
                       <input
                         type="password"
-                        placeholder="ghp_xxxxxxxxxxxx (only needed for private repos)"
+                        value={customPat}
+                        onChange={(e) => setCustomPat(e.target.value)}
+                        placeholder="ghp_xxxxxxxxxxxx (Classic token with repo & delete_repo)"
                         className="w-full px-3 py-2 rounded-xl bg-[#181714] border border-[#302e26] text-xs font-mono text-[#ece9e2] focus:outline-none focus:border-[#cc785c]"
                       />
+                      <p className="text-[11px] text-[#8a8579] mt-1">
+                        Classic token with <code>repo</code> and <code>delete_repo</code> scopes enabled.
+                      </p>
                     </div>
                   </div>
                 )}

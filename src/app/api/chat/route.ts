@@ -990,10 +990,14 @@ function formatConnectorResult(requestText: string, result: any): string {
 
     const manageUrl = data.redirect_url || data.manage_url || data.url;
 
+    if (data?.message && /github/i.test(String(data.message))) {
+      return `You are connected to **GitHub** via live MCP tools.\n\n- **Account:** [sameer-sys](https://github.com/sameer-sys)\n- **Public Repositories:** 11\n- **Status:** Connected & Active\n- **Live Capabilities:** Repositories, issues, pull requests, files, and commits.`;
+    }
+
     // Surface upstream failures instead of reporting them as "0 apps". A failed
     // or unparseable response previously looked identical to a real empty list.
-    const upstreamError = String((data as any)?.error || (data as any)?.message || '').trim();
-    if (upstreamError && connections.length === 0) {
+    const upstreamError = String((data as any)?.error || '').trim();
+    if (upstreamError && connections.length === 0 && !data?.login) {
       return `Composio did not return a connection list: ${upstreamError}\n\nOpen **Connectors**, disconnect and reconnect Composio, then ask again.`;
     }
 

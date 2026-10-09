@@ -292,13 +292,17 @@ async function runAgentTool(
         }
       }
 
-      // Default owner and repo if omitted on GitHub tools
+      // Default owner and repo if omitted or invalid/numeric on GitHub tools
       if (connectorId === 'conn-github' || /github/i.test(remoteRoute.connector?.name || '')) {
+        const repoStr = String(callArgs.repo || '').trim();
+        const isNonRepoTool = ['search_repositories', 'get_me', 'create_repository'].includes(remoteRoute.originalToolName);
+        if (!isNonRepoTool) {
+          if (!repoStr || /^\d+$/.test(repoStr) || /^(?:repository|repo|undefined|null)$/i.test(repoStr)) {
+            callArgs.repo = 'claude-enterprise-app';
+          }
+        }
         if (!callArgs.owner && !String(callArgs.repo || '').includes('/')) {
           callArgs.owner = 'sameer-sys';
-        }
-        if (!callArgs.repo && !String(callArgs.name || '').includes('/') && !['search_repositories', 'get_me', 'create_repository'].includes(remoteRoute.originalToolName)) {
-          callArgs.repo = 'claude-enterprise-app';
         }
       }
 
@@ -1042,7 +1046,7 @@ function formatConnectorResult(requestText: string, result: any): string {
     const badge = data.state ? ` \`[${String(data.state).toUpperCase()}]\`` : '';
     const repoInfo = data.repository?.full_name || (data.html_url ? data.html_url.split('/').slice(3, 5).join('/') : '');
     const action = isClosed ? 'Closed issue' : 'Created issue';
-    return `**${action} successfully:** [#${data.number} ${data.title}](${data.html_url})${badge}${repoInfo ? ` on \`${repoInfo}\`` : ''}\n\n${data.body ? `> ${String(data.body).split('\n')[0]}\n\n` : ''}- **Issue URL:** ${data.html_url}\n- **Status:** ${data.state || 'open'}`;
+    return `✅ **${action} successfully:** [#${data.number} ${data.title}](${data.html_url})${badge}${repoInfo ? ` on \`${repoInfo}\`` : ''}\n\n${data.body ? `> ${String(data.body).split('\n')[0]}\n\n` : ''}- **Issue URL:** ${data.html_url}\n- **Status:** ${data.state || 'open'}`;
   }
 
   // GitHub pull request (create_pull_request)
@@ -1050,7 +1054,7 @@ function formatConnectorResult(requestText: string, result: any): string {
     const badge = data.state ? ` \`[${String(data.state).toUpperCase()}]\`` : '';
     const head = data.head?.ref || data.head || '';
     const base = data.base?.ref || data.base || 'main';
-    return `**Pull Request created successfully:** [#${data.number} ${data.title}](${data.html_url})${badge}\n\n- **URL:** ${data.html_url}\n- **Branch:** \`${base}\` ← \`${head}\`\n- **Status:** ${data.state || 'open'}`;
+    return `✅ **Pull Request created successfully:** [#${data.number} ${data.title}](${data.html_url})${badge}\n\n- **URL:** ${data.html_url}\n- **Branch:** \`${base}\` ← \`${head}\`\n- **Status:** ${data.state || 'open'}`;
   }
 
   // GitHub file creation/update (create_or_update_file)
@@ -1058,17 +1062,21 @@ function formatConnectorResult(requestText: string, result: any): string {
     const filePath = data.content?.path || data.path || 'file';
     const fileUrl = data.content?.html_url || (data.commit?.html_url ? data.commit.html_url : '');
     const sha = String(data.commit?.sha || data.content?.sha || '').slice(0, 7);
-    return `**File saved successfully:** \`${filePath}\`\n- **Commit:** \`${sha}\`\n${fileUrl ? `- **View on GitHub:** [${filePath}](${fileUrl})\n` : ''}- **Status:** Committed to repository`;
+    return `✅ **File saved successfully:** \`${filePath}\`\n- **Commit:** \`${sha}\`\n${fileUrl ? `- **View on GitHub:** [${filePath}](${fileUrl})\n` : ''}- **Status:** Committed to repository`;
   }
 
   // GitHub file deletion (delete_file)
   if (data?.success && data?.path && (data?.message || data?.repository)) {
-    return `**File deleted successfully:** \`${data.path}\` from repository \`${data.repository || 'sameer-sys/claude-enterprise-app'}\`.`;
+    return `✅ **File deleted successfully:** \`${data.path}\` from repository \`${data.repository || 'sameer-sys/claude-enterprise-app'}\`.`;
   }
 
   // GitHub repository creation (create_repository)
   if (data?.full_name && data?.html_url && (data?.clone_url || data?.owner || data?.default_branch || data?.name || data?.success)) {
-    return `**Repository created successfully:** [${data.full_name}](${data.html_url})\n\n- **Visibility:** ${data.private ? 'Private' : 'Public'}\n- **Default Branch:** \`${data.default_branch || 'main'}\`\n- **Clone URL:** \`${data.clone_url || data.html_url + '.git'}\`\n- **View on GitHub:** ${data.html_url}`;
+    const isExisting = Boolean(data?.existing);
+    const header = isExisting
+      ? '✅ **Repository already exists and is active on your GitHub account:**'
+      : '✅ **Repository created successfully:**';
+    return `${header} [${data.full_name}](${data.html_url})\n\n- **Visibility:** ${data.private ? 'Private' : 'Public'}\n- **Default Branch:** \`${data.default_branch || 'main'}\`\n- **Clone URL:** \`${data.clone_url || data.html_url + '.git'}\`\n- **View on GitHub:** ${data.html_url}`;
   }
 
   // GitHub file content (get_file_contents)
@@ -1097,6 +1105,30 @@ function formatConnectorResult(requestText: string, result: any): string {
       return `- ${shaStr} **${c.message || 'Commit'}**${authorStr}`;
     }).join('\n');
     return `**Recent Commits (${data.commits.length}) for \`${data.repository || 'repository'}\`:**\n\n${commitsList}`;
+  }
+
+  // GitHub issue list (list_issues)
+  if (data?.issues && Array.isArray(data.issues)) {
+    if (data.issues.length === 0) {
+      return `There are currently no open issues in \`${data.repository || 'sameer-sys/claude-enterprise-app'}\`.`;
+    }
+    const lines = data.issues.map((item: any, idx: number) => {
+      const badge = item.state ? ` \`[${String(item.state).toUpperCase()}]\`` : '';
+      return `${idx + 1}. [#${item.number} ${item.title}](${item.html_url || '#'}) ${badge}`;
+    });
+    return `Here are the **${data.issues.length} issues** in \`${data.repository || 'repository'}\`:\n\n` + lines.join('\n');
+  }
+
+  // GitHub pull request list (list_pull_requests)
+  if (data?.pull_requests && Array.isArray(data.pull_requests)) {
+    if (data.pull_requests.length === 0) {
+      return `There are currently no open pull requests in \`${data.repository || 'sameer-sys/claude-enterprise-app'}\`.`;
+    }
+    const lines = data.pull_requests.map((item: any, idx: number) => {
+      const badge = item.state ? ` \`[${String(item.state).toUpperCase()}]\`` : '';
+      return `${idx + 1}. [#${item.number} ${item.title}](${item.html_url || '#'}) ${badge}`;
+    });
+    return `Here are the **${data.pull_requests.length} pull requests** in \`${data.repository || 'repository'}\`:\n\n` + lines.join('\n');
   }
 
   const directCount = data.total_count ?? data.totalCount ?? data.repository_count ?? data.repositoryCount ?? data.count;
@@ -1344,6 +1376,35 @@ function extractToolArgs(toolName: string, text: string): Record<string, any> {
     };
   }
 
+  if (clean === 'create_or_update_file') {
+    let filePath = 'README.md';
+    const pathMatch = t.match(/(?:file|path)\s*[:=]?\s*["'`]?([a-zA-Z0-9_\-./]+)["'`]?/i);
+    if (pathMatch) filePath = pathMatch[1].trim();
+    let content = 'Created via Claude Enterprise App';
+    const contentMatch = t.match(/(?:content|text|with)\s*[:=]?\s*["'`]?([^"'`\n]+)["'`]?$/i);
+    if (contentMatch) content = contentMatch[1].trim();
+    return {
+      owner: 'sameer-sys',
+      repo: 'claude-enterprise-app',
+      path: filePath,
+      content,
+      message: `Update ${filePath}`,
+      branch: 'main',
+    };
+  }
+
+  if (clean === 'delete_file') {
+    let filePath = 'README.md';
+    const pathMatch = t.match(/(?:file|path)\s*[:=]?\s*["'`]?([a-zA-Z0-9_\-./]+)["'`]?/i);
+    if (pathMatch) filePath = pathMatch[1].trim();
+    return {
+      owner: 'sameer-sys',
+      repo: 'claude-enterprise-app',
+      path: filePath,
+      message: `Delete ${filePath}`,
+    };
+  }
+
   if (clean === 'list_directory' || clean === 'get_file_contents') {
     return {
       owner: 'sameer-sys',
@@ -1407,7 +1468,7 @@ export async function POST(req: NextRequest) {
     const enabledRemoteConnectors = allConnectors
       .filter((connector: any) => {
         const cfg = connector?.config || {};
-        const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+        const type = String(cfg.connectionType || connector?.provider || connector?.type || '').toLowerCase();
         const url = String(cfg.mcpUrl || connector?.url || '').trim();
         return connector?.enabled !== false &&
           type === 'mcp' &&
@@ -1491,7 +1552,7 @@ export async function POST(req: NextRequest) {
     const remoteMcpUpdates: Record<string, RemoteStoredToken> = {};
     const runtimeConnectors = allConnectors.map((connector: any) => {
       const cfg = connector?.config || {};
-      const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+      const type = String(cfg.connectionType || connector?.provider || connector?.type || '').toLowerCase();
       const url = String(cfg.mcpUrl || connector?.url || '').trim();
       const isComposio = String(connector?.name || '').toLowerCase().includes('composio') || url.includes('connect.composio.dev');
       if (type !== 'mcp' || isComposio || !url || !connector?.id) return connector;
@@ -1516,7 +1577,7 @@ export async function POST(req: NextRequest) {
       const remoteConnectors = runtimeConnectors
         .filter((connector: any) => {
           const cfg = connector?.config || {};
-          const type = String(cfg.connectionType || connector?.provider || '').toLowerCase();
+          const type = String(cfg.connectionType || connector?.provider || connector?.type || '').toLowerCase();
           return connector?.enabled !== false &&
             type === 'mcp' &&
             Boolean(cfg.mcpUrl || connector?.url);
@@ -1582,7 +1643,14 @@ export async function POST(req: NextRequest) {
     for (const connector of allConnectors) {
       if (connector?.enabled === false) continue;
       const name = String(connector?.name || '').trim().toLowerCase();
-      if (name && (requestedText.includes(name) || (name === 'github' && (requestedText.includes('repo') || requestedText.includes('git'))))) relevantRemoteConnectorIds.add(String(connector.id));
+      if (
+        name &&
+        (requestedText.includes(name) ||
+          (name === 'github' &&
+            /(?:repo|repos|repository|repositories|git|github|issue|issues|ticket|pull|pr|commit|commits|branch|file|files|readme)/i.test(requestedText)))
+      ) {
+        relevantRemoteConnectorIds.add(String(connector.id));
+      }
     }
 
     const enabledRemoteIds = enabledRemoteConnectors.map((connector: any) => String(connector.id));
@@ -1676,16 +1744,20 @@ export async function POST(req: NextRequest) {
         if (/(file|dir|folder|content|read|write|delete)/.test(query) && /(file|dir|content)/.test(haystack)) score += 40;
 
         // Specific high-confidence direct intent boosts
-        if (/(?:create|new|make)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) && name === 'create_repository') score += 90;
-        if (/(?:list|show|get|search|find|how many|total|count|my)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(query) && name === 'search_repositories') score += 90;
-        if (/(?:create|new|open)\b[\s\S]*?\b(?:issue|issues|ticket|bug)\b/i.test(query) && name === 'create_issue') score += 90;
-        if (/(?:close|resolve)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'close_issue') score += 90;
-        if (/(?:list|show|get)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'list_issues') score += 90;
-        if (/(?:create|open|new)\b[\s\S]*?\b(?:pr|pull\s*request)\b/i.test(query) && name === 'create_pull_request') score += 90;
-        if (/(?:list|show|get)\b[\s\S]*?\b(?:pr|pull\s*requests?)\b/i.test(query) && name === 'list_pull_requests') score += 90;
-        if (/(?:commits?|git\s+log|history)\b/i.test(query) && name === 'list_commits') score += 90;
-        if (/(?:user|profile|account|accounts|who am i|my name|login|connected with|connected to|apps|app)\b/i.test(query) && name === 'get_me') score += 95;
-        if (detectIsAccountQuery(query) && name === 'get_me') score += 95;
+        if (/(?:create|new|make)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) && name === 'create_repository') score += 120;
+        if (/(?:list|show|get|search|find|how many|total|count|my)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(query) && name === 'search_repositories') score += 120;
+        if (/(?:create|new|open)\b[\s\S]*?\b(?:issue|issues|ticket|bug)\b/i.test(query) && name === 'create_issue') score += 120;
+        if (/(?:close|resolve)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'close_issue') score += 120;
+        if (/(?:list|show|get)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'list_issues') score += 120;
+        if (/(?:create|open|new)\b[\s\S]*?\b(?:pr|pull\s*request)\b/i.test(query) && name === 'create_pull_request') score += 120;
+        if (/(?:list|show|get)\b[\s\S]*?\b(?:pr|pull\s*requests?)\b/i.test(query) && name === 'list_pull_requests') score += 120;
+        if (/(?:commits?|git\s+log|history)\b/i.test(query) && name === 'list_commits') score += 120;
+        if (/(?:create|update|save|write)\b[\s\S]*?\b(?:file|readme)\b/i.test(query) && name === 'create_or_update_file') score += 120;
+        if (/(?:delete|remove)\b[\s\S]*?\b(?:file)\b/i.test(query) && name === 'delete_file') score += 120;
+        if (/(?:directory|folders?|tree|list files)\b/i.test(query) && name === 'list_directory') score += 120;
+        if (/(?:read|cat|view|content)\b[\s\S]*?\b(?:file|readme)\b/i.test(query) && name === 'get_file_contents') score += 120;
+        if (/(?:user|profile|account|accounts|who am i|my name|login|connected with|connected to|connected apps)\b/i.test(query) && name === 'get_me') score += 110;
+        if (detectIsAccountQuery(query) && name === 'get_me') score += 110;
 
         if (/(user|profile|account|who am i|my name|login)/.test(query) && /(get_me|user)/.test(name)) score += 45;
         if (/(file|files|dir|directory|folder|tree|content)/.test(query) && /(list_directory|file_contents|directory|file)/.test(name)) score += 55;
@@ -1719,7 +1791,8 @@ export async function POST(req: NextRequest) {
     const legacyConnectorSignal = isConnectorRelatedRequest(lastText);
     const nluConnectorIntent = ['CONNECTOR_STATUS', 'CONNECTOR_DISCOVERY', 'CONNECTOR_ACTION'].includes(nluRoute.intent);
     const nluConfidentNonConnector = nluRoute.confidence >= 0.82 && ['CHAT', 'WEB_RESEARCH', 'CLARIFICATION'].includes(nluRoute.intent);
-    const connectorRequest = nluConnectorIntent || remoteConnectorMention || (legacyConnectorSignal && !nluConfidentNonConnector);
+    const isExplicitConnectorAction = legacyConnectorSignal && /(?:github|git|repo|repos|repository|repositories|pull request|pull|pr|issue|issues|ticket|commit|commits|branch|file|files|readme)/i.test(lastText);
+    const connectorRequest = nluConnectorIntent || remoteConnectorMention || isExplicitConnectorAction || (legacyConnectorSignal && !nluConfidentNonConnector);
     const hasRemoteMcpTools = remoteMcpTools.length > 0;
 
     // A request is "compound" when it asks for more than one distinct action
@@ -1908,36 +1981,50 @@ export async function POST(req: NextRequest) {
             if (xmlMatch) {
               const rawFunc = xmlMatch[1];
               const clean = rawFunc.replace(/^mcp__github__/i, '').toLowerCase();
+              let xmlArgs: any = null;
+              try {
+                xmlArgs = JSON.parse(xmlMatch[2].trim());
+              } catch {}
+
               const matched = effectiveTools.find((t: any) => {
                 const name = String(t?.function?.name || '').toLowerCase();
                 const orig = String(t?.originalName || '').toLowerCase();
-                return name.includes(clean) || orig === clean || (clean.includes('repo') && (orig.includes('repo') || name.includes('repo')));
+                return name.includes(clean) || orig === clean;
               });
               const toolName = matched ? matched.function.name : (pickFocusedRemoteTool() || rawFunc);
+              const effectiveArgs = (xmlArgs && typeof xmlArgs === 'object' && Object.keys(xmlArgs).length > 0)
+                ? xmlArgs
+                : extractToolArgs(toolName, lastText);
+
               toolCalls = [{
                 id: 'call_xml_parsed_' + Date.now(),
                 type: 'function',
                 function: {
                   name: toolName,
-                  arguments: JSON.stringify({ query: 'user:sameer-sys' }),
+                  arguments: JSON.stringify(effectiveArgs),
                 },
               }];
             }
           }
         }
 
-        if ((!toolCalls || toolCalls.length === 0) && turn === 0 && connectorRequest && hasFocusedRemoteTools) {
+        if (turn === 0 && connectorRequest && hasFocusedRemoteTools && successfulMcpToolCalls === 0) {
           const focusedTool = pickFocusedRemoteTool();
-          if (focusedTool && successfulMcpToolCalls === 0) {
-            const autoArgs = extractToolArgs(focusedTool, lastText);
-            toolCalls = [{
-              id: 'call_auto_' + Date.now(),
-              type: 'function',
-              function: {
-                name: focusedTool,
-                arguments: JSON.stringify(autoArgs),
-              },
-            }];
+          if (focusedTool) {
+            const currentCallName = String(toolCalls?.[0]?.function?.name || '').replace(/^(?:mcp__github__|remote_mcp_[^_]+_|github[._:])+/i, '').toLowerCase();
+            const focusedClean = focusedTool.replace(/^(?:mcp__github__|remote_mcp_[^_]+_|github[._:])+/i, '').toLowerCase();
+            const shouldOverride = !toolCalls || toolCalls.length === 0 || (currentCallName !== focusedClean);
+            if (shouldOverride) {
+              const autoArgs = extractToolArgs(focusedTool, lastText);
+              toolCalls = [{
+                id: 'call_auto_' + Date.now(),
+                type: 'function',
+                function: {
+                  name: focusedTool,
+                  arguments: JSON.stringify(autoArgs),
+                },
+              }];
+            }
           }
         }
 

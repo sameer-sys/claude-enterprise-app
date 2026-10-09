@@ -62,7 +62,8 @@ function baseHeaders(connector: Connector, credentials?: RemoteStoredToken, stat
   const cfg: any = connector.config || {};
   let token = String(credentials?.accessToken || cfg.authToken || cfg.apiKey || '').trim();
   if (connector.id === 'conn-github' || /github/i.test(connector.name)) {
-    token = getGitHubToken() || token;
+    // Do not let a stale server environment token override connector-supplied credentials.
+    token = token || getGitHubToken();
   }
   if (token) headers.Authorization = (credentials?.tokenType || 'Bearer') + ' ' + token;
   if (cfg.headers && typeof cfg.headers === 'object') {
@@ -654,7 +655,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
         } else if (ghRes.status === 403) {
           const errData = await ghRes.json().catch(() => ({}));
           return JSON.stringify({
-            error: `${errData.message || 'Must have admin rights to repository'}. Please ensure your GitHub Personal Access Token has the 'delete_repo' scope enabled.`,
+            error: `${errData.message || 'GitHub denied repository deletion'}. Verify the authenticated account has admin access and the token/app is authorized to delete repositories. Token scopes alone do not grant repository admin rights.`,
             status: 403,
           });
         } else {

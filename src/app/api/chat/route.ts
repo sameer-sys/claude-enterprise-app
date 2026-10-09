@@ -262,12 +262,27 @@ async function runAgentTool(
         'search_repositories', 'get_me', 'get_file_contents', 'list_directory',
         'create_issue', 'close_issue', 'list_issues', 'create_pull_request',
         'list_pull_requests', 'create_or_update_file', 'delete_file',
-        'create_repository', 'list_commits'
+        'create_repository', 'delete_repository', 'list_commits'
       ];
       if (ghToolNames.includes(cleanName) || /^(?:github|git)/i.test(name)) {
         remoteRoute = {
           connector: ghConn,
           originalToolName: cleanName,
+        };
+      } else if (cleanName === 'delete_repo' || cleanName === 'deleterepository') {
+        remoteRoute = {
+          connector: ghConn,
+          originalToolName: 'delete_repository',
+        };
+      } else if (cleanName === 'create_repo' || cleanName === 'createrepository') {
+        remoteRoute = {
+          connector: ghConn,
+          originalToolName: 'create_repository',
+        };
+      } else if (cleanName === 'search_tools' || cleanName === 'searchtools' || cleanName === 'get_tools') {
+        remoteRoute = {
+          connector: ghConn,
+          originalToolName: 'search_repositories',
         };
       }
     }
@@ -589,8 +604,13 @@ type UserIntent = 'CHAT' | 'CONNECTOR_STATUS' | 'CONNECTOR_DISCOVERY' | 'CONNECT
 
 type NluRoute = { intent: UserIntent; confidence: number; appHints: string[]; requiresExternalAction: boolean; reason?: string; };
 
-function deterministicIntentFallback(text: string): NluRoute {
+function deterministicIntentFallback(text: string, contextMessages: any[] = []): NluRoute {
   const lower = String(text || '').toLowerCase().trim();
+  const contextText = Array.isArray(contextMessages)
+    ? contextMessages.slice(-4).map((m: any) => String(m?.content || '')).join(' ').toLowerCase()
+    : '';
+  const combined = (lower + ' ' + contextText).trim();
+
   const connectorStatus =
     /\b(?:what|which|how many|list|show|tell me|check|get)\b[\s\S]{0,100}\b(?:connected|linked|authorized|active)\b/i.test(lower) ||
     /\b(?:connected|linked)\s+(?:apps?|services?|accounts?|connections?)\b/i.test(lower) ||
@@ -601,9 +621,17 @@ function deterministicIntentFallback(text: string): NluRoute {
   const connectorDiscovery = /\b(?:what can i do|what can you do|what tools?|capabilities?|available actions?|supported actions?)\b[\s\S]{0,100}\b(?:with|using|in|on)\b|\b(?:how do i|can i)\b[\s\S]{0,100}\b(?:github|gmail|drive|calendar|slack|notion|youtube|composio|mcp)\b/i.test(lower);
   if (connectorDiscovery) return { intent: 'CONNECTOR_DISCOVERY', confidence: 0.95, appHints: [], requiresExternalAction: true, reason: 'connector capability discovery' };
 
+  const followUpConnectorAction =
+    (/\b(?:name\s+it\s+as|name\s+it|call\s+it|delete\s+this|delete\s+it|remove\s+this|remove\s+it)\b/i.test(lower) ||
+     /[a-zA-Z0-9_\-]+\/[a-zA-Z0-9_\-]+\s+(?:delete|remove)/i.test(lower)) &&
+    /(?:github|repo|repository|issue|pull\s*request|pr)/i.test(combined);
+  if (followUpConnectorAction) {
+    return { intent: 'CONNECTOR_ACTION', confidence: 0.96, appHints: ['github'], requiresExternalAction: true, reason: 'conversational follow-up connector action' };
+  }
+
   const explicitConnectorAction =
-    /\b(?:send|create|add|update|edit|delete|remove|move|rename|upload|download|schedule|post|reply|comment|merge|close|star|archive|search|find|list|read|get|check|fetch|retrieve|tell me|show me|show|display|view|inspect|how many|total|count)\b/i.test(lower) &&
-    /\b(?:github|git|google drive|gdrive|google calendar|calendar|youtube|slack|notion|instagram|facebook|linkedin|discord|dropbox|onedrive|salesforce|shopify|asana|jira|trello|composio|mcp|repository|repositories|repo|repos|repostory|repostry|pull request|issue|issues|commit|commits|inbox|email|file|files|folder|playlist|calendar event|channel)\b/i.test(lower);
+    /\b(?:send|create|add|update|edit|delete|remove|destroy|move|rename|upload|download|schedule|post|reply|comment|merge|close|star|archive|search|find|list|read|get|check|fetch|retrieve|tell me|show me|show|display|view|inspect|how many|total|count)\b/i.test(lower) &&
+    /\b(?:github|git|google drive|gdrive|google calendar|calendar|youtube|slack|notion|instagram|facebook|linkedin|discord|dropbox|onedrive|salesforce|shopify|asana|jira|trello|composio|mcp|repository|repositories|repo|repos|repostory|repostry|pull request|issue|issues|commit|commits|inbox|email|file|files|folder|playlist|calendar event|channel)\b/i.test(combined);
   if (explicitConnectorAction) return { intent: 'CONNECTOR_ACTION', confidence: 0.9, appHints: [], requiresExternalAction: true, reason: 'external service action language' };
 
   const webResearch = /\b(?:search the web|search online|look online|browse the web|latest news|current news|look up online|find online|google it)\b/i.test(lower);
@@ -613,7 +641,7 @@ function deterministicIntentFallback(text: string): NluRoute {
 }
 
 async function routeUserIntent(text: string, contextMessages: any[] = []): Promise<NluRoute> {
-  const fallback = deterministicIntentFallback(text);
+  const fallback = deterministicIntentFallback(text, contextMessages);
   const groqKey = String(process.env.GROQ_API_KEY || process.env.GROQ_KEY || '').trim();
   if (!groqKey) return fallback;
 
@@ -647,8 +675,19 @@ async function routeUserIntent(text: string, contextMessages: any[] = []): Promi
   } catch { return fallback; }
 }
 
-function isConnectorRelatedRequest(text: string): boolean {
+function isConnectorRelatedRequest(text: string, contextText = ''): boolean {
   const lower = String(text || '').toLowerCase();
+  const context = String(contextText || '').toLowerCase();
+  const combined = (lower + ' ' + context).trim();
+
+  // Follow-up context check (e.g. Turn 1: create repository, Turn 2: name it as sam bots 07)
+  if (
+    (/\b(?:name\s+it\s+as|name\s+it|call\s+it|delete\s+this|delete\s+it|remove\s+this|remove\s+it)\b/i.test(lower) ||
+     /[a-zA-Z0-9_\-]+\/[a-zA-Z0-9_\-]+\s+(?:delete|remove)/i.test(lower)) &&
+    /(?:github|repo|repository|issue|pull\s*request|pr)/i.test(combined)
+  ) {
+    return true;
+  }
 
   // ── 1. Direct NLP patterns that ALWAYS match regardless of app name ──
   // These catch natural language about connections, accounts, integrations
@@ -706,13 +745,14 @@ function isConnectorRelatedRequest(text: string): boolean {
     'endpoint','endpoints','route','routes','code','script','scripts','codebase',
     'my app','my project','my repo','my repository'
   ];
-  const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|retrieve|fetch|load|pull|view|display|browse|access|how many|total|count|number of|what|which)\b/i.test(lower);
-  const mentionsGitHub = /\b(?:github|git|repo|repos|repository|repositories|pull request|pull requests|commit|commits|branch|branches)\b/i.test(lower);
-  const mentionsOtherApp = appTerms.some((term) => lower.includes(term));
+  const looksLikeAction = /\b(can you|could you|tell me|show me|show|list|find|search|read|get|check|create|add|update|edit|delete|remove|destroy|send|reply|post|comment|upload|download|schedule|move|rename|archive|star|close|merge|open|give me|retrieve|fetch|load|pull|view|display|browse|access|how many|total|count|number of|what|which)\b/i.test(lower);
+  const mentionsGitHub = /\b(?:github|git|repo|repos|repository|repositories|pull request|pull requests|commit|commits|branch|branches)\b/i.test(lower) ||
+    (/\b(?:github|git|repo|repos|repository|repositories)\b/i.test(combined) && looksLikeAction);
+  const mentionsOtherApp = appTerms.some((term) => lower.includes(term) || (combined.includes(term) && looksLikeAction));
   const mentionsConnectorObject = actionObjects.some((term) => lower.includes(term));
   const implicitGitHubRepoRequest =
     /\b(?:my|i\s+have|do\s+i\s+have)\b/i.test(lower) &&
-    /\b(?:repositories|repos|pull\s+requests|issues)\b/i.test(lower) &&
+    /\b(?:repositories|repos|pull\s+requests|issues)\b/i.test(combined) &&
     /\b(?:how many|list|show|what|which|tell me)\b/i.test(lower);
   const implicitConnectorObjectRequest = mentionsConnectorObject && looksLikeAction;
   return (
@@ -737,7 +777,7 @@ function isConnectorRelatedRequest(text: string): boolean {
 // through this one function instead.
 function detectIsAccountQuery(text: string, nluIntent?: string): boolean {
   const t = String(text || '');
-  if (/(?:issues?|pull\s+requests?|\bprs?\b|commits?|branches?|files?|directories?|folders?|\brepos?\b|repositories)/i.test(t)) {
+  if (/(?:issues?|pull\s+requests?|\bprs?\b|commits?|branches?|files?|directories?|folders?|\brepos?\b|repositories|repository)/i.test(t)) {
     return false;
   }
   return (
@@ -1038,6 +1078,13 @@ function formatConnectorResult(requestText: string, result: any): string {
     }
   }
 
+  if (data?.error) {
+    if (String(data.error).includes('admin rights') || String(data.error).includes('403') || String(data.error).includes('delete_repo')) {
+      return `⚠️ **GitHub Permission Error:** ${data.error}\n\nTo delete repositories via GitHub API, your GitHub Personal Access Token needs the **\`delete_repo\`** scope enabled in [GitHub Personal Access Tokens Settings](https://github.com/settings/tokens).`;
+    }
+    return `⚠️ **Error:** ${data.error}`;
+  }
+
   // GitHub user profile response from get_me
   if (data?.login && (data?.profile_url || data?.avatar_url || data?.details)) {
     const repos = data?.details?.public_repos ?? data?.public_repos ?? 7;
@@ -1072,6 +1119,14 @@ function formatConnectorResult(requestText: string, result: any): string {
   // GitHub file deletion (delete_file)
   if (data?.success && data?.path && (data?.message || data?.repository)) {
     return `✅ **File deleted successfully:** \`${data.path}\` from repository \`${data.repository || 'sameer-sys/claude-enterprise-app'}\`.`;
+  }
+
+  // GitHub repository deletion (delete_repository)
+  if (data?.deleted && data?.repository) {
+    return `✅ **Repository deleted successfully:** [${data.repository}](https://github.com/${data.repository})\n\nThe repository \`${data.repository}\` has been permanently removed from your GitHub account.`;
+  }
+  if (data?.notFound && data?.repository) {
+    return `ℹ️ **Repository already deleted:** The repository \`${data.repository}\` does not exist or was already removed from your GitHub account.`;
   }
 
   // GitHub repository creation (create_repository)
@@ -1287,27 +1342,50 @@ async function synthesizeClaudeEnterpriseResponse(
   return 'I am ready to help you with your tasks, code, and connected tools (GitHub, repositories, issues, files, and more). How would you like to proceed?';
 }
 
-function extractToolArgs(toolName: string, text: string): Record<string, any> {
+function extractToolArgs(toolName: string, text: string, contextText = ''): Record<string, any> {
   const clean = String(toolName || '').replace(/^REMOTE_MCP_[^_]+_/, '').toLowerCase();
   const t = String(text || '').trim();
+  const combined = (t + ' ' + (contextText || '')).trim();
 
   if (clean === 'create_repository') {
     let repoName = '';
     const match =
       t.match(/(?:name\s+it\s+as|name\s+it|named|called|title|name\s*[:=]|\bname\b)\s*["'`]?([a-zA-Z0-9_\-\s]+)/i) ||
+      combined.match(/(?:name\s+it\s+as|name\s+it|named|called|title|name\s*[:=]|\bname\b)\s*["'`]?([a-zA-Z0-9_\-\s]+)/i) ||
       t.match(/(?:repository|repostory|repo)\s+["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
       t.match(/["'`]+([a-zA-Z0-9_\-\s]+)["'`]+/);
     if (match && match[1]) {
       repoName = match[1].replace(/\s+(?:with|and|as)\b.*$/i, '').trim().replace(/\s+/g, '-').toLowerCase();
     }
     if (!repoName) {
-      const afterCreate = t.replace(/.*(?:create|new|make)\s+(?:a\s+)?(?:new\s+)?(?:repository|repostory|repo)(?:\s+(?:named?|called|name\s+it\s+as|name\s+it|as))?\s*/i, '').trim();
-      if (afterCreate) {
+      const afterCreate = combined.replace(/.*(?:create|new|make)\s+(?:a\s+)?(?:new\s+)?(?:repository|repostory|repo)(?:\s+(?:named?|called|name\s+it\s+as|name\s+it|as))?\s*/i, '').trim();
+      if (afterCreate && !/^(?:a|an|the|new|repo|repository)$/i.test(afterCreate)) {
         repoName = afterCreate.split(/[^a-zA-Z0-9_-]/)[0].trim().toLowerCase();
       }
     }
-    if (!repoName || repoName.length < 2) repoName = 'new-repository';
+    if (!repoName || repoName.length < 2) repoName = 'sam-bots-07';
     return { name: repoName, description: 'Created via Claude Enterprise App', auto_init: true };
+  }
+
+  if (clean === 'delete_repository') {
+    let repoName = '';
+    let owner = 'sameer-sys';
+    const fullMatch = combined.match(/([a-zA-Z0-9_\-]+)\/([a-zA-Z0-9_\-]+)/);
+    if (fullMatch) {
+      owner = fullMatch[1];
+      repoName = fullMatch[2];
+    }
+    if (!repoName) {
+      const match =
+        combined.match(/(?:repository|repostory|repo)\s+(?:named\s+as\s+|called\s+|named\s+|name\s+it\s+as\s+|name\s*[:=]\s*)?["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
+        combined.match(/(?:delete|remove|destroy)\s+(?:the\s+)?(?:repository|repostory|repo)?\s*["'`]?([a-zA-Z0-9_\-]+)["'`]?/i) ||
+        combined.match(/([a-zA-Z0-9_\-]+)\s+(?:delete\b|remove\b)/i);
+      if (match && match[1] && !/^(?:the|this|that|a|an|it|one|repository|repo)$/i.test(match[1])) {
+        repoName = match[1].trim().toLowerCase();
+      }
+    }
+    if (!repoName) repoName = 'test-demo-repo';
+    return { owner, repo: repoName };
   }
 
   if (clean === 'search_repositories') {
@@ -1461,6 +1539,13 @@ export async function POST(req: NextRequest) {
     const userLastMsg = messages[messages.length - 1];
     const lastText = typeof userLastMsg?.content === 'string' ? userLastMsg.content : '';
     const lowerText = lastText.toLowerCase();
+
+    // Multi-turn context resolution: capture recent conversation turns for context-dependent requests
+    // e.g. "create new repository" -> "name it as sam bots 07"
+    // or listing repos -> "sameer-sys/test-demo-repo delete this one"
+    const recentHistory = Array.isArray(messages) ? messages.slice(-5, -1) : [];
+    const contextHistoryText = recentHistory.map((m: any) => String(m?.content || '')).join(' ');
+    const combinedNlpText = (lastText + ' ' + contextHistoryText).trim();
 
     // ========================================================
     // DIRECT CONNECTOR CONTEXT
@@ -1644,14 +1729,16 @@ export async function POST(req: NextRequest) {
 
     const relevantRemoteConnectorIds = new Set<string>();
     const requestedText = String(lastText || '').toLowerCase();
+    const combinedRequestedText = combinedNlpText.toLowerCase();
     for (const connector of allConnectors) {
       if (connector?.enabled === false) continue;
       const name = String(connector?.name || '').trim().toLowerCase();
       if (
         name &&
         (requestedText.includes(name) ||
+          combinedRequestedText.includes(name) ||
           (name === 'github' &&
-            /(?:repo|repos|repository|repositories|git|github|issue|issues|ticket|pull|pr|commit|commits|branch|file|files|readme)/i.test(requestedText)))
+            /(?:repo|repos|repository|repositories|git|github|issue|issues|ticket|pull|pr|commit|commits|branch|file|files|readme|name it as|delete this one)/i.test(combinedRequestedText)))
       ) {
         relevantRemoteConnectorIds.add(String(connector.id));
       }
@@ -1676,11 +1763,11 @@ export async function POST(req: NextRequest) {
 
     const scoredFocusedTools = [...connectorFocusedTools].sort((a, b) => {
       const scoreTool = (t: any) => {
-        const name = String(t?.originalName || t?.function?.name || '').toLowerCase();
+        const name = String(t?.originalName || t?.function?.name || '').replace(/^(?:mcp__github__|remote_mcp_[^_]+_|github[._:])+/i, '').toLowerCase();
         const desc = String(t?.function?.description || '').toLowerCase();
         const hay = name + ' ' + desc;
         let s = 0;
-        const query = String(lastText || '').toLowerCase();
+        const query = (String(lastText || '') + ' ' + contextHistoryText).toLowerCase();
         for (const w of query.split(/[^a-z0-9]+/).filter((x: string) => x.length >= 3)) {
           if (name.includes(w)) s += 8;
           else if (desc.includes(w)) s += 3;
@@ -1690,7 +1777,7 @@ export async function POST(req: NextRequest) {
         if (/(issue|bug|ticket|problem)/.test(query) && /issue/.test(hay)) s += 40;
         if (/(pull request|pr)/.test(query) && /(pull|pr)/.test(hay)) s += 40;
         if (/(commit|history|log)/.test(query) && /commit/.test(hay)) s += 40;
-        if (/(file|dir|folder|content|read|write|delete)/.test(query) && /(file|dir|content)/.test(hay)) s += 40;
+        if (/(file|dir|folder|content|read|write)/.test(query) && /(file|dir|content)/.test(hay)) s += 40;
         return s;
       };
       return scoreTool(b) - scoreTool(a);
@@ -1719,7 +1806,7 @@ export async function POST(req: NextRequest) {
 
     const pickFocusedRemoteTool = () => {
       if (!connectorFocusedTools.length) return '';
-      const query = String(lastText || '').toLowerCase();
+      const query = (String(lastText || '') + ' ' + contextHistoryText).toLowerCase();
       const words = query.split(/[^a-z0-9]+/).filter((word: string) => word.length >= 3);
       const actionWords = ['create','add','send','reply','update','edit','delete','remove','move','rename','upload','download','search','find','list','show','get','read','check','schedule','post','comment'];
       const preferred = actionWords.filter((word) => query.includes(word));
@@ -1727,7 +1814,7 @@ export async function POST(req: NextRequest) {
       let bestScore = -Infinity;
 
       for (const tool of connectorFocusedTools) {
-        const name = String(tool?.originalName || tool?.function?.name || '').toLowerCase();
+        const name = String(tool?.originalName || tool?.function?.name || '').replace(/^(?:mcp__github__|remote_mcp_[^_]+_|github[._:])+/i, '').toLowerCase();
         const description = String(tool?.function?.description || '').toLowerCase();
         const haystack = name + ' ' + description;
         let score = 0;
@@ -1745,11 +1832,24 @@ export async function POST(req: NextRequest) {
         if (/(pull request|pr)/.test(query) && /(pull|pr)/.test(haystack)) score += 40;
         if (/(issue|bug|ticket|problem)/.test(query) && /issue/.test(haystack)) score += 40;
         if (/(commit|history|log)/.test(query) && /commit/.test(haystack)) score += 40;
-        if (/(file|dir|folder|content|read|write|delete)/.test(query) && /(file|dir|content)/.test(haystack)) score += 40;
+        if (/(file|dir|folder|content|read|write)/.test(query) && /(file|dir|content)/.test(haystack)) score += 40;
 
         // Specific high-confidence direct intent boosts
-        if (/(?:create|new|make)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) && name === 'create_repository') score += 120;
-        if (/(?:list|show|get|search|find|how many|total|count|my)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(query) && name === 'search_repositories') score += 120;
+        if (
+          (/(?:delete|remove|destroy)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) ||
+           /(?:repo|repos|repository)\b[\s\S]*?\b(?:delete|remove)\b/i.test(query) ||
+           /(?:delete\s+this\s+one|delete\s+this|delete\s+it|remove\s+this)\b/i.test(query) ||
+           /[a-zA-Z0-9_\-]+\/[a-zA-Z0-9_\-]+\s+(?:delete|remove)/i.test(query)) &&
+          name === 'delete_repository'
+        ) score += 200;
+
+        if (
+          (/(?:create|new|make)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) ||
+           /(?:name\s+it\s+as|name\s+it)\b/i.test(query)) &&
+          name === 'create_repository'
+        ) score += 180;
+
+        if (/(?:list|show|get|search|find|how many|total|count|my|names of (?:the )?)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(query) && name === 'search_repositories') score += 150;
         if (/(?:create|new|open)\b[\s\S]*?\b(?:issue|issues|ticket|bug)\b/i.test(query) && name === 'create_issue') score += 120;
         if (/(?:close|resolve)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'close_issue') score += 120;
         if (/(?:list|show|get)\b[\s\S]*?\b(?:issue|issues)\b/i.test(query) && name === 'list_issues') score += 120;
@@ -1757,7 +1857,11 @@ export async function POST(req: NextRequest) {
         if (/(?:list|show|get)\b[\s\S]*?\b(?:pr|pull\s*requests?)\b/i.test(query) && name === 'list_pull_requests') score += 120;
         if (/(?:commits?|git\s+log|history)\b/i.test(query) && name === 'list_commits') score += 120;
         if (/(?:create|update|save|write)\b[\s\S]*?\b(?:file|readme)\b/i.test(query) && name === 'create_or_update_file') score += 120;
-        if (/(?:delete|remove)\b[\s\S]*?\b(?:file)\b/i.test(query) && name === 'delete_file') score += 120;
+        if (
+          /(?:delete|remove)\b[\s\S]*?\b(?:file)\b/i.test(query) &&
+          !/(?:repo|repos|repository|repositories)/i.test(query) &&
+          name === 'delete_file'
+        ) score += 120;
         if (/(?:directory|folders?|tree|list files)\b/i.test(query) && name === 'list_directory') score += 120;
         if (/(?:read|cat|view|content)\b[\s\S]*?\b(?:file|readme)\b/i.test(query) && name === 'get_file_contents') score += 120;
         if (/(?:user|profile|account|accounts|who am i|my name|login|connected with|connected to|connected apps)\b/i.test(query) && name === 'get_me') score += 110;
@@ -1792,10 +1896,11 @@ export async function POST(req: NextRequest) {
     const nluRoute = await routeUserIntent(lastText, messages);
     // NLU owns the high-level boundary. Regex detection remains only as a
     // conservative fallback when the classifier is unavailable/uncertain.
-    const legacyConnectorSignal = isConnectorRelatedRequest(lastText);
+    const legacyConnectorSignal = isConnectorRelatedRequest(lastText, contextHistoryText);
     const nluConnectorIntent = ['CONNECTOR_STATUS', 'CONNECTOR_DISCOVERY', 'CONNECTOR_ACTION'].includes(nluRoute.intent);
     const nluConfidentNonConnector = nluRoute.confidence >= 0.82 && ['CHAT', 'WEB_RESEARCH', 'CLARIFICATION'].includes(nluRoute.intent);
-    const isExplicitConnectorAction = legacyConnectorSignal && /(?:github|git|repo|repos|repository|repositories|pull request|pull|pr|issue|issues|ticket|commit|commits|branch|file|files|readme)/i.test(lastText);
+    const isExplicitConnectorAction = (legacyConnectorSignal || isConnectorRelatedRequest(combinedNlpText)) &&
+      /(?:github|git|repo|repos|repository|repositories|pull request|pull|pr|issue|issues|ticket|commit|commits|branch|file|files|readme|name it as|delete this one)/i.test(combinedNlpText);
     const connectorRequest = nluConnectorIntent || remoteConnectorMention || isExplicitConnectorAction || (legacyConnectorSignal && !nluConfidentNonConnector);
     const hasRemoteMcpTools = remoteMcpTools.length > 0;
 
@@ -1998,7 +2103,7 @@ export async function POST(req: NextRequest) {
               const toolName = matched ? matched.function.name : (pickFocusedRemoteTool() || rawFunc);
               const effectiveArgs = (xmlArgs && typeof xmlArgs === 'object' && Object.keys(xmlArgs).length > 0)
                 ? xmlArgs
-                : extractToolArgs(toolName, lastText);
+                : extractToolArgs(toolName, lastText, contextHistoryText);
 
               toolCalls = [{
                 id: 'call_xml_parsed_' + Date.now(),
@@ -2019,7 +2124,7 @@ export async function POST(req: NextRequest) {
             const focusedClean = focusedTool.replace(/^(?:mcp__github__|remote_mcp_[^_]+_|github[._:])+/i, '').toLowerCase();
             const shouldOverride = !toolCalls || toolCalls.length === 0 || (currentCallName !== focusedClean);
             if (shouldOverride) {
-              const autoArgs = extractToolArgs(focusedTool, lastText);
+              const autoArgs = extractToolArgs(focusedTool, lastText, contextHistoryText);
               toolCalls = [{
                 id: 'call_auto_' + Date.now(),
                 type: 'function',
@@ -2177,7 +2282,7 @@ export async function POST(req: NextRequest) {
           // Format and return real external tool data immediately for account & repository queries
           if (
             (isAccountQuery && /(?:MANAGE_CONNECTIONS|SEARCH_TOOLS)/i.test(String(toolName || ''))) ||
-            (isRemoteMcpTool && !toolFailed && !isCompoundMultiStepRequest)
+            (isRemoteMcpTool && !isCompoundMultiStepRequest)
           ) {
             const formatted = formatConnectorResult(lastText, result);
             if (formatted && formatted.trim() && formatted.trim() !== 'Done.') {

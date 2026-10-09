@@ -407,6 +407,18 @@ export async function listRemoteMcpTools(connector: Connector, options: RemoteMc
         },
       },
       {
+        name: 'delete_repository',
+        description: 'Delete a repository under the authenticated user account.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: { type: 'string', description: 'Repository owner (defaults to "sameer-sys")' },
+            repo: { type: 'string', description: 'Repository name to delete' },
+          },
+          required: ['repo'],
+        },
+      },
+      {
         name: 'list_commits',
         description: 'List recent commits for a repository.',
         inputSchema: {
@@ -510,7 +522,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
       });
     }
 
-    if (cleanToolName === 'search_repositories' || cleanToolName === 'list_repositories' || cleanToolName.includes('repo') && !cleanToolName.includes('create') && !cleanToolName.includes('content') && !cleanToolName.includes('file')) {
+    if (cleanToolName === 'search_repositories' || cleanToolName === 'list_repositories' || (cleanToolName.includes('repo') && !cleanToolName.includes('create') && !cleanToolName.includes('delete') && !cleanToolName.includes('content') && !cleanToolName.includes('file'))) {
       try {
         const ghRes = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
@@ -543,12 +555,22 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
         const name = rawName.replace(/\s+/g, '-').toLowerCase() || 'new-repo';
         const description = String(args.description || '');
         const isPrivate = Boolean(args.private);
-        const ghRes = await fetch('https://api.github.com/user/repos', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, description, private: isPrivate, auto_init: true }),
-          signal: AbortSignal.timeout(8000),
-        });
+        let ghRes: Response;
+        try {
+          ghRes = await fetch('https://api.github.com/user/repos', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description, private: isPrivate, auto_init: true }),
+            signal: AbortSignal.timeout(10000),
+          });
+        } catch {
+          ghRes = await fetch('https://api.github.com/user/repos', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description, private: isPrivate, auto_init: true }),
+            signal: AbortSignal.timeout(10000),
+          });
+        }
         if (ghRes.ok) {
           const repo = await ghRes.json();
           return JSON.stringify({ success: true, name: repo.name, full_name: repo.full_name, html_url: repo.html_url, description: repo.description, private: repo.private, default_branch: repo.default_branch || 'main', clone_url: repo.clone_url || (repo.html_url + '.git') });
@@ -559,7 +581,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
             try {
               const checkRes = await fetch(`https://api.github.com/repos/sameer-sys/${name}`, {
                 headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'claude-enterprise-app' },
-                signal: AbortSignal.timeout(6000),
+                signal: AbortSignal.timeout(8000),
               });
               if (checkRes.ok) {
                 const existingRepo = await checkRes.json();
@@ -571,6 +593,56 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
         }
       } catch (err: any) {
         return JSON.stringify({ error: err?.message || 'Failed to create repository' });
+      }
+    }
+
+    if (cleanToolName === 'delete_repository') {
+      try {
+        let repoToDelete = String(args.repo || args.name || args.repository || '').trim();
+        let owner = String(args.owner || 'sameer-sys').trim();
+        if (repoToDelete.includes('/')) {
+          const parts = repoToDelete.split('/');
+          owner = parts[0];
+          repoToDelete = parts[1];
+        }
+        if (!repoToDelete) {
+          return JSON.stringify({ error: 'Please specify the name of the repository to delete.' });
+        }
+        const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repoToDelete}`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github.v3+json',
+            'User-Agent': 'claude-enterprise-app',
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ghRes.status === 204 || ghRes.ok) {
+          return JSON.stringify({
+            success: true,
+            deleted: true,
+            repository: `${owner}/${repoToDelete}`,
+            message: `Repository ${owner}/${repoToDelete} deleted successfully.`,
+          });
+        } else if (ghRes.status === 404) {
+          return JSON.stringify({
+            success: true,
+            notFound: true,
+            repository: `${owner}/${repoToDelete}`,
+            message: `Repository ${owner}/${repoToDelete} does not exist or was already deleted.`,
+          });
+        } else if (ghRes.status === 403) {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({
+            error: `${errData.message || 'Must have admin rights to repository'}. Please ensure your GitHub Personal Access Token has the 'delete_repo' scope enabled.`,
+            status: 403,
+          });
+        } else {
+          const errData = await ghRes.json().catch(() => ({}));
+          return JSON.stringify({ error: errData.message || `Failed to delete repository (${ghRes.status})` });
+        }
+      } catch (err: any) {
+        return JSON.stringify({ error: err?.message || 'Failed to delete repository' });
       }
     }
 

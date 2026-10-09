@@ -1648,8 +1648,10 @@ export async function POST(req: NextRequest) {
       const stored = getStoredTokenFromRequest({ cookies: req.cookies }, String(connector.id), url);
       const credential = getCredentialFromRequest({ cookies: req.cookies }, String(connector.id), url);
       const merged = { ...(credential || {}), ...(stored || {}) };
-      if (!merged.accessToken && (connector.id === 'conn-github' || /github/i.test(connector.name)) && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
-        merged.accessToken = process.env.GITHUB_PERSONAL_ACCESS_TOKEN.trim();
+      if (connector.id === 'conn-github' || /github/i.test(connector.name)) {
+        const { getGitHubToken } = require('@/lib/remoteMcp');
+        const ghTok = getGitHubToken();
+        if (ghTok) merged.accessToken = ghTok;
       }
       if (!merged.accessToken && !merged.refreshToken && !merged.clientId && !merged.clientSecret) return connector;
       remoteCredentials[String(connector.id)] = merged;

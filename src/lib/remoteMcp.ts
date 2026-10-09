@@ -41,12 +41,28 @@ export function safeRemoteMcpUrl(raw: string): URL {
   return url;
 }
 
+export function getGitHubToken(): string {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const envPath = path.join(process.cwd(), '.env.local');
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8');
+      const match = content.match(/GITHUB_PERSONAL_ACCESS_TOKEN=([^\r\n]+)/);
+      if (match && match[1]?.trim()) {
+        return match[1].trim();
+      }
+    }
+  } catch {}
+  return String(process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '').trim();
+}
+
 function baseHeaders(connector: Connector, credentials?: RemoteStoredToken, state?: RemoteState, method?: string, params?: any): Record<string, string> {
   const headers: Record<string, string> = { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' };
   const cfg: any = connector.config || {};
   let token = String(credentials?.accessToken || cfg.authToken || cfg.apiKey || '').trim();
-  if (!token && (connector.id === 'conn-github' || /github/i.test(connector.name)) && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
-    token = process.env.GITHUB_PERSONAL_ACCESS_TOKEN.trim();
+  if (connector.id === 'conn-github' || /github/i.test(connector.name)) {
+    token = getGitHubToken() || token;
   }
   if (token) headers.Authorization = (credentials?.tokenType || 'Bearer') + ' ' + token;
   if (cfg.headers && typeof cfg.headers === 'object') {
@@ -484,8 +500,9 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
     ].includes(cleanToolName);
 
   let token = String(
-    process.env.GITHUB_PERSONAL_ACCESS_TOKEN ||
+    (isGitHub ? getGitHubToken() : '') ||
     options.credentials?.accessToken ||
+    process.env.GITHUB_PERSONAL_ACCESS_TOKEN ||
     cfg.authToken ||
     cfg.apiKey ||
     ''
@@ -496,8 +513,8 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
 
   // High-speed direct GitHub execution for all GitHub tools
   if (isGitHub) {
-    if (!token && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
-      token = process.env.GITHUB_PERSONAL_ACCESS_TOKEN.trim();
+    if (!token) {
+      token = getGitHubToken();
     }
 
     if (cleanToolName === 'get_me' || cleanToolName === 'get_user' || cleanToolName.includes('get_me') || cleanToolName.includes('get_user')) {

@@ -1363,7 +1363,7 @@ function extractToolArgs(toolName: string, text: string, contextText = ''): Reco
         repoName = afterCreate.split(/[^a-zA-Z0-9_-]/)[0].trim().toLowerCase();
       }
     }
-    if (!repoName || repoName.length < 2) repoName = 'sam-bots-07';
+    if (!repoName || repoName.length < 2) repoName = 'sam-bot-' + Math.floor(100 + Math.random() * 900);
     return { name: repoName, description: 'Created via Claude Enterprise App', auto_init: true };
   }
 
@@ -1852,25 +1852,40 @@ export async function POST(req: NextRequest) {
         if (/(file|dir|folder|content|read|write)/.test(query) && /(file|dir|content)/.test(name)) score += 40;
 
         // Specific high-confidence direct intent boosts
+        const currentWantsCreateRepo =
+          /(?:create|new|make|add)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(lastText) ||
+          /(?:name\s+it\s+as|name\s+it)\b/i.test(lastText) ||
+          /^(?:create|make)\s+(?:a\s+)?(?:new\s+)?(?:repo|repository)/i.test(lastText);
+
+        const currentWantsDeleteRepo =
+          /(?:delete|remove|destroy)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(lastText) ||
+          /(?:repo|repos|repository)\b[\s\S]*?\b(?:delete|remove)\b/i.test(lastText) ||
+          /(?:delete\s+this\s+one|delete\s+this|delete\s+it|remove\s+this)\b/i.test(lastText);
+
         const wantsRepoDelete =
+          currentWantsDeleteRepo ||
           (/(?:delete|remove|destroy)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) ||
            /(?:repo|repos|repository)\b[\s\S]*?\b(?:delete|remove)\b/i.test(query) ||
            /(?:delete\s+this\s+one|delete\s+this|delete\s+it|remove\s+this)\b/i.test(query) ||
            /[a-zA-Z0-9_\-]+\/[a-zA-Z0-9_\-]+\s+(?:delete|remove)/i.test(query) ||
            /(?:delete|remove|destroy)\s+(?:the\s+)?(?!(?:the|this|that|a|an|it|repository|repostory|repo)\b)[a-zA-Z0-9_\-]+\s+(?:repository|repo)/i.test(lastText));
 
-        if (wantsRepoDelete && name === 'delete_repository') score += 260;
+        if (wantsRepoDelete && name === 'delete_repository') score += 400;
 
-        if (
-          (/(?:create|new|make)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) ||
-           /(?:name\s+it\s+as|name\s+it)\b/i.test(query)) &&
-          name === 'create_repository'
-        ) score += 220;
+        const wantsRepoCreate =
+          currentWantsCreateRepo ||
+          ((/(?:create|new|make)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry)\b/i.test(query) ||
+            /(?:name\s+it\s+as|name\s+it)\b/i.test(query)) && !currentWantsDeleteRepo);
 
-        const wantsRepoList =
+        if (wantsRepoCreate && name === 'create_repository') score += 400;
+
+        const wantsRepoList = !currentWantsCreateRepo && !currentWantsDeleteRepo && (
           /(?:there\s+names?|their\s+names?|the\s+names?|what\s+are\s+they|what\s+are\s+their\s+names|all\s+repositories\s+names?|repositories\s+names?|tell\s+me\s+(?:the\s+)?names?|list\s+(?:all\s+)?(?:the\s+)?repos?|list\s+repositories|show\s+repositories|search\s+repositories)/i.test(lastText) ||
-          /(?:list|show|get|search|find|how many|total|count|my|names?\s+of|all|tell\s+me)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(query) ||
-          /(?:repo|repos|repository|repositories)\b[\s\S]*?\b(?:names?|list|all|show)\b/i.test(query);
+          /(?:list|show|get|search|find|how many|total|count|my|names?\s+of|all|tell\s+me)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(lastText) ||
+          (/(?:repo|repos|repository|repositories)\b[\s\S]*?\b(?:names?|list|all|show)\b/i.test(lastText)) ||
+          ((/(?:list|show|get|search|find|how many|total|count|my|names?\s+of|all|tell\s+me)\b[\s\S]*?\b(?:repo|repos|repository|repositories|repostory|repostry|git)\b/i.test(query) ||
+            /(?:repo|repos|repository|repositories)\b[\s\S]*?\b(?:names?|list|all|show)\b/i.test(query)) && !currentMentionsAction)
+        );
 
         if (wantsRepoList && name === 'search_repositories') score += 250;
 

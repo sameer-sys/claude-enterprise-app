@@ -569,6 +569,7 @@ export async function callRemoteMcpTool(connector: Connector, _exposedToolName: 
 
     if (cleanToolName === 'create_repository') {
       try {
+        if (!token) token = getGitHubToken();
         const rawName = String(args.name || '').trim();
         const name = rawName.replace(/\s+/g, '-').toLowerCase() || 'new-repo';
         const description = String(args.description || '');

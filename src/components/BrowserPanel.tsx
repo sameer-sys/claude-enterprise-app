@@ -124,22 +124,57 @@ export default function BrowserPanel({
     navigateTo('https://www.google.com');
   };
 
-  // Convert standard YouTube watch URLs to embeddable player if needed
+  // Convert URLs so they never hit X-Frame-Options blocking or white screen
   const getEmbeddableUrl = (url: string): string => {
     try {
+      const isElectron =
+        typeof window !== 'undefined' &&
+        (Boolean((window as any).electron) ||
+          Boolean((window as any).process?.versions?.electron) ||
+          navigator.userAgent.includes('Electron'));
+
       const parsed = new URL(url);
-      if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
+      const host = parsed.hostname.toLowerCase();
+
+      // YouTube specific handling:
+      if (host.includes('youtube.com') || host.includes('youtu.be')) {
         let videoId = parsed.searchParams.get('v');
-        if (!videoId && parsed.hostname.includes('youtu.be')) {
+        if (!videoId && host.includes('youtu.be')) {
           videoId = parsed.pathname.replace(/^\//, '');
         }
         if (videoId) {
           return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&enablejsapi=1`;
         }
+        const searchQ = parsed.searchParams.get('search_query');
+        if (searchQ) {
+          return `https://www.youtube-nocookie.com/embed?listType=search&list=${encodeURIComponent(searchQ)}&autoplay=1`;
+        }
+        // General YouTube home / search embed
+        return `https://www.youtube-nocookie.com/embed?listType=search&list=trending&autoplay=0`;
       }
-      if (parsed.hostname.includes('google.com') && !parsed.searchParams.has('igu')) {
-        parsed.searchParams.set('igu', '1');
+
+      // Google search handling:
+      if (host.includes('google.com')) {
+        if (!parsed.searchParams.has('igu')) {
+          parsed.searchParams.set('igu', '1');
+        }
         return parsed.toString();
+      }
+
+      // If running in Electron, Electron's header stripper handles all sites directly:
+      if (isElectron) {
+        return url;
+      }
+
+      // In browser/cloud, for sites known to enforce X-Frame-Options:
+      if (
+        host.includes('github.com') ||
+        host.includes('instagram.com') ||
+        host.includes('twitter.com') ||
+        host.includes('x.com') ||
+        host.includes('reddit.com')
+      ) {
+        return `/api/proxy?url=${encodeURIComponent(url)}`;
       }
     } catch {}
     return url;

@@ -35,6 +35,24 @@ function createWindow() {
     mainWindow.focus();
   });
 
+  // Strip X-Frame-Options and Content-Security-Policy frame-ancestors
+  // so the embedded Browser panel loads YouTube, GitHub, Instagram, etc. without a white screen!
+  mainWindow.webContents.session.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
+    const responseHeaders = { ...details.responseHeaders };
+    for (const key of Object.keys(responseHeaders)) {
+      const lowerKey = key.toLowerCase();
+      if (lowerKey === 'x-frame-options') {
+        delete responseHeaders[key];
+      }
+      if (lowerKey === 'content-security-policy') {
+        responseHeaders[key] = responseHeaders[key].map((csp) =>
+          csp.replace(/frame-ancestors[^;]+;?/gi, '')
+        );
+      }
+    }
+    callback({ responseHeaders });
+  });
+
   // Open external links in real browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {

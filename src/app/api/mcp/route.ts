@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       const saved = getCredentialFromRequest(req, connector.id, connector.url) || {};
       const isGitHub = connector.id === 'conn-github' || /githubcopilot\.com\/mcp/i.test(connector.url);
       const suppliedId = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_ID : '') || body?.clientId || connector.config?.oauthClientId || saved.clientId || '').trim();
-      const suppliedSecret = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_SECRET : '') || body?.clientSecret || connector.config?.oauthClientSecret || saved.clientSecret || '').trim();
+      const suppliedSecret = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_SECRET : '') || body?.clientSecret || saved.clientSecret || '').trim();
       const discovered = await discoverRemoteOAuth(connector.url, String(body?.resource || connector.config?.resource || '').trim() || undefined);
       const configuredAuthorizationEndpoint = String(connector.config?.oauthAuthorizationEndpoint || '').trim();
       const configuredTokenEndpoint = String(connector.config?.oauthTokenEndpoint || '').trim();

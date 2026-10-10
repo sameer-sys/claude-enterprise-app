@@ -167,14 +167,46 @@ export async function POST(req: NextRequest) {
 
     if (action === 'status') {
       const items = Array.isArray(body?.connectors) ? body.connectors : [];
-      const results = items.map((item: any) => {
+      // Bound the fan-out: status now performs real authenticated discovery.
+      if (items.length > 20) return NextResponse.json({ success: false, error: 'Check at most 20 connectors per request.' }, { status: 400 });
+      const rotatedTokens: Array<{ id: string; url: string; token: RemoteStoredToken }> = [];
+      const results = await Promise.all(items.map(async (item: any) => {
         const connector = connectorFromInput(item);
-        if (!connector.name || !connector.url) return { id: String(item?.id || ''), connected: false };
-        const credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
-        const hasEnvToken = (connector.id === 'conn-github' || /github/i.test(connector.name)) && Boolean(getGitHubToken());
-        return { id: connector.id, connected: Boolean(credentials?.accessToken || hasEnvToken) };
-      });
-      return NextResponse.json({ success: true, connectors: results });
+        if (!connector.name || !connector.url) return { id: String(item?.id || ''), connected: false, state: 'not_configured' };
+        let endpoint: URL;
+        try {
+          endpoint = new URL(connector.url);
+          if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password) throw new Error('Invalid endpoint');
+        } catch {
+          return { id: connector.id, connected: false, state: 'not_configured' };
+        }
+        let credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
+        // Preserve the existing official GitHub fallback, never match by display name.
+        if (!credentials?.accessToken && endpoint.origin === 'https://api.githubcopilot.com' && /^\/mcp\/?$/.test(endpoint.pathname) && !endpoint.search) {
+          const token = getGitHubToken();
+          if (token) credentials = { accessToken: token };
+        }
+        if (!credentials?.accessToken) return { id: connector.id, connected: false, state: 'not_configured' };
+        try {
+          // The transport owns expiry/refresh handling; persist any credential rotation.
+          const tools = await listRemoteMcpTools(connector, {
+            credentials,
+            onCredentialsUpdated: (token) => {
+              credentials = token;
+              rotatedTokens.push({ id: connector.id, url: connector.url, token });
+            },
+          });
+          return { id: connector.id, connected: true, state: 'connected', toolCount: tools.length };
+        } catch (err: any) {
+          const message = String(err?.message || '');
+          const requiresAuth = err?.status === 401 || err?.status === 403 || /(?:unauthorized|forbidden|authentication|oauth)/i.test(message);
+          return { id: connector.id, connected: false, state: requiresAuth ? 'needs_auth' : 'unreachable' };
+        }
+      }));
+      const response = NextResponse.json({ success: true, connectors: results });
+      response.headers.set('Cache-Control', 'no-store');
+      for (const rotated of rotatedTokens) setStoredTokenCookie(response, rotated.id, rotated.url, rotated.token);
+      return response;
     }
 
     if (action !== 'check') return NextResponse.json({ success: false, error: 'Unsupported MCP action.' }, { status: 400 });

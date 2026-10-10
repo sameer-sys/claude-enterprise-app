@@ -129,14 +129,20 @@ export default function BrowserPanel({
     try {
       const isElectron =
         typeof window !== 'undefined' &&
-        (Boolean((window as any).electron) ||
+        (Boolean((window as any).electronAPI?.isElectron) ||
+          Boolean((window as any).electron) ||
           Boolean((window as any).process?.versions?.electron) ||
           navigator.userAgent.includes('Electron'));
+
+      // If running in the local desktop app (Electron), header stripper allows ALL full real websites directly!
+      if (isElectron) {
+        return url;
+      }
 
       const parsed = new URL(url);
       const host = parsed.hostname.toLowerCase();
 
-      // YouTube specific handling:
+      // YouTube specific handling in web mode:
       if (host.includes('youtube.com') || host.includes('youtu.be')) {
         let videoId = parsed.searchParams.get('v');
         if (!videoId && host.includes('youtu.be')) {
@@ -149,8 +155,8 @@ export default function BrowserPanel({
         if (searchQ) {
           return `https://www.youtube-nocookie.com/embed?listType=search&list=${encodeURIComponent(searchQ)}&autoplay=1`;
         }
-        // General YouTube home / search embed
-        return `https://www.youtube-nocookie.com/embed?listType=search&list=trending&autoplay=0`;
+        // General YouTube home in web mode: popular music playlist
+        return `https://www.youtube-nocookie.com/embed/videoseries?list=PL4fGSI1pDJn6jXS_PEoNxmdaZwVO397yg`;
       }
 
       // Google search handling:
@@ -159,11 +165,6 @@ export default function BrowserPanel({
           parsed.searchParams.set('igu', '1');
         }
         return parsed.toString();
-      }
-
-      // If running in Electron, Electron's header stripper handles all sites directly:
-      if (isElectron) {
-        return url;
       }
 
       // In browser/cloud, for sites known to enforce X-Frame-Options:

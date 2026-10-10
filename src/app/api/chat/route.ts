@@ -1621,7 +1621,8 @@ export async function POST(req: NextRequest) {
 5. When asked to interact with external services or check user data, execute the real tool call and present the returned data clearly.
 6. Never narrate a tool call you are about to make. If a connected-app action is required, make the real tool call first and only then answer with the result.
 7. Present your final answer directly to the user in clean Markdown. Never explain your thought process or output raw JSON tool definitions in prose.
-8. Authenticated GitHub account is 'sameer-sys'. When asked for repositories or GitHub details, call the GitHub MCP tools directly (e.g. search_repositories with query 'user:sameer-sys', or get_me).\n`;
+8. Authenticated GitHub account is 'sameer-sys'. When asked for repositories or GitHub details, call the GitHub MCP tools directly (e.g. search_repositories with query 'user:sameer-sys', or get_me).
+9. Interpret casual, vague, or non-native phrasing the way a helpful human would, not literally. A question like "what does X repo have", "what is in X", or "tell me about X repository" means: give a real, synthesized overview of that repository - not a guess, and not just one shallow fact. Unless another owner is clearly named, resolve "X" against the authenticated user's own GitHub account first. For this kind of question, make MULTIPLE real tool calls before answering: get the repository's own details (description, language, visibility, stars) AND list its top-level files/contents, then combine both into one clear answer (e.g. "It's a [language] project with X stars, containing: [files]. Description: ..."). Never answer a "what does it have" question from only one of those calls, and never answer it without making any real tool call at all.\n`;
 
     const baseSystemPrompt =
       agentPrompt ||

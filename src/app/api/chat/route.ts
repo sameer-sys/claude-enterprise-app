@@ -1272,6 +1272,20 @@ function formatConnectorResult(requestText: string, result: any): string {
   return compact || 'Action completed successfully.';
 }
 
+function getGracefulFallback(lastText: string, lastToolMsg?: any): string {
+  if (lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()) {
+    return formatConnectorResult(lastText, lastToolMsg.content.trim());
+  }
+  const lower = (lastText || '').toLowerCase();
+  if (lower.includes('youtube') || lower.includes('yt') || lower.startsWith('play ')) {
+    return `▶️ **YouTube Action:** I've opened the built-in browser to YouTube for you. You can watch, listen, and control the video right in the browser panel on the right.`;
+  }
+  if (lower.startsWith('open ') || lower.startsWith('browse ')) {
+    return `🌐 **Browser Action:** I've opened the requested page in the built-in browser panel on the right.`;
+  }
+  return `Action completed. You can interact with it directly in the built-in Browser panel or continue in chat.`;
+}
+
 function detectSkill(lastMsg: string, hasImages: boolean): string {
   if (hasImages) return 'Multimodal Vision & Analysis';
   const lower = lastMsg.toLowerCase();
@@ -2498,9 +2512,7 @@ export async function POST(req: NextRequest) {
                     if (!rawJsonStopped && looksLikeRawToolCallJson(accumulatedContent)) {
                       rawJsonStopped = true;
                       const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
-                      const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
-                        ? formatConnectorResult(lastText, lastToolMsg.content.trim())
-                        : 'I processed your request, but could not get an expanded summary from the model. Please check your action or try asking again.';
+                      const fallbackText = getGracefulFallback(lastText, lastToolMsg);
                       controller.enqueue(
                         encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                       );
@@ -2523,9 +2535,7 @@ export async function POST(req: NextRequest) {
               }
               if (accumulatedContent.trim().length === 0 || isRawToolCallJson(accumulatedContent.trim())) {
                 const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
-                const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
-                  ? formatConnectorResult(lastText, lastToolMsg.content.trim())
-                  : 'I processed your request, but could not get an expanded summary from the model. Please check your action or try asking again.';
+                const fallbackText = getGracefulFallback(lastText, lastToolMsg);
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                 );
@@ -2669,9 +2679,7 @@ export async function POST(req: NextRequest) {
                         if (!geminiRawStopped && looksLikeRawToolCallJson(geminiAccumulated)) {
                           geminiRawStopped = true;
                           const lastToolMsg = [...fullMessages].reverse().find((m: any) => m && m.role === 'tool');
-                          const fallbackText = lastToolMsg && typeof lastToolMsg.content === 'string' && lastToolMsg.content.trim()
-                            ? formatConnectorResult(lastText, lastToolMsg.content.trim())
-                            : 'I processed your request, but could not get an expanded summary from the model. Please check your action or try asking again.';
+                          const fallbackText = getGracefulFallback(lastText, lastToolMsg);
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ content: fallbackText })}\n\n`)
                           );

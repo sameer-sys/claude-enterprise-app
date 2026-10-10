@@ -75,6 +75,8 @@ interface ChatAreaProps {
   onOpenFeatures?: () => void;
   onOpenSquad?: () => void;
   hasGeminiKey?: boolean;
+  onToggleBrowserPanel?: () => void;
+  isBrowserPanelOpen?: boolean;
 }
 
 export default function ChatArea({
@@ -107,6 +109,8 @@ export default function ChatArea({
   onOpenFeatures,
   onOpenSquad,
   hasGeminiKey = false,
+  onToggleBrowserPanel,
+  isBrowserPanelOpen = false,
 }: ChatAreaProps) {
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -913,17 +917,20 @@ export default function ChatArea({
       {/* Session-Level Toolbar: Browser Agent Mode & Connectors */}
       <div className="flex justify-end items-center px-4 sm:px-6 pt-2.5 pb-1 shrink-0 z-10 gap-2">
         <button
-          onClick={() => setIsBrowserMode((prev) => !prev)}
+          onClick={() => {
+            setIsBrowserMode((prev) => !prev);
+            onToggleBrowserPanel?.();
+          }}
           className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-all shadow-sm active:scale-95 ${
-            isBrowserMode
+            isBrowserPanelOpen || isBrowserMode
               ? 'bg-[#cc785c]/25 border-[#cc785c] text-[#f2eee6] shadow-[#cc785c]/10'
               : 'bg-[#26241f] hover:bg-[#302e27] border-[#38352d] hover:border-[#cc785c]/60 text-[#a09b8f]'
           }`}
-          title="Browser Agent (Autonomous browser actions with your saved logins)"
+          title="Open Built-in Browser Panel"
         >
-          <Globe className={`w-3.5 h-3.5 transition-transform ${isBrowserMode ? 'text-[#cc785c] animate-pulse' : 'text-[#8a8579]'}`} />
+          <Globe className={`w-3.5 h-3.5 transition-transform ${isBrowserPanelOpen || isBrowserMode ? 'text-[#cc785c] animate-pulse' : 'text-[#8a8579]'}`} />
           <span>Browser</span>
-          <span className={`w-1.5 h-1.5 rounded-full inline-block ${isBrowserMode ? 'bg-[#cc785c] shadow-sm shadow-[#cc785c]' : 'bg-[#5c574e]'}`} />
+          <span className={`w-1.5 h-1.5 rounded-full inline-block ${isBrowserPanelOpen || isBrowserMode ? 'bg-[#cc785c] shadow-sm shadow-[#cc785c]' : 'bg-[#5c574e]'}`} />
         </button>
 
         <button

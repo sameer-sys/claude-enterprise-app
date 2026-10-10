@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import ChatArea from '@/components/ChatArea';
 import ArtifactPanel from '@/components/ArtifactPanel';
+import BrowserPanel from '@/components/BrowserPanel';
 import ConnectorsModal, { DEFAULT_CONNECTORS, createDefaultConnectors } from '@/components/ConnectorsModal';
 import SettingsModal, { SettingsTab } from '@/components/SettingsModal';
 import ProjectModal from '@/components/ProjectModal';
@@ -118,6 +119,11 @@ export default function Home() {
   const [connectors, setConnectors] = useState<Connector[]>(DEFAULT_CONNECTORS);
   const [geminiKey, setGeminiKey] = useState<string>('');
   const [openRouterKey, setOpenRouterKey] = useState<string>('');
+
+  // Built-in Browser Panel State (OpenWork style)
+  const [isBrowserPanelOpen, setIsBrowserPanelOpen] = useState<boolean>(false);
+  const [browserUrl, setBrowserUrl] = useState<string>('https://www.google.com');
+  const [browserStepText, setBrowserStepText] = useState<string | undefined>(undefined);
 
   // Cross-Device Cloud Sync State
   const [syncRoomId, setSyncRoomId] = useState<string>('sameer-workspace-pro');
@@ -617,8 +623,46 @@ export default function Home() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    // Auto-detect browser/media/URL requests and open the built-in Browser Panel
+    const lowerText = text.toLowerCase().trim();
+    if (
+      lowerText.startsWith('open ') ||
+      lowerText.startsWith('play ') ||
+      lowerText.includes('youtube') ||
+      lowerText.includes('yt') ||
+      lowerText.includes('browse ') ||
+      /https?:\/\//i.test(text)
+    ) {
+      let target = 'https://www.google.com';
+      if (lowerText.includes('youtube') || lowerText.includes('yt')) {
+        const cleanQuery = text
+          .replace(/^(?:hey\s+)?(?:open|play|search\s+for|search)\s+(?:in\s+|on\s+)?(?:youtube|yt)\s*/i, '')
+          .replace(/(?:in|on)\s+(?:youtube|yt)\s*$/i, '')
+          .trim();
+        if (cleanQuery) {
+          target = `https://www.youtube.com/results?search_query=${encodeURIComponent(cleanQuery)}`;
+        } else {
+          target = 'https://www.youtube.com';
+        }
+      } else if (lowerText.includes('github')) {
+        target = 'https://github.com';
+      } else {
+        const urlMatch = text.match(/https?:\/\/[^\s"'<>]+/i);
+        if (urlMatch) {
+          target = urlMatch[0];
+        } else if (lowerText.startsWith('open ') || lowerText.startsWith('browse ')) {
+          const dest = text.replace(/^(?:open|browse)\s+/i, '').trim();
+          target = dest.includes('.') ? `https://${dest}` : `https://www.google.com/search?q=${encodeURIComponent(dest)}&igu=1`;
+        }
+      }
+      setBrowserUrl(target);
+      setIsBrowserPanelOpen(true);
+      setBrowserStepText(`Loading ${target} in built-in browser...`);
+    }
+
     // Browser Agent Mode Execution
     if (isBrowserMode || text.toLowerCase().startsWith('/browser')) {
+      setIsBrowserPanelOpen(true);
       const cleanTask = text.replace(/^\/browser\s*/i, '').trim();
       try {
         const browserResp = await fetch('/api/browser', {
@@ -651,6 +695,8 @@ export default function Home() {
               const event = JSON.parse(dataStr);
               if (event.type === 'step' && event.step) {
                 const s = event.step;
+                setBrowserStepText(s.description);
+                if (s.url) setBrowserUrl(s.url);
                 const icon = s.action === 'complete' ? '✅' : s.action === 'error' ? '❌' : '⚡';
                 browserLogs += `${icon} **Step ${s.stepNumber} [${s.action.toUpperCase()}]:** ${s.description}\n`;
                 setSessions((prev) =>
@@ -1035,6 +1081,18 @@ export default function Home() {
           }}
           onOpenFeatures={() => setIsFeaturesOpen(true)}
           hasGeminiKey={Boolean(geminiKey)}
+          onToggleBrowserPanel={() => setIsBrowserPanelOpen((prev) => !prev)}
+          isBrowserPanelOpen={isBrowserPanelOpen}
+        />
+
+        {/* Built-in Browser Panel (OpenWork Style) */}
+        <BrowserPanel
+          isOpen={isBrowserPanelOpen}
+          onClose={() => setIsBrowserPanelOpen(false)}
+          initialUrl={browserUrl}
+          isAgentRunning={isStreaming && isBrowserPanelOpen}
+          agentStepText={browserStepText}
+          onUrlChange={(url) => setBrowserUrl(url)}
         />
 
         {/* Claude Artifact Panel */}

@@ -3,6 +3,7 @@ import { sendRealEmail } from '@/lib/mailer';
 import { fetchLatestEmails } from '@/lib/imapReader';
 import { getCredentialFromRequest, getStoredTokenFromRequest, type RemoteStoredToken, setStoredTokenCookie } from '@/lib/remoteMcpAuth';
 import { normalizeConnectedAccounts, getComposioToolkitDisplayName } from '@/lib/composioMcp';
+import { getGitHubToken } from '@/lib/remoteMcp';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -1668,7 +1669,6 @@ export async function POST(req: NextRequest) {
       const credential = getCredentialFromRequest({ cookies: req.cookies }, String(connector.id), url);
       const merged = { ...(credential || {}), ...(stored || {}) };
       if (connector.id === 'conn-github' || /github/i.test(connector.name)) {
-        const { getGitHubToken } = require('@/lib/remoteMcp');
         const ghTok = getGitHubToken();
         if (ghTok) merged.accessToken = ghTok;
       }

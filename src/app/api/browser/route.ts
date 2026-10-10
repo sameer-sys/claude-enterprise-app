@@ -27,6 +27,15 @@ export async function POST(req: NextRequest) {
       try {
         await sendEvent({ type: 'start', task });
 
+        if (process.env.VERCEL) {
+          await sendEvent({
+            type: 'done',
+            success: false,
+            finalMessage: `🌐 **Cloud Environment Notice:**\n\nLocal browser automation (controlling your native Google Chrome profile for YouTube playlists) runs directly on your machine so it can use your authenticated browser session.\n\nTo use persistent local browser actions:\n1. Run the app on your desktop via \`npm run dev\` or \`npm run electron\`.\n2. In cloud mode, you can use the built-in **Connectors** (Google Drive, GitHub, etc.) directly in chat!`,
+          });
+          return;
+        }
+
         const result = await runBrowserTask(task, {
           headless,
           onStep: async (step: BrowserStep) => {

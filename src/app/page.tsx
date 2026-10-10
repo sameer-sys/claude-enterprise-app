@@ -667,6 +667,22 @@ export default function Home() {
                       : sItem
                   )
                 );
+              } else if (event.type === 'error') {
+                browserLogs += `\n\n❌ **Notice:** ${event.error || 'Browser action could not be completed.'}`;
+                setSessions((prev) =>
+                  prev.map((sItem) =>
+                    sItem.id === activeSession.id
+                      ? {
+                          ...sItem,
+                          messages: sItem.messages.map((m) =>
+                            m.id === assistantMessageId
+                              ? { ...m, content: browserLogs, thinking: undefined }
+                              : m
+                          ),
+                        }
+                      : sItem
+                  )
+                );
               } else if (event.type === 'done') {
                 browserLogs += `\n\n${event.finalMessage || 'Task finished successfully.'}`;
                 setSessions((prev) =>
@@ -687,6 +703,21 @@ export default function Home() {
             } catch {}
           }
         }
+        // Ensure assistant message content is always filled if stream ended
+        setSessions((prev) =>
+          prev.map((sItem) =>
+            sItem.id === activeSession.id
+              ? {
+                  ...sItem,
+                  messages: sItem.messages.map((m) =>
+                    m.id === assistantMessageId && !m.content
+                      ? { ...m, content: browserLogs, thinking: undefined }
+                      : m
+                  ),
+                }
+              : sItem
+          )
+        );
         setIsStreaming(false);
         return;
       } catch (browserErr: any) {

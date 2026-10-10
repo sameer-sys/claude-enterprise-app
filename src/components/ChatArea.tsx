@@ -341,6 +341,9 @@ export default function ChatArea({
       setIsListening(false);
     }
     onSendMessage(text, currentAttachments, isBrowserMode);
+    if (isBrowserMode) {
+      setIsBrowserMode(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

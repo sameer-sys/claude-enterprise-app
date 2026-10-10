@@ -17,5 +17,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Continuous Automation — Prevent Sleep / Suspension
   startAutomation: () => ipcRenderer.invoke('start-automation'),
   stopAutomation: () => ipcRenderer.invoke('stop-automation'),
+
+  // OpenWork Native Browser Control
+  browser: {
+    show: (bounds, sessionId) => ipcRenderer.invoke('openwork:browser:show', bounds, sessionId),
+    hide: (options) => ipcRenderer.invoke('openwork:browser:hide', options),
+    navigate: (url) => ipcRenderer.invoke('openwork:browser:navigate', url),
+    openUrl: (url) => ipcRenderer.invoke('openwork:browser:openUrl', url),
+    back: () => ipcRenderer.invoke('openwork:browser:back'),
+    forward: () => ipcRenderer.invoke('openwork:browser:forward'),
+    reload: () => ipcRenderer.invoke('openwork:browser:reload'),
+    bounds: (bounds) => ipcRenderer.invoke('openwork:browser:bounds', bounds),
+    getState: () => ipcRenderer.invoke('openwork:browser:state'),
+    createTab: (url, sessionId) => ipcRenderer.invoke('openwork:browser:createTab', url, sessionId),
+    closeTab: (tabId) => ipcRenderer.invoke('openwork:browser:closeTab', tabId),
+    selectTab: (tabId) => ipcRenderer.invoke('openwork:browser:selectTab', tabId),
+  },
 });
 

@@ -53,6 +53,25 @@ function createWindow() {
     callback({ responseHeaders });
   });
 
+  // Initialize OpenWork Native BrowserPanel
+  try {
+    import('./browser-panel.mjs').then(({ createBrowserPanel }) => {
+      createBrowserPanel({
+        getWindow: () => mainWindow,
+        remoteDebugPort: 9222,
+        showNativeContextMenu: () => {},
+        closeNativeContextMenu: () => {},
+        onDeepLink: () => {},
+        checkPolicy: async () => {},
+      });
+      console.log('OpenWork Native BrowserPanel initialized successfully!');
+    }).catch((err) => {
+      console.error('Failed to initialize OpenWork BrowserPanel:', err);
+    });
+  } catch (err) {
+    console.error('Error loading browser-panel:', err);
+  }
+
   // Open external links in real browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {

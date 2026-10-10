@@ -49,7 +49,7 @@ interface ChatAreaProps {
   messages: Message[];
   activeModel: ModelId;
   onSelectModel: (model: ModelId) => void;
-  onSendMessage: (text: string, attachments?: Attachment[]) => void;
+  onSendMessage: (text: string, attachments?: Attachment[], isBrowserMode?: boolean) => void;
   onEditMessage?: (id: string, newText: string) => void;
   onStopStreaming: () => void;
   onRegenerateLast: () => void;
@@ -119,6 +119,7 @@ export default function ChatArea({
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [interactionMode, setInteractionMode] = useState<'chat' | 'cowork'>('chat');
+  const [isBrowserMode, setIsBrowserMode] = useState<boolean>(false);
 
   // Downside Per-Session Connector Quick Edit State
   const [editingDownsideConn, setEditingDownsideConn] = useState<Connector | null>(null);
@@ -339,7 +340,7 @@ export default function ChatArea({
       recognitionRef.current.stop();
       setIsListening(false);
     }
-    onSendMessage(text, currentAttachments);
+    onSendMessage(text, currentAttachments, isBrowserMode);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -662,6 +663,26 @@ export default function ChatArea({
       )}
 
 
+      {/* Browser Mode Banner */}
+      {isBrowserMode && (
+        <div className="flex items-center justify-between px-3 py-1.5 mb-2 rounded-xl bg-[#cc785c]/15 border border-[#cc785c]/35 text-[#cc785c] text-xs animate-in fade-in">
+          <div className="flex items-center space-x-2 truncate">
+            <Globe className="w-3.5 h-3.5 text-[#cc785c] animate-pulse shrink-0" />
+            <span className="font-semibold shrink-0">Browser Agent Active</span>
+            <span className="text-[#ece9e2]/80 truncate">
+              — Automated browser actions using your saved logins
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsBrowserMode(false)}
+            className="text-[11px] font-medium px-2 py-0.5 rounded bg-[#cc785c]/25 hover:bg-[#cc785c]/40 text-[#ece9e2] transition-colors shrink-0"
+          >
+            Turn Off
+          </button>
+        </div>
+      )}
+
       {/* Textarea */}
       <textarea
         ref={textareaRef}
@@ -673,6 +694,8 @@ export default function ChatArea({
         placeholder={
           isListening
             ? 'Transcribing your voice in real-time...'
+            : isBrowserMode
+            ? 'Describe a browser task (e.g. Go to YouTube, create playlist named X and add videos from Y)...'
             : isStreaming
             ? 'Type to interrupt and send instantly (never queued)...'
             : isHero
@@ -884,8 +907,22 @@ export default function ChatArea({
         </div>
       </header>
 
-      {/* Session-Level Connectors (Directly downside of Download button to be part of chat/session) */}
-      <div className="flex justify-end items-center px-4 sm:px-6 pt-2.5 pb-1 shrink-0 z-10">
+      {/* Session-Level Toolbar: Browser Agent Mode & Connectors */}
+      <div className="flex justify-end items-center px-4 sm:px-6 pt-2.5 pb-1 shrink-0 z-10 gap-2">
+        <button
+          onClick={() => setIsBrowserMode((prev) => !prev)}
+          className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-all shadow-sm active:scale-95 ${
+            isBrowserMode
+              ? 'bg-[#cc785c]/25 border-[#cc785c] text-[#f2eee6] shadow-[#cc785c]/10'
+              : 'bg-[#26241f] hover:bg-[#302e27] border-[#38352d] hover:border-[#cc785c]/60 text-[#a09b8f]'
+          }`}
+          title="Browser Agent (Autonomous browser actions with your saved logins)"
+        >
+          <Globe className={`w-3.5 h-3.5 transition-transform ${isBrowserMode ? 'text-[#cc785c] animate-pulse' : 'text-[#8a8579]'}`} />
+          <span>Browser</span>
+          <span className={`w-1.5 h-1.5 rounded-full inline-block ${isBrowserMode ? 'bg-[#cc785c] shadow-sm shadow-[#cc785c]' : 'bg-[#5c574e]'}`} />
+        </button>
+
         <button
           onClick={onOpenConnectors}
           className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-[#26241f] hover:bg-[#302e27] border border-[#38352d] hover:border-[#cc785c]/60 text-xs font-semibold text-[#f2eee6] transition-all shadow-sm group active:scale-95"

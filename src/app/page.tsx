@@ -564,7 +564,7 @@ export default function Home() {
     setIsStreaming(false);
   };
 
-  const handleSendMessage = async (text: string, attachments?: Attachment[]) => {
+  const handleSendMessage = async (text: string, attachments?: Attachment[], isBrowserMode?: boolean) => {
     if (isStreaming) {
       handleStopStreaming();
     }
@@ -584,7 +584,9 @@ export default function Home() {
       content: '',
       timestamp: Date.now(),
       modelId: activeModel,
-      thinking: 'Analyzing query intent, evaluating constraints, synthesizing optimal architectural path...',
+      thinking: isBrowserMode
+        ? 'Launching browser and preparing automated actions...'
+        : 'Analyzing query intent, evaluating constraints, synthesizing optimal architectural path...',
       thinkingDuration: 2,
       thinkingBudget,
     };
@@ -614,6 +616,99 @@ export default function Home() {
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+
+    // Browser Agent Mode Execution
+    if (isBrowserMode || text.toLowerCase().startsWith('/browser')) {
+      const cleanTask = text.replace(/^\/browser\s*/i, '').trim();
+      try {
+        const browserResp = await fetch('/api/browser', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task: cleanTask || text, headless: false }),
+          signal: controller.signal,
+        });
+
+        if (!browserResp.ok) {
+          throw new Error(`Browser service returned HTTP ${browserResp.status}`);
+        }
+
+        const reader = browserResp.body?.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let browserLogs = `🌐 **Browser Agent Initialized**\nTask: *${cleanTask || text}*\n\n`;
+
+        while (reader) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const dataStr = line.replace(/^data:\s*/, '').trim();
+            if (!dataStr || dataStr === '[DONE]') continue;
+            try {
+              const event = JSON.parse(dataStr);
+              if (event.type === 'step' && event.step) {
+                const s = event.step;
+                const icon = s.action === 'complete' ? '✅' : s.action === 'error' ? '❌' : '⚡';
+                browserLogs += `${icon} **Step ${s.stepNumber} [${s.action.toUpperCase()}]:** ${s.description}\n`;
+                setSessions((prev) =>
+                  prev.map((sItem) =>
+                    sItem.id === activeSession.id
+                      ? {
+                          ...sItem,
+                          messages: sItem.messages.map((m) =>
+                            m.id === assistantMessageId
+                              ? { ...m, content: browserLogs, thinking: undefined }
+                              : m
+                          ),
+                        }
+                      : sItem
+                  )
+                );
+              } else if (event.type === 'done') {
+                browserLogs += `\n\n${event.finalMessage || 'Task finished successfully.'}`;
+                setSessions((prev) =>
+                  prev.map((sItem) =>
+                    sItem.id === activeSession.id
+                      ? {
+                          ...sItem,
+                          messages: sItem.messages.map((m) =>
+                            m.id === assistantMessageId
+                              ? { ...m, content: browserLogs, thinking: undefined }
+                              : m
+                          ),
+                        }
+                      : sItem
+                  )
+                );
+              }
+            } catch {}
+          }
+        }
+        setIsStreaming(false);
+        return;
+      } catch (browserErr: any) {
+        const errMsg = browserErr?.message || 'Browser action failed';
+        setSessions((prev) =>
+          prev.map((sItem) =>
+            sItem.id === activeSession.id
+              ? {
+                  ...sItem,
+                  messages: sItem.messages.map((m) =>
+                    m.id === assistantMessageId
+                      ? { ...m, content: `❌ **Browser Agent Error:** ${errMsg}`, thinking: undefined }
+                      : m
+                  ),
+                }
+              : sItem
+          )
+        );
+        setIsStreaming(false);
+        return;
+      }
+    }
 
     try {
       const chatBody = {

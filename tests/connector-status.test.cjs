@@ -12,7 +12,7 @@ function harness({ token, saved, tools = [], failure, rotated, envToken } = {}) 
   const probes = [];
   const writes = [];
   let envReads = 0;
-  const response = { json: (body, init = {}) => ({ body, status: init.status || 200, headers: { append() {} } }) };
+  const response = { json: (body, init = {}) => ({ body, status: init.status || 200, headers: { append() {}, set() {} } }) };
   const auth = {
     getStoredTokenFromRequest: () => token,
     getCredentialFromRequest: () => saved,
@@ -126,4 +126,18 @@ test('official GitHub server credential fallback is verified rather than assumed
   const result = await h.run([{ id: 'conn-github', name: 'GitHub', url: 'https://api.githubcopilot.com/mcp/' }]);
   assert.equal(h.probes.length, 1);
   assert.equal(result.body.connectors[0].connected, false);
+});
+
+test('unsafe URL schemes never reach transport', async () => {
+  const h = harness({ token: { accessToken: 'mock' } });
+  const result = await h.run([{ ...connector, url: 'file:///etc/passwd' }]);
+  assert.equal(result.body.connectors[0].connected, false);
+  assert.equal(h.probes.length, 0);
+});
+
+test('status limits authenticated discovery fan-out', async () => {
+  const h = harness({ token: { accessToken: 'mock' } });
+  const result = await h.run(Array.from({ length: 21 }, (_, i) => ({ ...connector, id: String(i) })));
+  assert.equal(result.status, 400);
+  assert.equal(h.probes.length, 0);
 });

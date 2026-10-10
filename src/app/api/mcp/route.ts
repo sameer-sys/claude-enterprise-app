@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       const saved = getCredentialFromRequest(req, connector.id, connector.url) || {};
       const isGitHub = connector.id === 'conn-github' || /githubcopilot\.com\/mcp/i.test(connector.url);
       const suppliedId = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_ID : '') || body?.clientId || connector.config?.oauthClientId || saved.clientId || '').trim();
-      const suppliedSecret = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_SECRET : '') || body?.clientSecret || saved.clientSecret || '').trim();
+      const suppliedSecret = String((isGitHub ? process.env.GITHUB_OAUTH_CLIENT_SECRET : '') || body?.clientSecret || connector.config?.oauthClientSecret || saved.clientSecret || '').trim();
       const discovered = await discoverRemoteOAuth(connector.url, String(body?.resource || connector.config?.resource || '').trim() || undefined);
       const configuredAuthorizationEndpoint = String(connector.config?.oauthAuthorizationEndpoint || '').trim();
       const configuredTokenEndpoint = String(connector.config?.oauthTokenEndpoint || '').trim();
@@ -173,14 +173,15 @@ export async function POST(req: NextRequest) {
       const results = await Promise.all(items.map(async (item: any) => {
         const connector = connectorFromInput(item);
         if (!connector.name || !connector.url) return { id: String(item?.id || ''), connected: false, state: 'not_configured' };
+        const serverUrl = connector.url;
         let endpoint: URL;
         try {
-          endpoint = new URL(connector.url);
+          endpoint = new URL(serverUrl);
           if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password) throw new Error('Invalid endpoint');
         } catch {
           return { id: connector.id, connected: false, state: 'not_configured' };
         }
-        let credentials = getStoredTokenFromRequest(req, connector.id, connector.url) || getCredentialFromRequest(req, connector.id, connector.url);
+        let credentials = getStoredTokenFromRequest(req, connector.id, serverUrl) || getCredentialFromRequest(req, connector.id, serverUrl);
         // Preserve the existing official GitHub fallback, never match by display name.
         if (!credentials?.accessToken && endpoint.origin === 'https://api.githubcopilot.com' && /^\/mcp\/?$/.test(endpoint.pathname) && !endpoint.search) {
           const token = getGitHubToken();
@@ -193,7 +194,7 @@ export async function POST(req: NextRequest) {
             credentials,
             onCredentialsUpdated: (token) => {
               credentials = token;
-              rotatedTokens.push({ id: connector.id, url: connector.url, token });
+              rotatedTokens.push({ id: connector.id, url: serverUrl, token });
             },
           });
           return { id: connector.id, connected: true, state: 'connected', toolCount: tools.length };

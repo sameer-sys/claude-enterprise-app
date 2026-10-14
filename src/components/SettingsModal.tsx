@@ -9,7 +9,6 @@ import {
   Check,
   Zap,
   Cloud,
-  Database,
   RefreshCw,
   Cpu,
   Github,
@@ -68,10 +67,6 @@ interface SettingsModalProps {
   onSaveOpenRouterKey: (key: string) => void;
   syncRoomId?: string;
   onSaveSyncRoomId?: (roomId: string) => void;
-  supabaseUrl?: string;
-  onSaveSupabaseUrl?: (url: string) => void;
-  supabaseKey?: string;
-  onSaveSupabaseKey?: (key: string) => void;
   onTriggerSyncNow?: () => void;
   syncStatus?: string;
   // Connectors integration
@@ -97,10 +92,6 @@ export default function SettingsModal({
   onSaveOpenRouterKey,
   syncRoomId = 'sameer-workspace-pro',
   onSaveSyncRoomId,
-  supabaseUrl = '',
-  onSaveSupabaseUrl,
-  supabaseKey = '',
-  onSaveSupabaseKey,
   onTriggerSyncNow,
   syncStatus = 'Ready',
   activeConnectors = [],
@@ -117,8 +108,6 @@ export default function SettingsModal({
   const [gKey, setGKey] = useState(geminiKey);
   const [orKey, setOrKey] = useState(openRouterKey);
   const [roomId, setRoomId] = useState(syncRoomId);
-  const [subUrl, setSubUrl] = useState(supabaseUrl);
-  const [subKey, setSubKey] = useState(supabaseKey);
   const [saved, setSaved] = useState(false);
 
   // Official Preferences UI state (matching screenshot)
@@ -162,9 +151,7 @@ export default function SettingsModal({
     setGKey(geminiKey);
     setOrKey(openRouterKey);
     setRoomId(syncRoomId);
-    setSubUrl(supabaseUrl);
-    setSubKey(supabaseKey);
-  }, [geminiKey, openRouterKey, syncRoomId, supabaseUrl, supabaseKey]);
+  }, [geminiKey, openRouterKey, syncRoomId]);
 
   if (!isOpen) return null;
 
@@ -270,8 +257,6 @@ export default function SettingsModal({
     onSaveGeminiKey(gKey.trim());
     onSaveOpenRouterKey(orKey.trim());
     if (onSaveSyncRoomId) onSaveSyncRoomId(roomId.trim());
-    if (onSaveSupabaseUrl) onSaveSupabaseUrl(subUrl.trim());
-    if (onSaveSupabaseKey) onSaveSupabaseKey(subKey.trim());
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
@@ -1509,9 +1494,9 @@ export default function SettingsModal({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-semibold text-[#ece9e2] flex items-center gap-1.5">
-                      <span>Workspace Sync Code</span>
+                      <span>Private Workspace Sync Key</span>
                       <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#cc785c]/20 text-[#cc785c] font-mono">
-                        Zero-Config Relay
+                        Supabase Cloud
                       </span>
                     </label>
                     {onTriggerSyncNow && (
@@ -1527,47 +1512,24 @@ export default function SettingsModal({
                   </div>
                   <input
                     type="text"
-                    placeholder="e.g. sameer-workspace-pro"
+                    placeholder="Paste the 64-character sync key"
                     value={roomId}
                     onChange={(e) => setRoomId(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c]"
                   />
                   <p className="text-[11px] text-[#9c978b]">
-                    Enter this same Sync Code on your Android phone and PC to sync all chats & projects automatically!
+                    This private key is generated automatically. Copy it to each trusted device to share the same workspace. Anyone with the key can read and change this workspace, so keep it private.
                   </p>
                 </div>
 
-                {/* Supabase DB Integration */}
                 <div className="space-y-2 pt-2 border-t border-[#2d2b24]">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-[#ece9e2] flex items-center gap-1.5">
-                      <Database className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Supabase Database (Optional)</span>
-                    </label>
-                    <a
-                      href="https://supabase.com"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] text-[#cc785c] hover:underline flex items-center gap-0.5"
-                    >
-                      <span>Free Supabase Cloud DB</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[#ece9e2]">
+                    <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Supabase cloud database</span>
                   </div>
-                  <input
-                    type="text"
-                    placeholder="https://your-project.supabase.co"
-                    value={subUrl}
-                    onChange={(e) => setSubUrl(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c]"
-                  />
-                  <input
-                    type="password"
-                    placeholder="Supabase Anon Key (eyJhbGciOi...)"
-                    value={subKey}
-                    onChange={(e) => setSubKey(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-[#161512] border border-[#36342e] text-xs text-[#ece9e2] placeholder-zinc-600 focus:outline-none focus:border-[#cc785c]"
-                  />
+                  <p className="text-[11px] text-[#9c978b]">
+                    Database credentials are configured on the server. This page never asks you to paste or store Supabase keys in your browser.
+                  </p>
                 </div>
 
                 <div className="p-3 rounded-xl bg-[#181714] border border-[#2d2b24] flex items-start space-x-2 text-xs text-[#9c978b]">

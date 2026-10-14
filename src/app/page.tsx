@@ -30,6 +30,12 @@ const DEFAULT_SESSION: Session = {
 };
 
 
+function createWorkspaceSyncCode(): string {
+  const bytes = new Uint8Array(32);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function normalizeConnectors(raw: any[]): Connector[] {
   // Composio is the sole built-in connector runtime. Preserve only
   // connectors explicitly created by the user; legacy native app cards
@@ -125,11 +131,10 @@ export default function Home() {
   const [browserUrl, setBrowserUrl] = useState<string>('https://www.google.com');
   const [browserStepText, setBrowserStepText] = useState<string | undefined>(undefined);
 
-  // Cross-Device Cloud Sync State
-  const [syncRoomId, setSyncRoomId] = useState<string>('sameer-workspace-pro');
-  const [supabaseUrl, setSupabaseUrl] = useState<string>('');
-  const [supabaseKey, setSupabaseKey] = useState<string>('');
-  const [syncStatus, setSyncStatus] = useState<string>('Local Synced');
+  // Cross-device sync uses a high-entropy workspace code; Supabase credentials stay server-side.
+  const [syncRoomId, setSyncRoomId] = useState<string>('');
+  const [syncStatus, setSyncStatus] = useState<string>('Connecting to cloud storage...');
+  const [syncReady, setSyncReady] = useState<boolean>(false);
 
   // Self-Customization Buttons State (Cross-Device Sync)
   const [customButtons, setCustomButtons] = useState<CustomButton[]>(DEFAULT_CUSTOM_BUTTONS);
@@ -229,30 +234,46 @@ export default function Home() {
         } catch (e) {}
       }
 
-      // Load Cloud Sync settings
-      const savedRoom = localStorage.getItem('claude_sync_room');
-      if (savedRoom) setSyncRoomId(savedRoom);
-      const savedSubUrl = localStorage.getItem('claude_supabase_url');
-      if (savedSubUrl) setSupabaseUrl(savedSubUrl);
-      const savedSubKey = localStorage.getItem('claude_supabase_key');
-      if (savedSubKey) setSupabaseKey(savedSubKey);
+      // Sync code is a private, high-entropy workspace credential shared only with trusted devices.
+      const storedRoom = localStorage.getItem('claude_sync_room') || '';
+      const activeRoom = /^[A-Za-z0-9_-]{32,128}$/.test(storedRoom)
+        ? storedRoom
+        : createWorkspaceSyncCode();
+      localStorage.setItem('claude_sync_room', activeRoom);
+      // Remove legacy browser-stored Supabase credentials from the old unsafe sync implementation.
+      localStorage.removeItem('claude_supabase_url');
+      localStorage.removeItem('claude_supabase_key');
+      setSyncRoomId(activeRoom);
 
-      // Attempt cloud sync pull
-      const activeRoom = savedRoom || 'sameer-workspace-pro';
-      fetch(`/api/sync?roomId=${encodeURIComponent(activeRoom)}${savedSubUrl ? `&supabaseUrl=${encodeURIComponent(savedSubUrl)}&supabaseKey=${encodeURIComponent(savedSubKey || '')}` : ''}`)
-        .then((r) => r.json())
-        .then((res) => {
-          if (res?.data?.sessions && Array.isArray(res.data.sessions) && res.data.sessions.length > 0) {
-            const cloudSessions = res.data.sessions.map((session: any) => ({
-              ...session,
-              connectors: normalizeConnectors(session.connectors),
-            }));
-            setSessions(cloudSessions);
-            if (res.data.projects) setProjects(res.data.projects);
-            setSyncStatus('Cloud Synced');
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'load', roomId: activeRoom }),
+      })
+        .then(async (response) => {
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || result?.success !== true) {
+            throw new Error(result?.error || 'Cloud sync could not be loaded.');
           }
+          if (result?.data && typeof result.data === 'object') {
+            if (Array.isArray(result.data.sessions) && result.data.sessions.length > 0) {
+              const cloudSessions = result.data.sessions.map((session: any) => ({
+                ...session,
+                connectors: normalizeConnectors(session.connectors),
+              }));
+              setSessions(cloudSessions);
+            }
+            if (Array.isArray(result.data.projects)) setProjects(result.data.projects);
+            setSyncStatus('Cloud Synced');
+          } else {
+            setSyncStatus('Cloud Ready');
+          }
+          setSyncReady(true);
         })
-        .catch(() => {});
+        .catch((error) => {
+          console.error('[workspace-sync] Initial cloud load failed:', error);
+          setSyncStatus('Sync unavailable');
+        });
     } catch (e) {
       // pass
     }
@@ -277,28 +298,68 @@ export default function Home() {
     });
   }, []);
 
-  // Push updates to cloud relay or Supabase
+  const handleSaveSyncRoomId = async (input: string) => {
+    const code = input.trim();
+    if (!/^[A-Za-z0-9_-]{32,128}$/.test(code)) {
+      setSyncStatus('Invalid sync code');
+      return;
+    }
+    setSyncReady(false);
+    setSyncRoomId(code);
+    localStorage.setItem('claude_sync_room', code);
+    setSyncStatus('Loading workspace...');
+    try {
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'load', roomId: code }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.success !== true) throw new Error(result?.error || 'Cloud load failed.');
+      if (result?.data && typeof result.data === 'object') {
+        if (Array.isArray(result.data.sessions) && result.data.sessions.length > 0) {
+          setSessions(result.data.sessions.map((session: any) => ({
+            ...session,
+            connectors: normalizeConnectors(session.connectors),
+          })));
+        }
+        if (Array.isArray(result.data.projects)) setProjects(result.data.projects);
+        setSyncStatus('Cloud Synced');
+      } else {
+        setSyncStatus('Cloud Ready');
+      }
+      setSyncReady(true);
+    } catch (error) {
+      console.error('[workspace-sync] Workspace change failed:', error);
+      setSyncStatus('Sync unavailable');
+    }
+  };
+
   const handleTriggerSyncNow = async () => {
-    if (!syncRoomId && !supabaseUrl) return;
+    if (!/^[A-Za-z0-9_-]{32,128}$/.test(syncRoomId)) {
+      setSyncStatus('Invalid sync code');
+      return;
+    }
     setSyncStatus('Syncing...');
     try {
       const resp = await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'save',
           roomId: syncRoomId,
-          supabaseUrl: supabaseUrl || undefined,
-          supabaseKey: supabaseKey || undefined,
           data: { sessions, projects },
         }),
       });
-      if (resp.ok) {
-        setSyncStatus('Cloud Synced');
-      } else {
-        setSyncStatus('Sync Pending');
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok || result?.success !== true) {
+        throw new Error(result?.error || 'Supabase did not confirm the save.');
       }
-    } catch (e) {
-      setSyncStatus('Offline Cache');
+      setSyncStatus('Cloud Synced');
+      setSyncReady(true);
+    } catch (error) {
+      console.error('[workspace-sync] Manual sync failed:', error);
+      setSyncStatus('Sync Failed');
     }
   };
 
@@ -319,6 +380,34 @@ export default function Home() {
       // pass
     }
   }, [projects]);
+
+  // Debounced server-side cloud persistence; success is reported only after Supabase confirms the write.
+  useEffect(() => {
+    if (!syncReady || !/^[A-Za-z0-9_-]{32,128}$/.test(syncRoomId)) return;
+    const timer = window.setTimeout(async () => {
+      setSyncStatus('Syncing...');
+      try {
+        const response = await fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'save',
+            roomId: syncRoomId,
+            data: { sessions, projects },
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result?.success !== true) {
+          throw new Error(result?.error || 'Supabase did not confirm the save.');
+        }
+        setSyncStatus('Cloud Synced');
+      } catch (error) {
+        console.error('[workspace-sync] Automatic save failed:', error);
+        setSyncStatus('Sync Failed');
+      }
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [sessions, projects, syncRoomId, syncReady]);
 
   const handleToggleProactiveMode = () => {
     const next = !isProactiveMode;
@@ -1129,20 +1218,7 @@ export default function Home() {
         openRouterKey={openRouterKey}
         onSaveOpenRouterKey={handleSaveOpenRouterKey}
         syncRoomId={syncRoomId}
-        onSaveSyncRoomId={(id) => {
-          setSyncRoomId(id);
-          localStorage.setItem('claude_sync_room', id);
-        }}
-        supabaseUrl={supabaseUrl}
-        onSaveSupabaseUrl={(url) => {
-          setSupabaseUrl(url);
-          localStorage.setItem('claude_supabase_url', url);
-        }}
-        supabaseKey={supabaseKey}
-        onSaveSupabaseKey={(key) => {
-          setSupabaseKey(key);
-          localStorage.setItem('claude_supabase_key', key);
-        }}
+        onSaveSyncRoomId={handleSaveSyncRoomId}
         onTriggerSyncNow={handleTriggerSyncNow}
         syncStatus={syncStatus}
         activeConnectors={currentSessionConnectors}

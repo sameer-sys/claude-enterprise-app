@@ -9,6 +9,7 @@ import {
   Check,
   Zap,
   Cloud,
+  Database,
   RefreshCw,
   Cpu,
   Github,

@@ -878,7 +878,7 @@ export default function ChatArea({
 
           {/* OPENWORK CLOUD WEBSITE */}
           <a
-            href="https://sameer-sys.github.io/claude-enterprise-website-original"
+            href="https://claude-enterprise-website-original.vercel.app"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#cc785c]/20 to-[#cc785c]/10 hover:from-[#cc785c]/30 hover:to-[#cc785c]/20 border border-[#cc785c]/30 text-xs font-semibold text-[#f2eee6] transition-all hover:text-white group"

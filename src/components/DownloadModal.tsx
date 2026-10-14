@@ -224,7 +224,7 @@ start ${targetUrl}
         {/* Footer */}
         <div className="p-4 border-t border-[#33312a] bg-[#1d1c18] flex items-center justify-between text-xs text-[#9c978b]">
           <a
-            href="https://sameer-sys.github.io/claude-enterprise-website-original"
+            href="https://claude-enterprise-website-original.vercel.app"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-[#cc785c] hover:underline font-medium"

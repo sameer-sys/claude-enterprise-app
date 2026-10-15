@@ -14,7 +14,9 @@ import {
   Search,
   Lock,
   Sparkles,
-  ShieldCheck,
+  Eye,
+  Tv,
+  Layers,
 } from 'lucide-react';
 
 interface BrowserPanelProps {
@@ -30,7 +32,7 @@ interface BrowserPanelProps {
 export default function BrowserPanel({
   isOpen,
   onClose,
-  initialUrl = 'https://www.google.com',
+  initialUrl = 'https://github.com',
   agentTask,
   isAgentRunning = false,
   agentStepText,
@@ -38,195 +40,144 @@ export default function BrowserPanel({
 }: BrowserPanelProps) {
   const [currentUrl, setCurrentUrl] = useState<string>(initialUrl);
   const [inputUrl, setInputUrl] = useState<string>(initialUrl);
-  const [history, setHistory] = useState<string[]>([initialUrl]);
-  const [historyIndex, setHistoryIndex] = useState<number>(0);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [iframeKey, setIframeKey] = useState<number>(0);
+  const [viewMode, setViewMode] = useState<'mirror' | 'direct'>('mirror');
 
+  // Mirror State (from real external Chrome)
+  const [mirrorImage, setMirrorImage] = useState<string | null>(null);
+  const [mirrorTitle, setMirrorTitle] = useState<string>('External Chrome');
+  const [isMirrorConnected, setIsMirrorConnected] = useState<boolean>(false);
+  const [isFocusing, setIsFocusing] = useState<boolean>(false);
+
+  const mirrorImgRef = useRef<HTMLImageElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-
-  const isElectron =
-    typeof window !== 'undefined' &&
-    Boolean((window as any).electronAPI?.browser || (window as any).electronAPI?.isElectron);
 
   const normalizeUrl = (raw: string): string => {
     const trimmed = raw.trim();
-    if (!trimmed) return 'https://www.google.com';
-
+    if (!trimmed) return 'https://github.com';
     if (!trimmed.includes('.') && !trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-      return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}&igu=1`;
+      return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
     }
-
     if (!/^https?:\/\//i.test(trimmed)) {
       return `https://${trimmed}`;
     }
-
     return trimmed;
   };
 
-  // Sync Native Chromium Bounds with the DOM Viewport rectangle
-  const syncNativeBounds = useCallback(() => {
-    if (!isOpen || !viewportRef.current) return;
-    const electronBrowser = (window as any)?.electronAPI?.browser;
-    if (!electronBrowser) return;
-
-    const rect = viewportRef.current.getBoundingClientRect();
-    const bounds = {
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
-    };
-
-    if (bounds.width > 20 && bounds.height > 20) {
-      electronBrowser.show(bounds);
-      electronBrowser.bounds(bounds);
-    }
-  }, [isOpen]);
-
-  // Handle open / close / resize for native view
-  useEffect(() => {
-    if (!isOpen) {
-      if (typeof window !== 'undefined' && (window as any).electronAPI?.browser) {
-        (window as any).electronAPI.browser.hide();
+  // Poll / Fetch Mirror from Real Chrome
+  const fetchMirror = useCallback(async () => {
+    if (!isOpen) return;
+    try {
+      const res = await fetch('/api/browser-mirror');
+      const data = await res.json();
+      if (data?.isRunning) {
+        setIsMirrorConnected(true);
+        if (data.screenshot) setMirrorImage(data.screenshot);
+        if (data.url && data.url !== 'about:blank') {
+          setCurrentUrl(data.url);
+          setInputUrl(data.url);
+          onUrlChange?.(data.url);
+        }
+        if (data.title) setMirrorTitle(data.title);
+      } else {
+        setIsMirrorConnected(false);
       }
-      return;
+    } catch {
+      setIsMirrorConnected(false);
     }
+  }, [isOpen, onUrlChange]);
 
-    // Delay slightly to ensure panel transition/DOM layout is final
-    const timer1 = setTimeout(syncNativeBounds, 50);
-    const timer2 = setTimeout(syncNativeBounds, 250);
-
-    window.addEventListener('resize', syncNativeBounds);
-
-    return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      window.removeEventListener('resize', syncNativeBounds);
-      if (typeof window !== 'undefined' && (window as any).electronAPI?.browser) {
-        (window as any).electronAPI.browser.hide();
-      }
-    };
-  }, [isOpen, isFullscreen, syncNativeBounds]);
-
-  // Sync when initialUrl changes externally
+  // Periodic poll while mirror is open
   useEffect(() => {
-    if (initialUrl && initialUrl !== currentUrl) {
-      navigateTo(initialUrl);
-    }
-  }, [initialUrl]);
+    if (!isOpen) return;
+    fetchMirror();
+    const interval = setInterval(fetchMirror, 2000);
+    return () => clearInterval(interval);
+  }, [isOpen, fetchMirror]);
 
-  if (!isOpen) return null;
+  // Execute Action on Real Chrome
+  const executeAction = async (action: string, payload: Record<string, any> = {}) => {
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/browser-mirror', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...payload }),
+      });
+      const data = await res.json();
+      if (data?.success) {
+        if (data.screenshot) setMirrorImage(data.screenshot);
+        if (data.url) {
+          setCurrentUrl(data.url);
+          setInputUrl(data.url);
+          onUrlChange?.(data.url);
+        }
+        if (data.title) setMirrorTitle(data.title);
+      }
+    } catch (e) {
+      console.error('Browser action failed:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Bring Real Chrome to Front (User's favorite button!)
+  const handleBringChromeToFront = async () => {
+    setIsFocusing(true);
+    try {
+      await executeAction('focus');
+    } finally {
+      setTimeout(() => setIsFocusing(false), 800);
+    }
+  };
 
   const navigateTo = (target: string) => {
     const clean = normalizeUrl(target);
-    setIsLoading(true);
     setCurrentUrl(clean);
     setInputUrl(clean);
-
-    setHistory((prev) => {
-      const next = prev.slice(0, historyIndex + 1);
-      return [...next, clean];
-    });
-    setHistoryIndex((prev) => prev + 1);
-    setIframeKey((k) => k + 1);
     onUrlChange?.(clean);
 
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.browser) {
-      (window as any).electronAPI.browser.navigate(clean);
+    if (viewMode === 'mirror') {
+      executeAction('navigate', { url: clean });
     }
   };
 
   const handleInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputUrl) {
-      navigateTo(inputUrl);
-    }
+    if (inputUrl) navigateTo(inputUrl);
   };
 
-  const handleBack = () => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.browser) {
-      (window as any).electronAPI.browser.back();
-    }
-    if (historyIndex > 0) {
-      const target = history[historyIndex - 1];
-      setHistoryIndex((prev) => prev - 1);
-      setCurrentUrl(target);
-      setInputUrl(target);
-      onUrlChange?.(target);
-    }
+  const handleBack = () => executeAction('back');
+  const handleForward = () => executeAction('forward');
+  const handleReload = () => executeAction('reload');
+  const handleHome = () => navigateTo('https://github.com');
+
+  // Click on the mirror image -> dispatches click to real Chrome at calculated coordinates
+  const handleMirrorClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!mirrorImgRef.current) return;
+    const rect = mirrorImgRef.current.getBoundingClientRect();
+    const naturalWidth = mirrorImgRef.current.naturalWidth || 1280;
+    const naturalHeight = mirrorImgRef.current.naturalHeight || 800;
+
+    const scaleX = naturalWidth / rect.width;
+    const scaleY = naturalHeight / rect.height;
+
+    const clickX = Math.round((e.clientX - rect.left) * scaleX);
+    const clickY = Math.round((e.clientY - rect.top) * scaleY);
+
+    executeAction('click', { x: clickX, y: clickY });
   };
 
-  const handleForward = () => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.browser) {
-      (window as any).electronAPI.browser.forward();
-    }
-    if (historyIndex < history.length - 1) {
-      const target = history[historyIndex + 1];
-      setHistoryIndex((prev) => prev + 1);
-      setCurrentUrl(target);
-      setInputUrl(target);
-      onUrlChange?.(target);
-    }
-  };
-
-  const handleReload = () => {
-    setIsLoading(true);
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.browser) {
-      (window as any).electronAPI.browser.reload();
-    }
-    setIframeKey((k) => k + 1);
-  };
-
-  const handleHome = () => {
-    navigateTo('https://www.google.com');
-  };
-
-  const handleOpenExternal = () => {
-    if (typeof window !== 'undefined') {
-      window.open(currentUrl, '_blank');
-    }
-  };
-
-  const handleClose = () => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.browser) {
-      (window as any).electronAPI.browser.hide();
-    }
-    onClose();
-  };
-
-  const getEmbeddableUrl = (url: string): string => {
-    if (isElectron) return url;
-    try {
-      const parsed = new URL(url);
-      const host = parsed.hostname.toLowerCase();
-      if (host.includes('youtube.com') || host.includes('youtu.be')) {
-        let videoId = parsed.searchParams.get('v');
-        if (!videoId && host.includes('youtu.be')) {
-          videoId = parsed.pathname.replace(/^\//, '');
-        }
-        if (videoId) return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&enablejsapi=1`;
-        return `https://www.youtube-nocookie.com/embed/videoseries?list=PL4fGSI1pDJn6jXS_PEoNxmdaZwVO397yg`;
-      }
-      if (host.includes('google.com') && !parsed.searchParams.has('igu')) {
-        parsed.searchParams.set('igu', '1');
-        return parsed.toString();
-      }
-    } catch {}
-    return url;
-  };
-
-  const embedUrl = getEmbeddableUrl(currentUrl);
+  if (!isOpen) return null;
 
   return (
     <div
       className={`fixed top-0 right-0 h-full bg-[#161512] border-l border-[#2e2c25] flex flex-col z-40 transition-all duration-200 shadow-2xl ${
-        isFullscreen ? 'w-full inset-0 z-50' : 'w-full md:w-[680px] lg:w-[820px] xl:w-[920px]'
+        isFullscreen ? 'w-full inset-0 z-50' : 'w-full md:w-[720px] lg:w-[860px] xl:w-[960px]'
       }`}
     >
-      {/* Top Chrome Header: Nav, Address Bar, Window Controls */}
+      {/* Top Chrome Header: Nav, Address Bar, Controls */}
       <div className="flex flex-col border-b border-[#2a2822] bg-[#1d1c18] shrink-0">
         {/* Main Toolbar */}
         <div className="flex items-center justify-between px-3.5 py-2.5 gap-2">
@@ -235,8 +186,7 @@ export default function BrowserPanel({
             <button
               type="button"
               onClick={handleBack}
-              disabled={historyIndex <= 0 && !isElectron}
-              className="p-1.5 rounded-lg hover:bg-[#2b2923] text-[#a09b8f] hover:text-[#ece9e2] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+              className="p-1.5 rounded-lg hover:bg-[#2b2923] text-[#a09b8f] hover:text-[#ece9e2] transition-colors"
               title="Back"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -244,8 +194,7 @@ export default function BrowserPanel({
             <button
               type="button"
               onClick={handleForward}
-              disabled={historyIndex >= history.length - 1 && !isElectron}
-              className="p-1.5 rounded-lg hover:bg-[#2b2923] text-[#a09b8f] hover:text-[#ece9e2] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+              className="p-1.5 rounded-lg hover:bg-[#2b2923] text-[#a09b8f] hover:text-[#ece9e2] transition-colors"
               title="Forward"
             >
               <ArrowRight className="w-4 h-4" />
@@ -291,22 +240,26 @@ export default function BrowserPanel({
             </div>
           </form>
 
+          {/* BRING CHROME TO FRONT BUTTON (THE USER'S FAVORITE FEATURE!) */}
+          <button
+            type="button"
+            onClick={handleBringChromeToFront}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition-all shadow-md active:scale-95 shrink-0 ${
+              isFocusing
+                ? 'bg-amber-500 text-black animate-pulse'
+                : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black shadow-amber-500/20'
+            }`}
+            title="Bring the real Chrome window to the front to enter passwords, 2FA codes, or captchas natively"
+          >
+            <Tv className="w-3.5 h-3.5" />
+            <span>{isFocusing ? 'Focusing...' : 'Bring Chrome to Front 🪟'}</span>
+          </button>
+
           {/* Window / Action Controls */}
           <div className="flex items-center space-x-1 shrink-0">
             <button
               type="button"
-              onClick={handleOpenExternal}
-              className="p-1.5 rounded-lg hover:bg-[#2b2923] text-[#a09b8f] hover:text-[#ece9e2] transition-colors"
-              title="Open in default system browser"
-            >
-              <ExternalLink className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsFullscreen((prev) => !prev);
-                setTimeout(syncNativeBounds, 120);
-              }}
+              onClick={() => setIsFullscreen((prev) => !prev)}
               className="p-1.5 rounded-lg hover:bg-[#2b2923] text-[#a09b8f] hover:text-[#ece9e2] transition-colors"
               title={isFullscreen ? 'Restore' : 'Maximize'}
             >
@@ -314,7 +267,7 @@ export default function BrowserPanel({
             </button>
             <button
               type="button"
-              onClick={handleClose}
+              onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-red-500/20 text-[#a09b8f] hover:text-red-400 transition-colors"
               title="Close Browser"
             >
@@ -323,58 +276,68 @@ export default function BrowserPanel({
           </div>
         </div>
 
-        {/* Quick Launch Shortcuts Bar */}
-        <div className="flex items-center space-x-2 px-3.5 pb-2 text-[11px] overflow-x-auto no-scrollbar">
-          <span className="text-[#6b675e] font-semibold uppercase tracking-wider text-[10px] shrink-0">
-            Quick:
-          </span>
-          <button
-            type="button"
-            onClick={() => navigateTo('https://www.google.com')}
-            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#26241e] hover:bg-[#302e26] border border-[#38352d] text-[#e0ded8] hover:text-white transition-all shrink-0"
-          >
-            <Search className="w-3 h-3 text-blue-400" />
-            <span>Google</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigateTo('https://github.com')}
-            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#26241e] hover:bg-[#302e26] border border-[#38352d] text-[#e0ded8] hover:text-white transition-all shrink-0"
-          >
-            <span className="text-purple-400 font-bold">🐙</span>
-            <span>GitHub</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigateTo('https://www.youtube.com')}
-            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#26241e] hover:bg-[#302e26] border border-[#38352d] text-[#e0ded8] hover:text-white transition-all shrink-0"
-          >
-            <span className="text-red-500 font-bold">▶</span>
-            <span>YouTube</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigateTo('https://x.com')}
-            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#26241e] hover:bg-[#302e26] border border-[#38352d] text-[#e0ded8] hover:text-white transition-all shrink-0"
-          >
-            <span className="text-sky-400 font-bold">𝕏</span>
-            <span>Twitter/X</span>
-          </button>
-          {/* AI Eye / Observer Indicator & Chrome Sign-in Bridge */}
-          <div className="flex items-center space-x-2 ml-auto shrink-0">
-            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[11px] font-mono">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>AI Eye: Active</span>
-            </div>
+        {/* Status Bar: Live Mirror Indicator, AI Eye, Mode Selector */}
+        <div className="flex items-center justify-between px-3.5 pb-2 text-[11px] overflow-x-auto no-scrollbar gap-2">
+          {/* Quick Shortcuts */}
+          <div className="flex items-center space-x-1.5 shrink-0">
             <button
               type="button"
-              onClick={handleOpenExternal}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#cc785c]/15 hover:bg-[#cc785c]/25 border border-[#cc785c]/35 text-[#f2eee6] text-[11px] font-medium transition-all"
-              title="Open current URL in your system Chrome/Edge with saved Google/GitHub logins"
+              onClick={() => navigateTo('https://github.com')}
+              className="px-2 py-0.5 rounded bg-[#26241e] hover:bg-[#302e26] border border-[#38352d] text-[#e0ded8] text-[10.5px]"
             >
-              <ExternalLink className="w-3 h-3 text-[#cc785c]" />
-              <span>Sign In via Chrome ↗</span>
+              GitHub
             </button>
+            <button
+              type="button"
+              onClick={() => navigateTo('https://www.google.com')}
+              className="px-2 py-0.5 rounded bg-[#26241e] hover:bg-[#302e26] border border-[#38352d] text-[#e0ded8] text-[10.5px]"
+            >
+              Google
+            </button>
+            <button
+              type="button"
+              onClick={() => navigateTo('https://www.youtube.com')}
+              className="px-2 py-0.5 rounded bg-[#26241e] hover:bg-[#302e26] border border-[#38352d] text-[#e0ded8] text-[10.5px]"
+            >
+              YouTube
+            </button>
+          </div>
+
+          {/* Right Status Group */}
+          <div className="flex items-center space-x-2 shrink-0 ml-auto">
+            {/* View Mode Toggle */}
+            <div className="flex items-center bg-[#141310] p-0.5 rounded-lg border border-[#333028] text-[10px]">
+              <button
+                type="button"
+                onClick={() => setViewMode('mirror')}
+                className={`px-2 py-0.5 rounded font-medium transition-all ${
+                  viewMode === 'mirror'
+                    ? 'bg-[#cc785c] text-white shadow-sm'
+                    : 'text-[#8a8579] hover:text-[#ece9e2]'
+                }`}
+                title="Live Mirror: Mirrors the real Chrome window where Google/GitHub logins work 100%"
+              >
+                Chrome Mirror
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('direct')}
+                className={`px-2 py-0.5 rounded font-medium transition-all ${
+                  viewMode === 'direct'
+                    ? 'bg-[#cc785c] text-white shadow-sm'
+                    : 'text-[#8a8579] hover:text-[#ece9e2]'
+                }`}
+                title="Direct Web View"
+              >
+                Direct Web
+              </button>
+            </div>
+
+            {/* AI Eye Live Status */}
+            <div className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 font-mono text-[10px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>AI Eye: Mirroring</span>
+            </div>
           </div>
         </div>
 
@@ -383,9 +346,9 @@ export default function BrowserPanel({
           <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#cc785c]/20 border-t border-[#cc785c]/35 text-xs text-[#f2eee6] animate-in fade-in">
             <div className="flex items-center space-x-2 truncate">
               <Sparkles className="w-3.5 h-3.5 text-[#cc785c] animate-spin shrink-0" />
-              <span className="font-semibold text-[#cc785c]">AI Browser Observer:</span>
+              <span className="font-semibold text-[#cc785c]">AI Browser Action:</span>
               <span className="truncate text-[#e6e2d8] font-mono text-[11.5px]">
-                {agentStepText || agentTask || 'Keeping eye on browser and tracking page...'}
+                {agentStepText || agentTask || 'Controlling Chrome & tracking page state...'}
               </span>
             </div>
             <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[#cc785c]/30 text-[#f2eee6] shrink-0">
@@ -395,24 +358,55 @@ export default function BrowserPanel({
         )}
       </div>
 
-      {/* Main Browser Viewport: Live, Visible, and Interactive */}
-      <div ref={viewportRef} className="flex-1 w-full h-full bg-[#141310] relative overflow-hidden">
+      {/* Main Viewport: Live Chrome Mirror OR Direct Iframe */}
+      <div className="flex-1 w-full h-full bg-[#141310] relative overflow-hidden flex flex-col items-center justify-center">
         {/* Loading Bar */}
         {isLoading && (
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-[#cc785c] animate-pulse z-10" />
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-[#cc785c] animate-pulse z-20" />
         )}
 
-        {/* Live Interactive Browser Viewport */}
-        <iframe
-          key={iframeKey}
-          ref={iframeRef}
-          src={embedUrl}
-          title="Sameer AI Browser"
-          className="w-full h-full border-0 bg-white"
-          onLoad={() => setIsLoading(false)}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-modals"
-        />
+        {viewMode === 'mirror' ? (
+          /* Live Screen Mirror from Real Chrome */
+          <div className="w-full h-full relative overflow-auto flex items-center justify-center bg-[#0d0c0a]">
+            {mirrorImage ? (
+              <img
+                ref={mirrorImgRef}
+                src={mirrorImage}
+                alt={mirrorTitle}
+                onClick={handleMirrorClick}
+                className="max-w-full max-h-full object-contain cursor-pointer shadow-2xl transition-opacity duration-150"
+                title="Click anywhere to interact with the real Chrome browser"
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center p-8 text-center text-[#8a8579]">
+                <Globe className="w-8 h-8 text-[#cc785c] animate-spin mb-3" />
+                <p className="text-xs font-semibold text-[#ece9e2] mb-1">
+                  Connecting to Real Persistent Chrome...
+                </p>
+                <p className="text-[11px] text-[#6b675e] max-w-sm mb-4">
+                  The real Chrome browser is open on your computer with your saved logins.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleBringChromeToFront}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-md active:scale-95"
+                >
+                  Bring Chrome to Front 🪟
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Direct Web Viewport Fallback */
+          <iframe
+            ref={iframeRef}
+            src={currentUrl}
+            title="Direct Browser"
+            className="w-full h-full border-0 bg-white"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-modals"
+          />
+        )}
       </div>
     </div>
   );

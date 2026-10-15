@@ -44,6 +44,7 @@ export default function BrowserPanel({
   const [mirrorTitle, setMirrorTitle] = useState<string>('External Chrome');
 
   const mirrorImgRef = useRef<HTMLImageElement>(null);
+  const isFetchingRef = useRef<boolean>(false);
 
   const normalizeUrl = (raw: string): string => {
     const trimmed = raw.trim();
@@ -57,14 +58,106 @@ export default function BrowserPanel({
     return trimmed;
   };
 
-  // Poll / Fetch Live Screen Mirror from Real Chrome
+  // Execute Native Command / Code on the User's Real PC
+  const runNative = useCallback(async (code: string, lang = 'node'): Promise<any> => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.executeCode) {
+      try {
+        const res = await (window as any).electronAPI.executeCode(code, lang);
+        if (res && res.stdout) {
+          try {
+            return JSON.parse(res.stdout.trim());
+          } catch {
+            return res.stdout.trim();
+          }
+        }
+      } catch (err) {
+        console.error('runNative error:', err);
+      }
+    }
+    return null;
+  }, []);
+
+  // Ensure Real Chrome is running on local PC
+  const ensureBrowserRunning = useCallback(async () => {
+    const checkScript = `
+      const http = require('http');
+      const { spawn } = require('child_process');
+      const req = http.get('http://127.0.0.1:9222/json/version', (res) => {
+        console.log(JSON.stringify({ isAlive: true }));
+      });
+      req.on('error', () => {
+        try {
+          const child = spawn('node', ['C:\\\\Users\\\\Master\\\\sameer workspace\\\\browser\\\\browser_start.mjs'], {
+            cwd: 'C:\\\\Users\\\\Master\\\\sameer workspace\\\\browser',
+            detached: true,
+            stdio: 'ignore'
+          });
+          child.unref();
+          console.log(JSON.stringify({ isAlive: false, launched: true }));
+        } catch (e) {
+          console.log(JSON.stringify({ isAlive: false, error: e.message }));
+        }
+      });
+      req.setTimeout(1000, () => req.destroy());
+    `;
+    await runNative(checkScript, 'node');
+  }, [runNative]);
+
+  // Poll / Fetch Live Screen Mirror from Real Chrome directly on host PC
   const fetchMirror = useCallback(async () => {
-    if (!isOpen) return;
+    if (!isOpen || isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
     try {
+      // 1. Try local desktop execution first (zero network lag, direct CDP on localhost)
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.executeCode) {
+        const script = `
+          const { chromium } = require('playwright');
+          (async () => {
+            try {
+              const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+              const pages = browser.contexts()[0]?.pages() || [];
+              const page = pages.find(p => !p.url().startsWith('devtools://')) || pages[0];
+              if (!page) {
+                await browser.close();
+                console.log(JSON.stringify({ isRunning: true, url: 'about:blank' }));
+                return;
+              }
+              const shot = await page.screenshot({ type: 'jpeg', quality: 50 });
+              const url = page.url();
+              const title = await page.title().catch(() => '');
+              await browser.close();
+              console.log(JSON.stringify({
+                isRunning: true,
+                url,
+                title,
+                screenshot: 'data:image/jpeg;base64,' + shot.toString('base64')
+              }));
+            } catch (err) {
+              console.log(JSON.stringify({ isRunning: false, error: err.message }));
+            }
+          })();
+        `;
+        const data = await runNative(script, 'node');
+        if (data?.isRunning && data.screenshot) {
+          setMirrorImage(data.screenshot);
+          if (data.url && data.url !== 'about:blank') {
+            setCurrentUrl(data.url);
+            setInputUrl(data.url);
+            onUrlChange?.(data.url);
+          }
+          if (data.title) setMirrorTitle(data.title);
+          return;
+        } else if (!data?.isRunning) {
+          await ensureBrowserRunning();
+        }
+      }
+
+      // 2. Cloud fallback
       const res = await fetch('/api/browser-mirror');
       const data = await res.json();
-      if (data?.isRunning) {
-        if (data.screenshot) setMirrorImage(data.screenshot);
+      if (data?.isRunning && data.screenshot) {
+        setMirrorImage(data.screenshot);
         if (data.url && data.url !== 'about:blank') {
           setCurrentUrl(data.url);
           setInputUrl(data.url);
@@ -72,36 +165,102 @@ export default function BrowserPanel({
         }
         if (data.title) setMirrorTitle(data.title);
       }
-    } catch {}
-  }, [isOpen, onUrlChange]);
+    } catch {
+    } finally {
+      isFetchingRef.current = false;
+    }
+  }, [isOpen, onUrlChange, runNative, ensureBrowserRunning]);
 
   // Periodic poll while mirror is open
   useEffect(() => {
     if (!isOpen) return;
+    ensureBrowserRunning();
     fetchMirror();
-    const interval = setInterval(fetchMirror, 1500);
+    const interval = setInterval(fetchMirror, 1800);
     return () => clearInterval(interval);
-  }, [isOpen, fetchMirror]);
+  }, [isOpen, fetchMirror, ensureBrowserRunning]);
 
   // Execute Action on Real Chrome
   const executeAction = async (action: string, payload: Record<string, any> = {}) => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/browser-mirror', {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.executeCode) {
+        let script = '';
+        if (action === 'navigate') {
+          script = `
+            const { chromium } = require('playwright');
+            (async () => {
+              try {
+                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+                const page = browser.contexts()[0]?.pages()[0];
+                if (page) await page.goto(${JSON.stringify(payload.url)}, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                await browser.close();
+              } catch(e){}
+            })();
+          `;
+        } else if (action === 'back') {
+          script = `
+            const { chromium } = require('playwright');
+            (async () => {
+              try {
+                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+                const page = browser.contexts()[0]?.pages()[0];
+                if (page) await page.goBack();
+                await browser.close();
+              } catch(e){}
+            })();
+          `;
+        } else if (action === 'forward') {
+          script = `
+            const { chromium } = require('playwright');
+            (async () => {
+              try {
+                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+                const page = browser.contexts()[0]?.pages()[0];
+                if (page) await page.goForward();
+                await browser.close();
+              } catch(e){}
+            })();
+          `;
+        } else if (action === 'reload') {
+          script = `
+            const { chromium } = require('playwright');
+            (async () => {
+              try {
+                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+                const page = browser.contexts()[0]?.pages()[0];
+                if (page) await page.reload();
+                await browser.close();
+              } catch(e){}
+            })();
+          `;
+        } else if (action === 'click') {
+          script = `
+            const { chromium } = require('playwright');
+            (async () => {
+              try {
+                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+                const page = browser.contexts()[0]?.pages()[0];
+                if (page) await page.mouse.click(${payload.x}, ${payload.y});
+                await browser.close();
+              } catch(e){}
+            })();
+          `;
+        }
+        if (script) {
+          await runNative(script, 'node');
+          setTimeout(fetchMirror, 300);
+          return;
+        }
+      }
+
+      // Cloud API fallback
+      await fetch('/api/browser-mirror', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...payload }),
       });
-      const data = await res.json();
-      if (data?.success) {
-        if (data.screenshot) setMirrorImage(data.screenshot);
-        if (data.url) {
-          setCurrentUrl(data.url);
-          setInputUrl(data.url);
-          onUrlChange?.(data.url);
-        }
-        if (data.title) setMirrorTitle(data.title);
-      }
+      setTimeout(fetchMirror, 300);
     } catch (e) {
       console.error('Browser action failed:', e);
     } finally {
@@ -300,7 +459,7 @@ export default function BrowserPanel({
               Connecting to Browser Mirror...
             </p>
             <p className="text-[11px] text-[#6d685e] max-w-sm">
-              Mirroring your external Chrome browser session live.
+              Starting and mirroring your external Chrome browser session live.
             </p>
           </div>
         )}

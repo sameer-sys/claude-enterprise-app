@@ -360,12 +360,22 @@ export default function BrowserPanel({
             <span className="text-sky-400 font-bold">𝕏</span>
             <span>Twitter/X</span>
           </button>
-          {isElectron && (
-            <div className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] ml-auto shrink-0">
-              <ShieldCheck className="w-3 h-3" />
-              <span>Native Chromium • Login Enabled</span>
+          {/* AI Eye / Observer Indicator & Chrome Sign-in Bridge */}
+          <div className="flex items-center space-x-2 ml-auto shrink-0">
+            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[11px] font-mono">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>AI Eye: Active</span>
             </div>
-          )}
+            <button
+              type="button"
+              onClick={handleOpenExternal}
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#cc785c]/15 hover:bg-[#cc785c]/25 border border-[#cc785c]/35 text-[#f2eee6] text-[11px] font-medium transition-all"
+              title="Open current URL in your system Chrome/Edge with saved Google/GitHub logins"
+            >
+              <ExternalLink className="w-3 h-3 text-[#cc785c]" />
+              <span>Sign In via Chrome ↗</span>
+            </button>
+          </div>
         </div>
 
         {/* Active AI Agent Banner (Visible when AI is controlling the browser) */}
@@ -373,9 +383,9 @@ export default function BrowserPanel({
           <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#cc785c]/20 border-t border-[#cc785c]/35 text-xs text-[#f2eee6] animate-in fade-in">
             <div className="flex items-center space-x-2 truncate">
               <Sparkles className="w-3.5 h-3.5 text-[#cc785c] animate-spin shrink-0" />
-              <span className="font-semibold text-[#cc785c]">AI Browser Action:</span>
+              <span className="font-semibold text-[#cc785c]">AI Browser Observer:</span>
               <span className="truncate text-[#e6e2d8] font-mono text-[11.5px]">
-                {agentStepText || agentTask || 'Executing task in browser...'}
+                {agentStepText || agentTask || 'Keeping eye on browser and tracking page...'}
               </span>
             </div>
             <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[#cc785c]/30 text-[#f2eee6] shrink-0">
@@ -385,37 +395,24 @@ export default function BrowserPanel({
         )}
       </div>
 
-      {/* Main Browser Viewport */}
+      {/* Main Browser Viewport: Live, Visible, and Interactive */}
       <div ref={viewportRef} className="flex-1 w-full h-full bg-[#141310] relative overflow-hidden">
         {/* Loading Bar */}
         {isLoading && (
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-[#cc785c] animate-pulse z-10" />
         )}
 
-        {/* In Electron Desktop: The native Chromium WebContentsView renders directly over this viewport */}
-        {isElectron ? (
-          <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-[#8a8579] select-none pointer-events-none">
-            <div className="flex items-center space-x-2 text-xs text-[#cc785c] mb-1 font-semibold">
-              <Globe className="w-4 h-4" />
-              <span>Native Chromium Viewport</span>
-            </div>
-            <p className="text-[11px] text-[#6d685e] max-w-sm">
-              Rendering native top-level browser with Google & GitHub authentication enabled.
-            </p>
-          </div>
-        ) : (
-          /* Live Iframe Viewport (Cloud Web Fallback) */
-          <iframe
-            key={iframeKey}
-            ref={iframeRef}
-            src={embedUrl}
-            title="Sameer AI Browser"
-            className="w-full h-full border-0 bg-white"
-            onLoad={() => setIsLoading(false)}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-modals"
-          />
-        )}
+        {/* Live Interactive Browser Viewport */}
+        <iframe
+          key={iframeKey}
+          ref={iframeRef}
+          src={embedUrl}
+          title="Sameer AI Browser"
+          className="w-full h-full border-0 bg-white"
+          onLoad={() => setIsLoading(false)}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-modals"
+        />
       </div>
     </div>
   );

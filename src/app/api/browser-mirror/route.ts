@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exec, spawn } from 'child_process';
 import path from 'path';
+import os from 'os';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const CDP_URL = 'http://127.0.0.1:9222';
-const BROWSER_START_SCRIPT = 'C:\\Users\\Master\\sameer workspace\\browser\\browser_start.mjs';
+const BROWSER_START_SCRIPT = path.join(os.homedir(), 'sameer workspace', 'browser', 'browser_start.mjs');
 
 // Auto-launch the real persistent Chrome if not running
 async function ensureBrowserRunning(): Promise<boolean> {

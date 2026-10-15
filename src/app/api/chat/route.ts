@@ -1622,7 +1622,10 @@ export async function POST(req: NextRequest) {
 6. Never narrate a tool call you are about to make. If a connected-app action is required, make the real tool call first and only then answer with the result.
 7. Present your final answer directly to the user in clean Markdown. Never explain your thought process or output raw JSON tool definitions in prose.
 8. Authenticated GitHub account is 'sameer-sys'. When asked for repositories or GitHub details, call the GitHub MCP tools directly (e.g. search_repositories with query 'user:sameer-sys', or get_me).
-9. Interpret casual, vague, or non-native phrasing the way a helpful human would, not literally. A question like "what does X repo have", "what is in X", or "tell me about X repository" means: give a real, synthesized overview of that repository - not a guess, and not just one shallow fact. Unless another owner is clearly named, resolve "X" against the authenticated user's own GitHub account first. For this kind of question, make MULTIPLE real tool calls before answering: get the repository's own details (description, language, visibility, stars) AND list its top-level files/contents, then combine both into one clear answer (e.g. "It's a [language] project with X stars, containing: [files]. Description: ..."). Never answer a "what does it have" question from only one of those calls, and never answer it without making any real tool call at all.\n`;
+9. Interpret casual, vague, or non-native phrasing the way a helpful human would, not literally. A question like "what does X repo have", "what is in X", or "tell me about X repository" means: give a real, synthesized overview of that repository - not a guess, and not just one shallow fact. Unless another owner is clearly named, resolve "X" against the authenticated user's own GitHub account first. For this kind of question, make MULTIPLE real tool calls before answering: get the repository's own details (description, language, visibility, stars) AND list its top-level files/contents, then combine both into one clear answer (e.g. "It's a [language] project with X stars, containing: [files]. Description: ..."). Never answer a "what does it have" question from only one of those calls, and never answer it without making any real tool call at all.
+10. NEVER delete, mutate, or overwrite any repository, file, branch, or issue unless the user explicitly and unmistakably commanded you to do so in their message.
+11. Dynamically understand the user's specific request. Never assume destructive intent or carry over old commands from previous unrelated turns.
+12. Use the real tools provided dynamically to solve the user's task. Never fabricate results, recite hardcoded scripts, or byheart answers.\n`;
 
     const baseSystemPrompt =
       agentPrompt ||
@@ -2039,10 +2042,7 @@ export async function POST(req: NextRequest) {
                 model: 'boss',
                 messages: fullMessages,
                 tools: effectiveTools.length > 0 ? effectiveTools : undefined,
-                tool_choice:
-                  turn === 0 && connectorRequest && forceConnectorTool && pickFocusedRemoteTool()
-                    ? { type: 'function', function: { name: pickFocusedRemoteTool() } }
-                    : 'auto',
+                tool_choice: 'auto',
                 max_tokens: 8192,
               }),
               signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
@@ -2065,10 +2065,7 @@ export async function POST(req: NextRequest) {
                 model: 'openai/gpt-oss-120b',
                 messages: fullMessages,
                 tools: effectiveTools,
-                tool_choice:
-                  turn === 0 && connectorRequest && forceConnectorTool && pickFocusedRemoteTool()
-                    ? { type: 'function', function: { name: pickFocusedRemoteTool() } }
-                    : 'auto',
+                tool_choice: 'auto',
                 max_tokens: 8192,
               }),
               signal: AbortSignal.timeout(Math.max(5000, agentDeadline - Date.now())),
@@ -2176,26 +2173,6 @@ export async function POST(req: NextRequest) {
                 function: {
                   name: toolName,
                   arguments: JSON.stringify(effectiveArgs),
-                },
-              }];
-            }
-          }
-        }
-
-        if (turn === 0 && connectorRequest && hasFocusedRemoteTools && successfulMcpToolCalls === 0) {
-          const focusedTool = pickFocusedRemoteTool();
-          if (focusedTool) {
-            const currentCallName = String(toolCalls?.[0]?.function?.name || '').replace(/^(?:mcp__github__|remote_mcp_[^_]+_|github[._:])+/i, '').toLowerCase();
-            const focusedClean = focusedTool.replace(/^(?:mcp__github__|remote_mcp_[^_]+_|github[._:])+/i, '').toLowerCase();
-            const shouldOverride = !toolCalls || toolCalls.length === 0 || (currentCallName !== focusedClean);
-            if (shouldOverride) {
-              const autoArgs = extractToolArgs(focusedTool, lastText, contextHistoryText);
-              toolCalls = [{
-                id: 'call_auto_' + Date.now(),
-                type: 'function',
-                function: {
-                  name: focusedTool,
-                  arguments: JSON.stringify(autoArgs),
                 },
               }];
             }

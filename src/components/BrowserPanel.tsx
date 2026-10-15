@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Globe,
   ArrowLeft,
   ArrowRight,
   RotateCw,
@@ -37,14 +36,8 @@ export default function BrowserPanel({
   const [currentUrl, setCurrentUrl] = useState<string>(initialUrl);
   const [inputUrl, setInputUrl] = useState<string>(initialUrl);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Live Mirror State (from real external Chrome)
-  const [mirrorImage, setMirrorImage] = useState<string | null>(null);
-  const [mirrorTitle, setMirrorTitle] = useState<string>('External Chrome');
-
-  const mirrorImgRef = useRef<HTMLImageElement>(null);
-  const isFetchingRef = useRef<boolean>(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const normalizeUrl = (raw: string): string => {
     const trimmed = raw.trim();
@@ -58,222 +51,92 @@ export default function BrowserPanel({
     return trimmed;
   };
 
-  // Execute Native Command / Code on the User's Real PC
-  const runNative = useCallback(async (code: string, lang = 'node'): Promise<any> => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.executeCode) {
-      try {
-        const res = await (window as any).electronAPI.executeCode(code, lang);
-        if (res && res.stdout) {
-          try {
-            return JSON.parse(res.stdout.trim());
-          } catch {
-            return res.stdout.trim();
-          }
-        }
-      } catch (err) {
-        console.error('runNative error:', err);
-      }
+  // Sync geometry / bounds of the embedded WebContentsView to match this container exactly
+  const syncBounds = useCallback(() => {
+    if (!containerRef.current || typeof window === 'undefined') return;
+    const api = (window as any).electronAPI?.browser;
+    if (!api) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      api.bounds({
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      });
     }
-    return null;
   }, []);
 
-  // Ensure Real Chrome is running on local PC
-  const ensureBrowserRunning = useCallback(async () => {
-    const checkScript = `
-      const http = require('http');
-      const { spawn } = require('child_process');
-      const req = http.get('http://127.0.0.1:9222/json/version', (res) => {
-        console.log(JSON.stringify({ isAlive: true }));
-      });
-      req.on('error', () => {
-        try {
-          const child = spawn('node', ['C:\\\\Users\\\\Master\\\\sameer workspace\\\\browser\\\\browser_start.mjs'], {
-            cwd: 'C:\\\\Users\\\\Master\\\\sameer workspace\\\\browser',
-            detached: true,
-            stdio: 'ignore'
-          });
-          child.unref();
-          console.log(JSON.stringify({ isAlive: false, launched: true }));
-        } catch (e) {
-          console.log(JSON.stringify({ isAlive: false, error: e.message }));
-        }
-      });
-      req.setTimeout(1000, () => req.destroy());
-    `;
-    await runNative(checkScript, 'node');
-  }, [runNative]);
+  // Show / Hide and attach ResizeObserver when panel opens or closes
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const api = (window as any).electronAPI?.browser;
 
-  // Poll / Fetch Live Screen Mirror from Real Chrome directly on host PC
-  const fetchMirror = useCallback(async () => {
-    if (!isOpen || isFetchingRef.current) return;
-    isFetchingRef.current = true;
+    if (!isOpen) {
+      api?.hide?.();
+      return;
+    }
 
-    try {
-      // 1. Try local desktop execution first (zero network lag, direct CDP on localhost)
-      if (typeof window !== 'undefined' && (window as any).electronAPI?.executeCode) {
-        const script = `
-          const { chromium } = require('playwright');
-          (async () => {
-            try {
-              const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-              const pages = browser.contexts()[0]?.pages() || [];
-              const page = pages.find(p => !p.url().startsWith('devtools://')) || pages[0];
-              if (!page) {
-                await browser.close();
-                console.log(JSON.stringify({ isRunning: true, url: 'about:blank' }));
-                return;
-              }
-              const shot = await page.screenshot({ type: 'jpeg', quality: 50 });
-              const url = page.url();
-              const title = await page.title().catch(() => '');
-              await browser.close();
-              console.log(JSON.stringify({
-                isRunning: true,
-                url,
-                title,
-                screenshot: 'data:image/jpeg;base64,' + shot.toString('base64')
-              }));
-            } catch (err) {
-              console.log(JSON.stringify({ isRunning: false, error: err.message }));
-            }
-          })();
-        `;
-        const data = await runNative(script, 'node');
-        if (data?.isRunning && data.screenshot) {
-          setMirrorImage(data.screenshot);
-          if (data.url && data.url !== 'about:blank') {
-            setCurrentUrl(data.url);
-            setInputUrl(data.url);
-            onUrlChange?.(data.url);
-          }
-          if (data.title) setMirrorTitle(data.title);
-          return;
-        } else if (!data?.isRunning) {
-          await ensureBrowserRunning();
+    if (api && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        api.show({
+          x: Math.round(rect.x),
+          y: Math.round(rect.y),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        });
+        if (initialUrl) {
+          const target = normalizeUrl(initialUrl);
+          setCurrentUrl(target);
+          setInputUrl(target);
+          api.navigate(target);
         }
       }
 
-      // 2. Cloud fallback
-      const res = await fetch('/api/browser-mirror');
-      const data = await res.json();
-      if (data?.isRunning && data.screenshot) {
-        setMirrorImage(data.screenshot);
-        if (data.url && data.url !== 'about:blank') {
+      const ro = new ResizeObserver(() => {
+        syncBounds();
+      });
+      ro.observe(containerRef.current);
+      window.addEventListener('resize', syncBounds);
+
+      const cleanupNav = api.onNavigated?.((data: any) => {
+        if (data?.url) {
           setCurrentUrl(data.url);
           setInputUrl(data.url);
           onUrlChange?.(data.url);
         }
-        if (data.title) setMirrorTitle(data.title);
-      }
-    } catch {
-    } finally {
-      isFetchingRef.current = false;
-    }
-  }, [isOpen, onUrlChange, runNative, ensureBrowserRunning]);
-
-  // Periodic poll while mirror is open
-  useEffect(() => {
-    if (!isOpen) return;
-    ensureBrowserRunning();
-    fetchMirror();
-    const interval = setInterval(fetchMirror, 1800);
-    return () => clearInterval(interval);
-  }, [isOpen, fetchMirror, ensureBrowserRunning]);
-
-  // Execute Action on Real Chrome
-  const executeAction = async (action: string, payload: Record<string, any> = {}) => {
-    setIsLoading(true);
-    try {
-      if (typeof window !== 'undefined' && (window as any).electronAPI?.executeCode) {
-        let script = '';
-        if (action === 'navigate') {
-          script = `
-            const { chromium } = require('playwright');
-            (async () => {
-              try {
-                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-                const page = browser.contexts()[0]?.pages()[0];
-                if (page) await page.goto(${JSON.stringify(payload.url)}, { waitUntil: 'domcontentloaded', timeout: 30000 });
-                await browser.close();
-              } catch(e){}
-            })();
-          `;
-        } else if (action === 'back') {
-          script = `
-            const { chromium } = require('playwright');
-            (async () => {
-              try {
-                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-                const page = browser.contexts()[0]?.pages()[0];
-                if (page) await page.goBack();
-                await browser.close();
-              } catch(e){}
-            })();
-          `;
-        } else if (action === 'forward') {
-          script = `
-            const { chromium } = require('playwright');
-            (async () => {
-              try {
-                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-                const page = browser.contexts()[0]?.pages()[0];
-                if (page) await page.goForward();
-                await browser.close();
-              } catch(e){}
-            })();
-          `;
-        } else if (action === 'reload') {
-          script = `
-            const { chromium } = require('playwright');
-            (async () => {
-              try {
-                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-                const page = browser.contexts()[0]?.pages()[0];
-                if (page) await page.reload();
-                await browser.close();
-              } catch(e){}
-            })();
-          `;
-        } else if (action === 'click') {
-          script = `
-            const { chromium } = require('playwright');
-            (async () => {
-              try {
-                const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-                const page = browser.contexts()[0]?.pages()[0];
-                if (page) await page.mouse.click(${payload.x}, ${payload.y});
-                await browser.close();
-              } catch(e){}
-            })();
-          `;
-        }
-        if (script) {
-          await runNative(script, 'node');
-          setTimeout(fetchMirror, 300);
-          return;
-        }
-      }
-
-      // Cloud API fallback
-      await fetch('/api/browser-mirror', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, ...payload }),
       });
-      setTimeout(fetchMirror, 300);
-    } catch (e) {
-      console.error('Browser action failed:', e);
-    } finally {
-      setIsLoading(false);
+
+      const cleanupBounds = api.onBoundsInvalidated?.(() => {
+        syncBounds();
+      });
+
+      return () => {
+        ro.disconnect();
+        window.removeEventListener('resize', syncBounds);
+        cleanupNav?.();
+        cleanupBounds?.();
+        api.hide?.();
+      };
     }
-  };
+  }, [isOpen, initialUrl, onUrlChange, syncBounds]);
+
+  // Also sync bounds whenever fullscreen mode toggles
+  useEffect(() => {
+    const t = setTimeout(syncBounds, 100);
+    return () => clearTimeout(t);
+  }, [isFullscreen, syncBounds]);
 
   const navigateTo = (target: string) => {
     const clean = normalizeUrl(target);
     setCurrentUrl(clean);
     setInputUrl(clean);
     onUrlChange?.(clean);
-    executeAction('navigate', { url: clean });
+    const api = (window as any).electronAPI?.browser;
+    if (api) {
+      api.navigate(clean);
+    }
   };
 
   const handleInputSubmit = (e: React.FormEvent) => {
@@ -281,25 +144,20 @@ export default function BrowserPanel({
     if (inputUrl) navigateTo(inputUrl);
   };
 
-  const handleBack = () => executeAction('back');
-  const handleForward = () => executeAction('forward');
-  const handleReload = () => executeAction('reload');
-  const handleHome = () => navigateTo('https://github.com');
+  const handleBack = () => {
+    (window as any).electronAPI?.browser?.back?.();
+  };
 
-  // Click on the mirror image -> dispatches click to real Chrome at calculated coordinates
-  const handleMirrorClick = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!mirrorImgRef.current) return;
-    const rect = mirrorImgRef.current.getBoundingClientRect();
-    const naturalWidth = mirrorImgRef.current.naturalWidth || 1280;
-    const naturalHeight = mirrorImgRef.current.naturalHeight || 800;
+  const handleForward = () => {
+    (window as any).electronAPI?.browser?.forward?.();
+  };
 
-    const scaleX = naturalWidth / rect.width;
-    const scaleY = naturalHeight / rect.height;
+  const handleReload = () => {
+    (window as any).electronAPI?.browser?.reload?.();
+  };
 
-    const clickX = Math.round((e.clientX - rect.left) * scaleX);
-    const clickY = Math.round((e.clientY - rect.top) * scaleY);
-
-    executeAction('click', { x: clickX, y: clickY });
+  const handleHome = () => {
+    navigateTo('https://github.com');
   };
 
   if (!isOpen) return null;
@@ -335,9 +193,7 @@ export default function BrowserPanel({
             <button
               type="button"
               onClick={handleReload}
-              className={`p-1.5 rounded-lg hover:bg-[#2b2923] text-[#a09b8f] hover:text-[#ece9e2] transition-colors ${
-                isLoading ? 'animate-spin text-[#cc785c]' : ''
-              }`}
+              className="p-1.5 rounded-lg hover:bg-[#2b2923] text-[#a09b8f] hover:text-[#ece9e2] transition-colors"
               title="Reload"
             >
               <RotateCw className="w-4 h-4" />
@@ -363,13 +219,9 @@ export default function BrowserPanel({
                 placeholder="Search or enter URL (e.g. google.com, github.com)"
                 className="w-full bg-transparent text-xs text-[#ece9e2] placeholder-[#6b675e] focus:outline-none font-mono"
               />
-              {isLoading ? (
-                <div className="w-3.5 h-3.5 border-2 border-[#cc785c] border-t-transparent rounded-full animate-spin shrink-0 ml-2" />
-              ) : (
-                <button type="submit" className="text-[#a09b8f] hover:text-[#ece9e2] shrink-0 ml-2" title="Go">
-                  <Search className="w-3.5 h-3.5" />
-                </button>
-              )}
+              <button type="submit" className="text-[#a09b8f] hover:text-[#ece9e2] shrink-0 ml-2" title="Go">
+                <Search className="w-3.5 h-3.5" />
+              </button>
             </div>
           </form>
 
@@ -436,32 +288,19 @@ export default function BrowserPanel({
         )}
       </div>
 
-      {/* Main Viewport: Clean In-App Mirror of Real Chrome */}
-      <div className="flex-1 w-full h-full bg-[#0d0c0a] relative overflow-hidden flex items-center justify-center">
-        {/* Loading Bar */}
-        {isLoading && (
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-[#cc785c] animate-pulse z-20" />
-        )}
-
-        {mirrorImage ? (
-          <img
-            ref={mirrorImgRef}
-            src={mirrorImage}
-            alt={mirrorTitle}
-            onClick={handleMirrorClick}
-            className="max-w-full max-h-full object-contain cursor-pointer shadow-2xl transition-opacity duration-150 select-none"
-            title="Mirrored from external Chrome • Click anywhere to interact"
+      {/* Main Viewport: OpenWork Embedded Native Browser View */}
+      <div
+        ref={containerRef}
+        className="flex-1 w-full h-full bg-[#141310] relative overflow-hidden"
+      >
+        {/* If running in standalone browser without Electron, show iframe fallback */}
+        {typeof window !== 'undefined' && !(window as any).electronAPI?.browser && (
+          <iframe
+            src={currentUrl}
+            className="w-full h-full border-0 bg-white"
+            title="Browser"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
           />
-        ) : (
-          <div className="flex flex-col items-center justify-center p-8 text-center text-[#8a8579]">
-            <Globe className="w-8 h-8 text-[#cc785c] animate-spin mb-3" />
-            <p className="text-xs font-semibold text-[#ece9e2] mb-1">
-              Connecting to Browser Mirror...
-            </p>
-            <p className="text-[11px] text-[#6d685e] max-w-sm">
-              Starting and mirroring your external Chrome browser session live.
-            </p>
-          </div>
         )}
       </div>
     </div>

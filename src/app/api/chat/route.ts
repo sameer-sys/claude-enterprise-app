@@ -87,6 +87,72 @@ const AGENT_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_navigate',
+      description: 'Open or navigate the embedded workspace Chromium browser to a website URL (e.g. Google, GitHub, YouTube, documentation). Use this whenever the user wants to browse, visit a page, or open a link.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'The complete website address or search URL to visit (e.g. https://www.google.com or https://github.com)' },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_observe',
+      description: 'Inspect the currently open webpage in the embedded browser. Returns the page title, current URL, text summary, and an indexed list of interactive elements (buttons, links, search fields) with reference IDs like e1, e2...',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_click',
+      description: 'Click a button, link, or tab on the currently open browser webpage using its reference ID from browser_observe (e.g. "e1", "e2") or a CSS selector.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string', description: 'The reference ID from browser_observe (e.g. "e1", "e2")' },
+          selector: { type: 'string', description: 'Optional CSS selector to click' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_type',
+      description: 'Type a search query, username, or text into an input field on the open browser page.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'The text to type into the input field' },
+          ref: { type: 'string', description: 'Optional reference ID of the input from browser_observe (e.g. "e3")' },
+          selector: { type: 'string', description: 'Optional CSS selector of the input' },
+        },
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_screenshot',
+      description: 'Capture a visual snapshot of the currently open webpage in the embedded browser.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
 ];
 
 
@@ -570,12 +636,74 @@ async function runAgentTool(
       ).join('\n');
     }
 
+    // Embedded Browser Automation Tools
+    if (name === 'browser_navigate') {
+      const url = String(args?.url || '').trim();
+      if (!url) return 'No URL specified for browser navigation.';
+      try {
+        const { browserNavigate } = await import('@/lib/browserAutomation');
+        return await browserNavigate(url);
+      } catch (e: any) {
+        return `Browser navigation failed: ${e?.message || 'unknown error'}`;
+      }
+    }
 
+    if (name === 'browser_observe') {
+      try {
+        const { browserObserve } = await import('@/lib/browserAutomation');
+        const obs = await browserObserve();
+        const elementsList = Array.isArray(obs?.elements)
+          ? obs.elements.map((el: any) => `[${el.ref}] <${el.tag}> ${el.name || ''} ${el.href ? '(' + el.href + ')' : ''}`).join('\n')
+          : 'None';
+        return `URL: ${obs?.url || 'Active'}\nTitle: ${obs?.title || 'Unknown'}\nSnippet: ${obs?.textSnippet || ''}\n\nInteractive Elements:\n${elementsList}`;
+      } catch (e: any) {
+        return `Browser observation failed: ${e?.message || 'unknown error'}`;
+      }
+    }
 
+    if (name === 'browser_click') {
+      try {
+        const { browserClick } = await import('@/lib/browserAutomation');
+        return await browserClick(args?.ref, args?.selector);
+      } catch (e: any) {
+        return `Browser click failed: ${e?.message || 'unknown error'}`;
+      }
+    }
 
+    if (name === 'browser_type') {
+      const text = String(args?.text || '');
+      if (!text) return 'No text specified to type.';
+      try {
+        const { browserType } = await import('@/lib/browserAutomation');
+        return await browserType(text, args?.ref, args?.selector);
+      } catch (e: any) {
+        return `Browser type failed: ${e?.message || 'unknown error'}`;
+      }
+    }
 
+    if (name === 'browser_screenshot') {
+      try {
+        const { browserScreenshot } = await import('@/lib/browserAutomation');
+        return await browserScreenshot();
+      } catch (e: any) {
+        return `Browser screenshot failed: ${e?.message || 'unknown error'}`;
+      }
+    }
 
-
+    // Local Claude Desktop MCP Tools (e.g. claude_toonpop_connectors_*)
+    if (name.startsWith('claude_')) {
+      try {
+        const { claudeDesktopMcpManager } = await import('@/lib/claudeDesktopMcp');
+        // Match server and tool name
+        const tools = await claudeDesktopMcpManager.listAllTools();
+        const matched = tools.find(t => t.function.name === name);
+        if (matched) {
+          return await claudeDesktopMcpManager.callTool(matched.serverName, matched.originalName, args || {});
+        }
+      } catch (e: any) {
+        return `Claude Desktop MCP tool failed: ${e?.message || 'unknown error'}`;
+      }
+    }
 
     return `Unknown tool: ${name}`;
   } catch (e: any) {
@@ -585,20 +713,36 @@ async function runAgentTool(
 
 
 const SYSTEM_PROMPTS: Record<string, string> = {
-  boss: `You are Boss — the autonomous enterprise AI assistant with live hands powered by Composio "For You" MCP and user-added remote MCP connectors.
+  boss: `You are Boss — the autonomous enterprise AI assistant with live hands and real-time execution capabilities.
 
-CONNECTED ACCOUNTS & LIVE TOOLS:
-When connected to Composio "For You" (https://connect.composio.dev/mcp) or user-added remote MCP connectors, you have live execution tools:
-- COMPOSIO_SEARCH_TOOLS: Search available tools and actions across user's connected services.
-- COMPOSIO_GET_TOOL_SCHEMAS: Get the exact parameters schema for tools.
-- COMPOSIO_MULTI_EXECUTE_TOOL: Execute real actions on accounts connected in Composio "For You".
-- COMPOSIO_MANAGE_CONNECTIONS: Inspect the live connected accounts for the user.
-- web_search: Search the live web for facts, news, and current information.
-- web_fetch: Fetch readable content from any URL.
+AVAILABLE CAPABILITIES & APP FEATURES:
+1. EMBEDDED REAL CHROMIUM BROWSER:
+   - browser_navigate: Open or navigate the workspace browser to any URL (Google, GitHub, YouTube, docs, etc.).
+   - browser_observe: Inspect the active browser page to see current title, URL, text snippet, and all clickable buttons, links, and search inputs with reference IDs (e1, e2, etc.).
+   - browser_click: Click on any button, link, or tab using its reference ID (e.g. 'e1', 'e2') or CSS selector.
+   - browser_type: Type text, search queries, or form entries into input fields on the open page.
+   - browser_screenshot: Take a visual capture of the active browser view.
+   * Use the browser whenever the user asks to open websites, search on Google/YouTube in the browser, check pages, click links, or interact live!
 
-CONNECTED APPS DIRECTIVE:
-- When asked what apps or services are connected, first use COMPOSIO_SEARCH_TOOLS with a connection-status query and read its toolkit_connection_statuses. Use COMPOSIO_MANAGE_CONNECTIONS only when Search Tools explicitly says a specific toolkit needs a connection.
-- Deliver clear, conversational answers with real account details. Never output internal planning notes, meta-instructions, or JSON tool definitions in your final reply.`,
+2. LIVE WEB INTELLIGENCE:
+   - web_search: Search DuckDuckGo/live web for current news, facts, documentation, or answers.
+   - web_fetch: Fetch readable text and documentation from any public URL.
+
+3. GITHUB & CODE:
+   - github_lookup: Retrieve real repository statistics, branches, open issues, and recent commits.
+   - Connected GitHub MCP: Read, search, and manage repository files when connected.
+
+4. LOCAL CLAUDE DESKTOP & TOONPOP MCP TOOLS:
+   - Local tools configured in Claude Desktop (e.g. ToonPop video pipeline, YouTube posting, Instagram posting, Telegram bot, connector checks) are automatically available and can be called directly.
+
+5. COMMUNICATION:
+   - read_inbox: Check recent incoming emails from the user's connected mailbox.
+   - send_email: Send real emails via connected SMTP.
+
+DIRECTIVES:
+- Genuinely understand user requests: If the user asks to browse, visit a website, search on Google, or check an online service, use the embedded browser tools or web search.
+- For conversational questions, writing, or coding, answer directly with clear, authoritative Markdown.
+- Deliver helpful, proactive, and direct answers without outputting internal planning notes or raw JSON in final replies.`,
 };
 
 type UserIntent = 'CHAT' | 'CONNECTOR_STATUS' | 'CONNECTOR_DISCOVERY' | 'CONNECTOR_ACTION' | 'WEB_RESEARCH' | 'CLARIFICATION';
@@ -1824,9 +1968,29 @@ export async function POST(req: NextRequest) {
 
     const focusedCandidateTools = scoredFocusedTools.slice(0, 20);
 
-    const rawTools = focusedCandidateTools.length
-      ? focusedCandidateTools
-      : [...AGENT_TOOLS, ...remoteMcpTools].slice(0, 20);
+    // Discover Claude Desktop Local MCP tools (from %APPDATA%\Claude\claude_desktop_config.json)
+    let claudeDesktopTools: any[] = [];
+    try {
+      const { claudeDesktopMcpManager } = await import('@/lib/claudeDesktopMcp');
+      claudeDesktopTools = await claudeDesktopMcpManager.listAllTools();
+    } catch (e: any) {
+      console.warn('[CLAUDE DESKTOP MCP DISCOVERY ERR]', e?.message);
+    }
+
+    // Unify all tools: Core AGENT_TOOLS (web, browser, email) + Claude Desktop MCPs + Remote MCPs
+    const allToolsMap = new Map<string, any>();
+    for (const tool of AGENT_TOOLS) {
+      allToolsMap.set(tool.function.name, tool);
+    }
+    for (const tool of claudeDesktopTools) {
+      allToolsMap.set(tool.function.name, tool);
+    }
+    for (const tool of (focusedCandidateTools.length ? focusedCandidateTools : remoteMcpTools)) {
+      const name = String(tool.originalName || tool.function?.name || '').trim();
+      allToolsMap.set(name, tool);
+    }
+
+    const rawTools = Array.from(allToolsMap.values()).slice(0, 40);
 
     const effectiveTools = rawTools.map((tool: any) => {
       const orig = String(tool.originalName || tool.function?.name || '').trim();
@@ -2201,50 +2365,9 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // Never allow a connector request to stall behind an LLM prose answer.
-            // Perform the required first Composio meta-tool directly if the model
-            // failed to emit a tool call.
-            if (mcpModeActive && mcpToolCallsMade === 0) {
-              const targetTool = mcpToolNames.find((name) => /SEARCH_TOOLS/i.test(name)) || mcpToolNames[0] || '';
-
-              const autoArgs = {
-                queries: [{
-                  use_case: isAccountQuery
-                    ? 'List all apps, toolkits, and accounts currently connected to this user in Composio. Return only the live connection statuses and active account details; do not search for unrelated application actions.'
-                    : lastText
-                }],
-                session: { generate_id: true },
-                model: 'gpt-5.6',
-              };
-
-              const autoResult = await runAgentTool(targetTool, autoArgs, toolContext);
-              mcpToolCallsMade++;
-
-              if (isAccountQuery) {
-                const formatted = formatConnectorResult(lastText, autoResult);
-                return streamTextDirectly(formatted, detectedSkill, toolContext);
-              }
-
-              fullMessages.push({
-                role: 'system',
-                content:
-                  'COMPOSIO_PREFLIGHT_RESULT (' + targetTool + ') — use this real result to continue the connector request. ' +
-                  'If a session_id is present, reuse that exact session id for subsequent Composio meta-tool calls.\n' +
-                  autoResult,
-              });
-              forceConnectorTool = false;
-              continue;
+            if (contentText) {
+              return streamTextDirectly(contentText, detectedSkill, toolContext);
             }
-
-            mcpNudges++;
-            forceConnectorTool = true;
-            fullMessages.push({
-              role: 'system',
-              content: isAccountQuery
-                ? 'Call COMPOSIO_SEARCH_TOOLS now with a connection-status query. Use its toolkit_connection_statuses result to answer which apps/accounts are connected.'
-                : 'Call the required direct MCP tool now.',
-            });
-            continue;
           }
 
           if (contentText) {

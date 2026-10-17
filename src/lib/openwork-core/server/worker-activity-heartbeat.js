@@ -1,0 +1,132 @@
+import { externalFetch } from "./server-fetch.js";
+import { createWorkspaceOpencodeClient } from "./server.js";
+const DEFAULT_ACTIVITY_WINDOW_MS = 5 * 60_000;
+const DEFAULT_ACTIVITY_HEARTBEAT_INTERVAL_MS = 5 * 60_000;
+function parsePositiveNumberEnv(value, fallback) {
+    const raw = value?.trim();
+    if (!raw)
+        return fallback;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0)
+        return fallback;
+    return parsed;
+}
+function isRecord(value) {
+    return value !== null && typeof value === "object";
+}
+export function parseSessionActivityAt(session) {
+    if (!isRecord(session) || !isRecord(session.time))
+        return null;
+    const updated = session.time.updated;
+    if (typeof updated === "number" && Number.isFinite(updated) && updated > 0)
+        return updated;
+    const created = session.time.created;
+    if (typeof created === "number" && Number.isFinite(created) && created > 0)
+        return created;
+    return null;
+}
+export function resolveWorkerActivityHeartbeatConfig(env = process.env) {
+    const enabled = (env.DEN_ACTIVITY_HEARTBEAT_ENABLED ?? "").trim().toLowerCase();
+    const provider = (env.DEN_RUNTIME_PROVIDER ?? "").trim().toLowerCase();
+    const managed = (env.DEN_RUNTIME_MANAGED ?? "").trim().toLowerCase();
+    const workerId = (env.DEN_WORKER_ID ?? "").trim();
+    const url = (env.DEN_ACTIVITY_HEARTBEAT_URL ?? "").trim();
+    const token = (env.DEN_ACTIVITY_HEARTBEAT_TOKEN ?? "").trim();
+    const featureEnabled = enabled === "1" || enabled === "true" || enabled === "yes";
+    // Den sets DEN_RUNTIME_MANAGED on every instance whose idle lifecycle it owns.
+    // Older Dens only sent the provider name, so that spelling stays accepted.
+    const denManaged = managed === "1" || managed === "true" || managed === "yes" || provider === "daytona";
+    if (!featureEnabled || !denManaged || !workerId || !url || !token) {
+        return {
+            enabled: false,
+            workerId: "",
+            url: "",
+            token: "",
+            intervalMs: DEFAULT_ACTIVITY_HEARTBEAT_INTERVAL_MS,
+            activeWindowMs: DEFAULT_ACTIVITY_WINDOW_MS,
+        };
+    }
+    const intervalSeconds = parsePositiveNumberEnv(env.DEN_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS, DEFAULT_ACTIVITY_HEARTBEAT_INTERVAL_MS / 1000);
+    const activeWindowSeconds = parsePositiveNumberEnv(env.DEN_ACTIVITY_WINDOW_SECONDS, DEFAULT_ACTIVITY_WINDOW_MS / 1000);
+    return {
+        enabled: true,
+        workerId,
+        url,
+        token,
+        intervalMs: Math.round(intervalSeconds * 1000),
+        activeWindowMs: Math.round(activeWindowSeconds * 1000),
+    };
+}
+export function buildWorkerActivityHeartbeatPayload(sessions, now, activeWindowMs) {
+    let latestActivityAt = 0;
+    for (const session of sessions) {
+        const activityAt = parseSessionActivityAt(session);
+        if (activityAt && activityAt > latestActivityAt)
+            latestActivityAt = activityAt;
+    }
+    return {
+        sentAt: new Date(now).toISOString(),
+        isActiveRecently: latestActivityAt > 0 && now - latestActivityAt <= activeWindowMs,
+        lastActivityAt: latestActivityAt > 0 ? new Date(latestActivityAt).toISOString() : null,
+        openSessionCount: sessions.length,
+    };
+}
+export async function postWorkerActivityHeartbeat(input) {
+    if (!input.config.enabled)
+        return null;
+    const payload = buildWorkerActivityHeartbeatPayload(input.sessions, input.now ? input.now() : Date.now(), input.config.activeWindowMs);
+    const response = await (input.fetchImpl ?? externalFetch)(input.config.url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${input.config.token}`,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok)
+        throw new Error(`heartbeat_failed:${response.status}`);
+    return payload;
+}
+async function listOpenSessions(config) {
+    const workspace = config.workspaces[0];
+    if (!workspace)
+        return [];
+    const opencode = createWorkspaceOpencodeClient(config, workspace);
+    const result = await opencode.session.list({ limit: 200 });
+    if (result.data != null)
+        return result.data;
+    if (result.error === undefined)
+        throw new Error("opencode_empty_response");
+    const upstreamStatus = result.response?.status;
+    throw new Error(upstreamStatus === undefined ? "opencode_request_failed" : `opencode_request_failed:${upstreamStatus}`);
+}
+function errorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
+export function startWorkerActivityHeartbeat(config, logger, options) {
+    const heartbeatConfig = resolveWorkerActivityHeartbeatConfig(options?.env);
+    if (!heartbeatConfig.enabled)
+        return null;
+    logger.log("info", "Worker activity heartbeat enabled", {
+        workerId: heartbeatConfig.workerId,
+        intervalMs: heartbeatConfig.intervalMs,
+        activeWindowMs: heartbeatConfig.activeWindowMs,
+    });
+    const listSessions = options?.listSessions ?? (() => listOpenSessions(config));
+    const runHeartbeat = () => {
+        void listSessions()
+            .then((sessions) => postWorkerActivityHeartbeat({
+            config: heartbeatConfig,
+            sessions,
+            fetchImpl: options?.fetchImpl,
+            now: options?.now,
+        }))
+            .catch((error) => {
+            logger.log("warn", "Worker activity heartbeat failed", { error: errorMessage(error) });
+        });
+    };
+    runHeartbeat();
+    const interval = setInterval(runHeartbeat, heartbeatConfig.intervalMs);
+    return { stop: () => clearInterval(interval) };
+}

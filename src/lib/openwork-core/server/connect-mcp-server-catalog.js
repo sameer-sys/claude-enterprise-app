@@ -1,0 +1,352 @@
+import { timeMcpApp } from "@openwork/types/mcp-app-timing";
+import { createHash } from "node:crypto";
+import { z } from "zod";
+import { readMcpResourceText } from "./connect-mcp-transport.js";
+import { readActivatedEnterpriseDenOrigin } from "./enterprise-den-origin.js";
+import { readGlobalRuntimeMcpConfig, readRuntimeMcpConfig, runtimeMcpMap, writeRuntimeOpencodeConfig, } from "./runtime-opencode-config-store.js";
+import { externalFetch } from "./server-fetch.js";
+import { createWorkspaceKvStore } from "./workspace-kv-store.js";
+export const CONNECT_MCP_SERVER_INDEX_URI = "openwork://connect/mcp-servers/index.json";
+export const CONNECT_MCP_SERVER_INDEX_SCHEMA_VERSION = "openwork.connect/mcp-servers/1";
+export const CONNECT_MCP_APP_HOST_NAME_PREFIX = "openwork-app-host-connect-";
+export const CONNECT_MCP_SERVER_NAME_PREFIX = "openwork-connect-";
+/**
+ * Model-facing OpenCode MCP entries for connections an administrator exposed
+ * directly. Distinct from the legacy `openwork-connect-` prefix, which every
+ * projection filter still strips, so a stale legacy row can never resurface.
+ */
+export const CONNECT_DIRECT_MCP_SERVER_NAME_PREFIX = "openwork-direct-";
+export const CONNECT_MCP_APP_HOST_CAPABILITY_HEADER = "x-openwork-mcp-client-capabilities";
+export const CONNECT_MCP_APP_HOST_CAPABILITY = "mcp-app-host-v1";
+const BUILTIN_APP_HOST_CLOUD_ORIGINS = new Set([
+    "https://api.openworklabs.com",
+    "https://app.openworklabs.com",
+    "https://api.openwork.software",
+    "https://app.openwork.software",
+]);
+const BUILTIN_APP_HOST_GATEWAY_PROXY_ORIGINS = new Map([
+    ["https://app.openworklabs.com", "https://api.openworklabs.com"],
+    ["https://app.openwork.software", "https://api.openwork.software"],
+]);
+const indexSchema = z.object({
+    schemaVersion: z.literal(CONNECT_MCP_SERVER_INDEX_SCHEMA_VERSION),
+    servers: z.array(z.object({
+        connectionId: z.string().min(1).max(160),
+        name: z.string().min(1).max(255),
+        description: z.string().max(1_024).nullable(),
+        url: z.string().url().refine((value) => /^https?:\/\//.test(value), "MCP server URL must use HTTP(S)"),
+        exposeDirectly: z.boolean().optional().default(false),
+    })).max(100),
+});
+const appHostCredentialSchema = z.object({
+    authorization: z.string(),
+    origin: z.string().url(),
+});
+const emptyIndex = () => ({
+    schemaVersion: CONNECT_MCP_SERVER_INDEX_SCHEMA_VERSION,
+    servers: [],
+});
+const appHostCatalogStore = createWorkspaceKvStore({
+    tableName: "connect_mcp_app_host_catalogs",
+    valueColumn: "catalog_json",
+    parse: (json) => {
+        try {
+            const parsed = indexSchema.safeParse(JSON.parse(json));
+            return parsed.success ? parsed.data : emptyIndex();
+        }
+        catch {
+            return emptyIndex();
+        }
+    },
+    serialize: (value) => JSON.stringify(value),
+});
+const appHostAuthorizationStore = createWorkspaceKvStore({
+    tableName: "connect_mcp_app_host_authorizations",
+    valueColumn: "authorization_json",
+    parse: (json) => {
+        try {
+            const parsed = appHostCredentialSchema.safeParse(JSON.parse(json));
+            return parsed.success ? parsed.data : null;
+        }
+        catch {
+            return null;
+        }
+    },
+    serialize: (value) => JSON.stringify(value),
+});
+function privateAppHostAuthorization(value) {
+    if (typeof value !== "string")
+        return null;
+    const normalized = value.trim();
+    return normalized.length <= 8_192 && /^Bearer\s+[^\s,]+$/i.test(normalized) ? normalized : null;
+}
+function endpointOrigin(value) {
+    if (typeof value !== "string")
+        return null;
+    try {
+        const endpoint = new URL(value);
+        return endpoint.username || endpoint.password ? null : endpoint.origin;
+    }
+    catch {
+        return null;
+    }
+}
+function normalizeAppHostProxyUrl(cloudMcpUrl, server) {
+    if (typeof cloudMcpUrl !== "string")
+        return null;
+    let cloudEndpoint;
+    let serverEndpoint;
+    try {
+        cloudEndpoint = new URL(cloudMcpUrl);
+        serverEndpoint = new URL(server.url);
+    }
+    catch {
+        return null;
+    }
+    if (cloudEndpoint.username || cloudEndpoint.password || serverEndpoint.username || serverEndpoint.password)
+        return null;
+    if (serverEndpoint.search || serverEndpoint.hash)
+        return null;
+    if (serverEndpoint.origin === cloudEndpoint.origin)
+        return serverEndpoint.toString();
+    // Hosted Desktop talks to Den through the app-origin gateway, while Den's
+    // authenticated member index names its canonical api-origin proxy. Keep the
+    // credential on the configured app origin by translating only this exact,
+    // built-in proxy pair and exact per-connection path. Arbitrary cross-origin
+    // descriptors still fail closed.
+    if (BUILTIN_APP_HOST_GATEWAY_PROXY_ORIGINS.get(cloudEndpoint.origin) !== serverEndpoint.origin)
+        return null;
+    const cloudTerminalPath = "/mcp/agent";
+    if (!cloudEndpoint.pathname.endsWith(cloudTerminalPath) || cloudEndpoint.search || cloudEndpoint.hash)
+        return null;
+    const expectedServerPath = `/mcp/agent/connections/${encodeURIComponent(server.connectionId)}`;
+    if (serverEndpoint.pathname !== expectedServerPath)
+        return null;
+    const gatewayPrefix = cloudEndpoint.pathname.slice(0, -cloudTerminalPath.length);
+    return new URL(`${gatewayPrefix}${serverEndpoint.pathname}`, cloudEndpoint.origin).toString();
+}
+function isLoopbackHostname(hostname) {
+    const value = hostname.toLowerCase();
+    if (value === "localhost" || value === "::1" || value === "[::1]")
+        return true;
+    const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(value);
+    return Boolean(match && Number(match[1]) === 127 && match.slice(1).every((part) => Number(part) <= 255));
+}
+export async function trustedAppHostCloudEndpoint(cloudMcp) {
+    if (typeof cloudMcp.url !== "string")
+        return false;
+    let endpoint;
+    try {
+        endpoint = new URL(cloudMcp.url);
+    }
+    catch {
+        return false;
+    }
+    if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
+        return false;
+    if (BUILTIN_APP_HOST_CLOUD_ORIGINS.has(endpoint.origin))
+        return true;
+    if (process.env.OPENWORK_DEV_MODE === "1" && isLoopbackHostname(endpoint.hostname))
+        return true;
+    const activatedEnterpriseOrigin = await readActivatedEnterpriseDenOrigin();
+    return activatedEnterpriseOrigin !== null && endpoint.origin === activatedEnterpriseOrigin;
+}
+/** Stable private App-host identifier. This must never become an OpenCode MCP key. */
+export function connectMcpAppHostName(connectionId) {
+    const digest = createHash("sha256").update(connectionId).digest("hex").slice(0, 12);
+    return `${CONNECT_MCP_APP_HOST_NAME_PREFIX}${digest}`;
+}
+/**
+ * OpenCode MCP key for a directly exposed connection. The readable slug tells
+ * the model which service it is talking to; the digest keeps two connections
+ * with the same display name apart.
+ */
+export function connectDirectMcpRuntimeName(server) {
+    const slug = server.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    const digest = createHash("sha256").update(server.connectionId).digest("hex").slice(0, 6);
+    return `${CONNECT_DIRECT_MCP_SERVER_NAME_PREFIX}${slug ? `${slug}-` : ""}${digest}`;
+}
+function modelFacingHeaders(cloudMcp) {
+    const headers = cloudMcp.headers;
+    if (typeof headers !== "object" || headers === null || Array.isArray(headers))
+        return null;
+    const entries = Object.entries(headers).filter((entry) => typeof entry[1] === "string");
+    return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+/**
+ * Model-facing runtime entries for the directly exposed connections in an
+ * index. They reuse the ordinary member credential already carried by the
+ * `openwork-cloud` entry; the private App-host credential never leaves the
+ * App host. `oauth: false` matches the `openwork-cloud` entry so an expired
+ * bearer token during rotation yields a plain 401 instead of the engine
+ * starting an interactive OAuth flow. Without a member credential there is
+ * nothing to project.
+ */
+export function directConnectMcpRuntimeEntries(cloudMcp, index) {
+    const headers = modelFacingHeaders(cloudMcp);
+    if (!headers)
+        return {};
+    return Object.fromEntries(index.servers
+        .filter((server) => server.exposeDirectly)
+        .map((server) => [connectDirectMcpRuntimeName(server), {
+            type: "remote",
+            url: server.url,
+            enabled: cloudMcp.enabled !== false,
+            headers,
+            oauth: false,
+        }]));
+}
+export async function readOpenWorkConnectMcpAppHostCatalog(config, workspaceId) {
+    return await timeMcpApp("desktop.connect-catalog-read", () => appHostCatalogStore.get(config, workspaceId)) ?? emptyIndex();
+}
+export async function writeOpenWorkConnectMcpAppHostCatalog(config, workspaceId, catalog) {
+    const parsed = indexSchema.safeParse(catalog);
+    await appHostCatalogStore.set(config, workspaceId, parsed.success ? parsed.data : emptyIndex());
+}
+export async function readOpenWorkConnectMcpAppHostAuthorization(config, workspaceId, endpointUrl, options) {
+    const credential = options?.readOnly
+        ? await appHostAuthorizationStore.getExisting(config, workspaceId)
+        : await appHostAuthorizationStore.get(config, workspaceId);
+    const expectedOrigin = endpointOrigin(endpointUrl);
+    if (!credential || !expectedOrigin || credential.origin !== expectedOrigin)
+        return null;
+    return privateAppHostAuthorization(credential.authorization);
+}
+/**
+ * Local provisioning for the caller's validated effective Cloud config only;
+ * never validates tokens or proves provider availability or access.
+ */
+export async function readOpenWorkConnectMcpAppHostAuthorizationReady(config, workspaceId, cloudMcp) {
+    if (!cloudMcp || cloudMcp.type !== "remote" || cloudMcp.enabled !== true || typeof cloudMcp.url !== "string"
+        || !await trustedAppHostCloudEndpoint(cloudMcp))
+        return null;
+    return await readOpenWorkConnectMcpAppHostAuthorization(config, workspaceId, cloudMcp.url, { readOnly: true }) !== null;
+}
+export async function writeOpenWorkConnectMcpAppHostAuthorization(config, workspaceId, value, sourceUrl) {
+    const authorization = privateAppHostAuthorization(value);
+    const origin = endpointOrigin(sourceUrl);
+    const previous = await appHostAuthorizationStore.getRow(config, workspaceId);
+    if (authorization && origin && previous?.value?.authorization === authorization && previous.value.origin === origin)
+        return;
+    await appHostAuthorizationStore.set(config, workspaceId, authorization && origin ? { authorization, origin } : null, Math.max(Date.now(), (previous?.updatedAt ?? 0) + 1));
+}
+/** Private storage generation, including revoke/re-authorize cycles with the same bearer. */
+export async function readOpenWorkConnectMcpAppHostAuthorizationRevision(config, workspaceId) {
+    return (await appHostAuthorizationStore.getRow(config, workspaceId))?.updatedAt ?? null;
+}
+export async function findOpenWorkConnectMcpAppHostServer(config, workspaceId, reference) {
+    const catalog = await readOpenWorkConnectMcpAppHostCatalog(config, workspaceId);
+    return catalog.servers.find((server) => ((reference.connectionId !== undefined && server.connectionId === reference.connectionId)
+        || (reference.serverName !== undefined && connectMcpAppHostName(server.connectionId) === reference.serverName))) ?? null;
+}
+export async function readOpenWorkConnectMcpServerIndex(cloudMcp, appHostAuthorization, fetcher = externalFetch) {
+    return (await readOpenWorkConnectMcpServerIndexWithDiagnostics(cloudMcp, appHostAuthorization, fetcher)).index;
+}
+export async function readOpenWorkConnectMcpServerIndexWithDiagnostics(cloudMcp, appHostAuthorization, fetcher = externalFetch) {
+    if (!await trustedAppHostCloudEndpoint(cloudMcp))
+        return { index: null, diagnostic: "untrusted_origin" };
+    const authorization = privateAppHostAuthorization(appHostAuthorization);
+    if (!authorization)
+        return { index: null, diagnostic: "missing_app_host_auth" };
+    const text = await timeMcpApp("desktop.connect-index-read", () => readMcpResourceText({
+        config: {
+            ...cloudMcp,
+            headers: {
+                Authorization: authorization,
+                [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
+            },
+        },
+        uri: CONNECT_MCP_SERVER_INDEX_URI,
+        fetcher,
+        clientName: "openwork-server-connect-mcp-catalog",
+    })).catch(() => null);
+    // Transport currently collapses HTTP and protocol failures. Do not guess
+    // that an unavailable discovery response means expired auth or no apps.
+    if (text === null)
+        return { index: null, diagnostic: "discovery_unavailable" };
+    let value;
+    try {
+        value = JSON.parse(text);
+    }
+    catch {
+        return { index: null, diagnostic: "invalid_catalog" };
+    }
+    const parsed = indexSchema.safeParse(value);
+    if (!parsed.success)
+        return { index: null, diagnostic: "invalid_catalog" };
+    const servers = [];
+    for (const server of parsed.data.servers) {
+        const url = normalizeAppHostProxyUrl(cloudMcp.url, server);
+        if (!url)
+            return { index: null, diagnostic: "invalid_proxy_descriptor" };
+        servers.push({ ...server, url });
+    }
+    return { index: { ...parsed.data, servers }, diagnostic: servers.length === 0 ? "empty" : "ready" };
+}
+/**
+ * Refreshes the private App-host catalog when a gateway launch proves the
+ * cached catalog may be stale. Unlike startup reconciliation, an unavailable
+ * opportunistic refresh preserves the last known-good catalog.
+ */
+export async function refreshOpenWorkConnectMcpAppHostCatalog(config, workspaceId, fetcher) {
+    const cloudMcp = await readGlobalRuntimeMcpConfig(config, "openwork-cloud")
+        ?? await readRuntimeMcpConfig(config, workspaceId, "openwork-cloud");
+    if (!cloudMcp) {
+        return { status: "unavailable", appHostNames: [], diagnostic: "discovery_unavailable" };
+    }
+    const appHostAuthorization = await readOpenWorkConnectMcpAppHostAuthorization(config, workspaceId, String(cloudMcp.url));
+    const { index, diagnostic } = await readOpenWorkConnectMcpServerIndexWithDiagnostics(cloudMcp, appHostAuthorization, fetcher);
+    if (!index)
+        return { status: "unavailable", appHostNames: [], diagnostic };
+    await writeOpenWorkConnectMcpAppHostCatalog(config, workspaceId, index);
+    return {
+        status: "synced",
+        diagnostic,
+        appHostNames: index.servers.map((server) => connectMcpAppHostName(server.connectionId)).sort(),
+    };
+}
+/**
+ * Keeps provider descriptors private to the Desktop App host, projects only the
+ * connections an administrator exposed directly into the model-facing runtime,
+ * and removes any legacy OpenWork-owned provider endpoints. User-authored MCP
+ * configurations and durable provider records are untouched.
+ */
+export async function reconcileOpenWorkConnectMcpServers(input) {
+    const trustedCloudEndpoint = await trustedAppHostCloudEndpoint(input.cloudMcp);
+    if (trustedCloudEndpoint && input.appHostAuthorization !== undefined) {
+        await writeOpenWorkConnectMcpAppHostAuthorization(input.config, input.workspace.id, input.appHostAuthorization, String(input.cloudMcp.url));
+    }
+    const appHostAuthorization = trustedCloudEndpoint
+        ? await readOpenWorkConnectMcpAppHostAuthorization(input.config, input.workspace.id, String(input.cloudMcp.url))
+        : null;
+    const { index, diagnostic } = await readOpenWorkConnectMcpServerIndexWithDiagnostics(input.cloudMcp, appHostAuthorization, input.fetcher);
+    const privateCatalog = index ?? emptyIndex();
+    await writeOpenWorkConnectMcpAppHostCatalog(input.config, input.workspace.id, privateCatalog);
+    // Without a fresh index, fail closed: a connection whose direct exposure was
+    // revoked must not linger in the model-facing runtime on a stale catalog.
+    const directEntries = directConnectMcpRuntimeEntries(input.cloudMcp, privateCatalog);
+    let removedNames = [];
+    await writeRuntimeOpencodeConfig(input.config, input.workspace.id, (current) => {
+        const currentMcp = runtimeMcpMap(current);
+        removedNames = Object.keys(currentMcp)
+            .filter((name) => name.startsWith(CONNECT_MCP_SERVER_NAME_PREFIX)
+            || (name.startsWith(CONNECT_DIRECT_MCP_SERVER_NAME_PREFIX) && !Object.hasOwn(directEntries, name)))
+            .sort();
+        return {
+            ...current,
+            mcp: {
+                ...Object.fromEntries(Object.entries(currentMcp)
+                    .filter(([name]) => !name.startsWith(CONNECT_MCP_SERVER_NAME_PREFIX)
+                    && !name.startsWith(CONNECT_DIRECT_MCP_SERVER_NAME_PREFIX))),
+                ...directEntries,
+            },
+        };
+    });
+    return {
+        status: index ? "synced" : "unavailable",
+        diagnostic,
+        appHostNames: privateCatalog.servers.map((server) => connectMcpAppHostName(server.connectionId)).sort(),
+        directNames: Object.keys(directEntries).sort(),
+        removedNames,
+    };
+}
